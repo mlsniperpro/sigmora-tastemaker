@@ -1,5 +1,5 @@
-import { describe, expect } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { Brief } from "@/lib/agent/brief";
 import { briefFromForm } from "@/lib/agent/briefForm";
 import { FOLD_RADIUS_KM, foldHeatmap, haversineKm, topCells } from "@/lib/agent/cities";
@@ -19,7 +19,7 @@ describe("signals", () => {
     expect(signalAges(["25_to_29", "30_to_34", "35_to_44"])).toEqual(["35_and_younger", "36_to_55"]);
     expect(signalAges(["55_and_older"])).toEqual(["55_and_older"]);
   });
-  it.prop([fc.subarray([...AGE_BUCKETS])])("signal buckets are unique and known", (ages) => {
+  test.prop([fc.subarray([...AGE_BUCKETS])])("signal buckets are unique and known", (ages) => {
     const out = signalAges(ages);
     expect(new Set(out).size).toBe(out.length);
     out.forEach((b) => expect(["35_and_younger", "36_to_55", "55_and_older"]).toContain(b));
@@ -50,14 +50,14 @@ describe("seed links", () => {
   it("ignores look-alike hosts (links are parsed, never fetched)", () => {
     expect(parseSeedLinks(["https://evil.example/open.spotify.com/artist/0123456789abcdef", "http://open.spotify.com/artist/0123456789abcdef", "https://imdb.com.evil.example/title/tt1234567"])).toEqual({ spotify: [], imdb: [] });
   });
-  it.prop([fc.array(fc.webUrl(), { maxLength: 5 })])("never throws on arbitrary URLs", (urls) => {
+  test.prop([fc.array(fc.webUrl(), { maxLength: 5 })])("never throws on arbitrary URLs", (urls) => {
     expect(() => parseSeedLinks(urls)).not.toThrow();
   });
 });
 
 describe("cities", () => {
   const point = fc.record({ lat: fc.double({ min: -80, max: 80, noNaN: true }), lon: fc.double({ min: -179, max: 179, noNaN: true }) });
-  it.prop([point, point])("haversine is symmetric, non-negative and zero on itself", (a, b) => {
+  test.prop([point, point])("haversine is symmetric, non-negative and zero on itself", (a, b) => {
     expect(haversineKm(a, b)).toBeCloseTo(haversineKm(b, a), 6);
     expect(haversineKm(a, b)).toBeGreaterThanOrEqual(0);
     expect(haversineKm(a, a)).toBeCloseTo(0, 6);
@@ -67,7 +67,7 @@ describe("cities", () => {
     expect(haversineKm({ lat: 33.75, lon: -84.39 }, { lat: 29.76, lon: -95.37 })).toBeLessThan(1200);
   });
   const cell = fc.record({ lat: fc.double({ min: 25, max: 49, noNaN: true }), lon: fc.double({ min: -124, max: -67, noNaN: true }), affinity: fc.double({ min: 0, max: 1, noNaN: true }) });
-  it.prop([fc.array(cell, { maxLength: 200 })])("folded city affinity is the mean of nearby cells, within their range", (cells) => {
+  test.prop([fc.array(cell, { maxLength: 200 })])("folded city affinity is the mean of nearby cells, within their range", (cells) => {
     const city = { name: "C", affinity: 0, lat: 35, lon: -95 };
     const [folded] = foldHeatmap([city], cells);
     const near = cells.filter((c) => haversineKm(city, c) <= FOLD_RADIUS_KM);
@@ -80,7 +80,7 @@ describe("cities", () => {
   it("skips cities without coordinates", () => {
     expect(foldHeatmap([{ name: "X", affinity: 0 }], [{ lat: 0, lon: 0, affinity: 1 }])).toEqual([]);
   });
-  it.prop([fc.array(cell, { maxLength: 600 }), fc.integer({ min: 0, max: 500 })])("topCells is bounded and sorted by affinity", (cells, max) => {
+  test.prop([fc.array(cell, { maxLength: 600 }), fc.integer({ min: 0, max: 500 })])("topCells is bounded and sorted by affinity", (cells, max) => {
     const out = topCells(cells, max);
     expect(out.length).toBe(Math.min(max, cells.length));
     for (const [i, c] of out.entries()) if (i) expect(must(out[i - 1]).affinity).toBeGreaterThanOrEqual(c.affinity);
@@ -101,10 +101,10 @@ describe("permalinks", () => {
     ages: fc.uniqueArray(fc.constantFrom(...AGE_BUCKETS), { minLength: 1, maxLength: 6 }),
     goal: fc.string({ minLength: 1, maxLength: 200 }),
   });
-  it.prop([briefArb])("round-trips any valid brief, including non-ASCII text", (b) => {
+  test.prop([briefArb])("round-trips any valid brief, including non-ASCII text", (b) => {
     expect(decodeBrief(encodeBrief(b))).toEqual(Brief.parse(b));
   });
-  it.prop([fc.string()])("returns undefined for junk instead of throwing", (s) => {
+  test.prop([fc.string()])("returns undefined for junk instead of throwing", (s) => {
     const r = decodeBrief(s);
     expect(r === undefined || Brief.safeParse(r).success).toBe(true);
   });
@@ -124,14 +124,14 @@ describe("permalinks", () => {
     expect(measureFromUrl(new URLSearchParams("measure=c_9-x"))).toBe("c_9-x");
     for (const bad of ["", "measure=", "measure=../x", "measure=a%20b", `measure=${"x".repeat(81)}`]) expect(measureFromUrl(new URLSearchParams(bad)), bad).toBeUndefined();
   });
-  it.prop([fc.string(), fc.string()])("always yields a runnable request", (b, preset) => {
+  test.prop([fc.string(), fc.string()])("always yields a runnable request", (b, preset) => {
     const r = requestFromUrl(new URLSearchParams({ b, preset }));
     expect("brief" in r ? Brief.safeParse(r.brief).success : PRESETS.some((p) => p.id === r.preset)).toBe(true);
   });
 });
 
 describe("NdjsonParser", () => {
-  it.prop([fc.array(fc.jsonValue(), { maxLength: 20 }), fc.array(fc.nat(), { maxLength: 10 })])("yields the same values however the stream is chunked", (values, cuts) => {
+  test.prop([fc.array(fc.jsonValue(), { maxLength: 20 }), fc.array(fc.nat(), { maxLength: 10 })])("yields the same values however the stream is chunked", (values, cuts) => {
     const text = values.map((v) => JSON.stringify(v) + "\n").join("");
     const points = [...new Set(cuts.map((c) => c % (text.length + 1)))].sort((a, b) => a - b);
     const p = new NdjsonParser<unknown>();
@@ -164,7 +164,7 @@ describe("briefFromForm", () => {
 });
 
 describe("schedule", () => {
-  it.prop([fc.array(fc.record({ platform: fc.string({ maxLength: 10 }), text: fc.string({ maxLength: 10 }) }), { minLength: 1, maxLength: 8 }), fc.date({ min: new Date("2020-01-01"), max: new Date("2030-01-01"), noInvalidDate: true })])(
+  test.prop([fc.array(fc.record({ platform: fc.string({ maxLength: 10 }), text: fc.string({ maxLength: 10 }) }), { minLength: 1, maxLength: 8 }), fc.date({ min: new Date("2020-01-01"), max: new Date("2030-01-01"), noInvalidDate: true })])(
     "one post a day at 17:00 UTC, strictly after now, in order",
     (posts, now) => {
       const s = schedule({ posts }, now);

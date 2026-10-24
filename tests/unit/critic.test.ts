@@ -1,5 +1,5 @@
-import { describe, expect } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { ROLE_SPEC, ROLES } from "@/lib/agent/brief";
 import { DEFAULT_CRITIC, isFading, makeCtx, type Audience, type Ctx, type RankedCandidate } from "@/lib/agent/context";
 import { chooseReplacements, critique, metricsOf, thresholdFor } from "@/lib/agent/critic";
@@ -29,13 +29,13 @@ describe("ROLE_SPEC", () => {
 });
 
 describe("thresholdFor", () => {
-  it.prop([fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 1, maxLength: 12 })])("median bar: max(floor, ratio × median), never above the best candidate unless the floor is", (affs) => {
+  test.prop([fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 1, maxLength: 12 })])("median bar: max(floor, ratio × median), never above the best candidate unless the floor is", (affs) => {
     const ctx = ctxWith({ collab: affs.map((a, i) => cand(`a${i}`, a)) });
     const t = thresholdFor(ctx, "collab");
     expect(t).toBeGreaterThanOrEqual(DEFAULT_CRITIC.minAffinity - 0.0005);
     expect(t).toBeLessThanOrEqual(Math.max(DEFAULT_CRITIC.minAffinity, Math.max(...affs)) + 0.0005);
   });
-  it.prop([fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 1, maxLength: 14 })])("top-3 bar (cities): the third-best candidate, or the last when fewer", (affs) => {
+  test.prop([fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 1, maxLength: 14 })])("top-3 bar (cities): the third-best candidate, or the last when fewer", (affs) => {
     const ctx = ctxWith({ city: affs.map((a, i) => cand(`c${i}`, a, "locality")) });
     const sorted = [...affs].sort((a, b) => b - a);
     expect(thresholdFor(ctx, "city")).toBe(sorted[Math.min(2, sorted.length - 1)]);
@@ -47,7 +47,7 @@ describe("thresholdFor", () => {
 
 describe("metricsOf", () => {
   const verdict = fc.constantFrom<Verdict>("pass", "miss", "hallucination", "fading");
-  it.prop([fc.array(verdict, { maxLength: 30 })])("counts add up and the miss rate is in [0, 1]", (vs) => {
+  test.prop([fc.array(verdict, { maxLength: 30 })])("counts add up and the miss rate is in [0, 1]", (vs) => {
     const m = metricsOf(vs.map((v, i) => receipt(`n${i}`, v)));
     expect(m.picks).toBe(vs.length);
     expect(m.hallucinations + m.misses + m.fading).toBe(vs.filter((v) => v !== "pass").length);
@@ -85,7 +85,7 @@ describe("chooseReplacements", () => {
     expect(chooseReplacements(ctx, picksOf(["Ed Sheeran"]), [receipt("Ed Sheeran", "miss")], tried)).toEqual([]);
   });
 
-  it.prop([fc.uniqueArray(fc.stringMatching(/^[A-Z][a-z]{2,7}$/), { minLength: 2, maxLength: 12, selector: (s) => s.toLowerCase() }), fc.array(fc.boolean(), { minLength: 12, maxLength: 12 })])(
+  test.prop([fc.uniqueArray(fc.stringMatching(/^[A-Z][a-z]{2,7}$/), { minLength: 2, maxLength: 12, selector: (s) => s.toLowerCase() }), fc.array(fc.boolean(), { minLength: 12, maxLength: 12 })])(
     "never proposes a name already in the plan, already tried, or twice",
     (names, failing) => {
       const inPlan = names.slice(0, Math.ceil(names.length / 2));

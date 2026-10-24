@@ -1,5 +1,5 @@
-import { describe, expect, vi } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, vi, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { DEFAULT_RETRY, HttpError, TimeoutError, backoffMs, ensureOk, fetchWithTimeout, isRetryable, joinUrl, parseRetryAfter, withRetry, type RetryPolicy } from "@/lib/net";
 
 const noSleep: RetryPolicy = { ...DEFAULT_RETRY, sleep: async () => undefined };
@@ -19,7 +19,7 @@ describe("isRetryable", () => {
 });
 
 describe("backoffMs", () => {
-  it.prop([fc.nat(20), fc.integer({ min: 1, max: 5000 }), fc.integer({ min: 1, max: 60000 }), fc.double({ min: 0, max: 0.999999, noNaN: true })])(
+  test.prop([fc.nat(20), fc.integer({ min: 1, max: 5000 }), fc.integer({ min: 1, max: 60000 }), fc.double({ min: 0, max: 0.999999, noNaN: true })])(
     "full jitter stays within [0, min(max, base·2^n)]",
     (attempt, baseMs, maxMs, r) => {
       const ms = backoffMs(attempt, { retries: 3, baseMs, maxMs, random: () => r }, undefined);
@@ -27,7 +27,7 @@ describe("backoffMs", () => {
       expect(ms).toBeLessThanOrEqual(Math.min(maxMs, baseMs * 2 ** attempt));
     },
   );
-  it.prop([fc.nat(10), fc.integer({ min: -1000, max: 100000 })])("honours Retry-After, clamped to [0, maxMs]", (attempt, retryAfter) => {
+  test.prop([fc.nat(10), fc.integer({ min: -1000, max: 100000 })])("honours Retry-After, clamped to [0, maxMs]", (attempt, retryAfter) => {
     const ms = backoffMs(attempt, { retries: 3, baseMs: 100, maxMs: 4000 }, retryAfter);
     expect(ms).toBe(Math.min(4000, Math.max(0, retryAfter)));
   });
@@ -40,14 +40,14 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter("Sat, 24 Oct 2026 10:00:05 GMT", now)).toBe(5000);
     expect(parseRetryAfter("Sat, 24 Oct 2026 09:00:00 GMT", now)).toBe(0);
   });
-  it.prop([fc.option(fc.string(), { nil: null })])("never throws and never returns a negative or NaN", (h) => {
+  test.prop([fc.option(fc.string(), { nil: null })])("never throws and never returns a negative or NaN", (h) => {
     const v = parseRetryAfter(h);
     expect(v === undefined || (Number.isFinite(v) && v >= 0)).toBe(true);
   });
 });
 
 describe("withRetry", () => {
-  it.prop([fc.nat(4), fc.nat(6)])("makes at most retries+1 attempts and succeeds once failures run out", async (retries, failures) => {
+  test.prop([fc.nat(4), fc.nat(6)])("makes at most retries+1 attempts and succeeds once failures run out", async (retries, failures) => {
     let calls = 0;
     const run = withRetry(async () => {
       calls++;
@@ -120,7 +120,7 @@ describe("fetchWithTimeout / ensureOk", () => {
 });
 
 describe("joinUrl", () => {
-  it.prop([fc.webUrl({ withQueryParameters: false, withFragments: false }), fc.stringMatching(/^\/[a-z/]{0,20}$/), fc.nat(3)])("joins with exactly one slash however many the base ends with", (base, path, slashes) => {
+  test.prop([fc.webUrl({ withQueryParameters: false, withFragments: false }), fc.stringMatching(/^\/[a-z/]{0,20}$/), fc.nat(3)])("joins with exactly one slash however many the base ends with", (base, path, slashes) => {
     const trimmed = base.replace(/\/+$/, "");
     expect(joinUrl(trimmed + "/".repeat(slashes), path)).toBe(trimmed + path);
   });

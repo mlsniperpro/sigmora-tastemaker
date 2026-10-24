@@ -1,5 +1,5 @@
-import { describe, expect, vi } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, vi, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { KvRest } from "@/lib/kv";
 import { KvCache, LayeredCache, MemoryCache } from "@/lib/qloo/cache";
 import { sentJson } from "../must";
@@ -24,7 +24,7 @@ describe("MemoryCache", () => {
     expect(await c.get("b")).toBeUndefined();
   });
 
-  it.prop([fc.array(fc.tuple(fc.string({ maxLength: 4 }), fc.integer()), { maxLength: 200 }), fc.integer({ min: 1, max: 30 })])("never holds more than its bound and returns the latest write", async (writes, max) => {
+  test.prop([fc.array(fc.tuple(fc.string({ maxLength: 4 }), fc.integer()), { maxLength: 200 }), fc.integer({ min: 1, max: 30 })])("never holds more than its bound and returns the latest write", async (writes, max) => {
     const c = new MemoryCache(max);
     const last = new Map<string, number>();
     for (const [k, v] of writes) {

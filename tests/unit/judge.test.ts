@@ -1,5 +1,5 @@
-import { describe, expect, vi } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, vi, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { renderReport, summarize, totals, type BenchRow } from "@/lib/benchmark/aggregate";
@@ -59,16 +59,16 @@ describe("blinding", () => {
 describe("position-bias handling", () => {
   const side = fc.constantFrom<Side>("grounded", "baseline");
   const winner = fc.constantFrom<"1" | "2" | "tie">("1", "2", "tie");
-  it.prop([winner, side])("maps a slot verdict back to the side shown there", (w, first) => {
+  test.prop([winner, side])("maps a slot verdict back to the side shown there", (w, first) => {
     const o = sideOf(w, first);
     if (w === "tie") expect(o).toBe("tie");
     else expect(o === first).toBe(w === "1");
   });
-  it.prop([fc.constantFrom<Outcome>("grounded", "baseline", "tie"), fc.constantFrom<Outcome>("grounded", "baseline", "tie")])("combining is symmetric and only agreement wins", (a, b) => {
+  test.prop([fc.constantFrom<Outcome>("grounded", "baseline", "tie"), fc.constantFrom<Outcome>("grounded", "baseline", "tie")])("combining is symmetric and only agreement wins", (a, b) => {
     expect(combine(a, b)).toEqual(combine(b, a));
     expect(combine(a, b).final).toBe(a === b ? a : "tie");
   });
-  it.prop([fc.string()])("the seeded order is reproducible and in [0, 1)", (seed) => {
+  test.prop([fc.string()])("the seeded order is reproducible and in [0, 1)", (seed) => {
     const a = seededRandom(seed);
     const b = seededRandom(seed);
     for (let i = 0; i < 5; i++) {
@@ -129,7 +129,7 @@ describe("ReplayChat", () => {
     expect(offline.replayed).toBe(1);
     await expect(offline.complete("sys", "other")).rejects.toBeInstanceOf(NoRecordingError);
   });
-  it.prop([fc.string(), fc.string(), fc.string(), fc.string()])("keys differ when any of model / system / user differ", (m, s, u, x) => {
+  test.prop([fc.string(), fc.string(), fc.string(), fc.string()])("keys differ when any of model / system / user differ", (m, s, u, x) => {
     fc.pre(x !== u);
     expect(completionKey(m, s, u)).not.toBe(completionKey(m, s, x));
     expect(completionKey(m, s, u)).toMatch(/^[0-9a-f]{64}$/);
@@ -161,7 +161,7 @@ describe("summaries and the report", () => {
   const m = (picks: number, hallucinations: number, misses: number) => ({ picks, hallucinations, misses, fading: 0, cultureMissRate: 0 });
   const rowOf = (family: BenchRow["family"], sources = ["live"]): BenchRow => ({ subject: "s", family, grounded: m(10, 0, 1), baseline: m(10, 2, 5), sources, fallbacks: 0, qlooCalls: 50 });
 
-  it.prop([fc.array(fc.record({ picks: fc.nat(30), hallucinations: fc.nat(10), misses: fc.nat(10), fading: fc.nat(5), cultureMissRate: fc.constant(0) }), { maxLength: 30 })])("totals add up and rates stay in [0, 1] when counts fit", (ms) => {
+  test.prop([fc.array(fc.record({ picks: fc.nat(30), hallucinations: fc.nat(10), misses: fc.nat(10), fading: fc.nat(5), cultureMissRate: fc.constant(0) }), { maxLength: 30 })])("totals add up and rates stay in [0, 1] when counts fit", (ms) => {
     fc.pre(ms.every((x) => x.hallucinations + x.misses + x.fading <= x.picks));
     const t = totals(ms);
     expect(t.picks).toBe(ms.reduce((a, x) => a + x.picks, 0));

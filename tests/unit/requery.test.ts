@@ -1,5 +1,5 @@
-import { describe, expect } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { MIN_IMPRESSIONS, requeryBrief, type PostPerformance } from "@/lib/agent/requery";
@@ -62,7 +62,7 @@ describe("requeryBrief", () => {
   });
 
   const rates = fc.record({ TikTok: fc.double({ min: 0, max: 1, noNaN: true }), X: fc.double({ min: 0, max: 1, noNaN: true }), "Instagram Reels": fc.double({ min: 0, max: 1, noNaN: true }) });
-  it.prop([rates])("winners are verified picks above the median, and the brief stays valid", (r) => {
+  test.prop([rates])("winners are verified picks above the median, and the brief stays valid", (r) => {
     const out = requeryBrief(RUN, perf(r));
     if (!out.ok) return;
     for (const w of out.winners) {

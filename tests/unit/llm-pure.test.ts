@@ -1,5 +1,5 @@
-import { describe, expect } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { PICK_TYPES, ROLES } from "@/lib/agent/brief";
 import { LLMOutputError, coerceDraft, extractJson, normalizeRole, normalizeType } from "@/lib/llm/coerce";
 import { Draft, applyReplacements } from "@/lib/llm/types";
@@ -42,7 +42,7 @@ describe("coerceDraft", () => {
     expect(() => coerceDraft(null)).toThrow(LLMOutputError);
   });
 
-  it.prop([fc.anything()])("either returns a valid Draft or throws LLMOutputError, for any input", (raw) => {
+  test.prop([fc.anything()])("either returns a valid Draft or throws LLMOutputError, for any input", (raw) => {
     try {
       expect(Draft.safeParse(coerceDraft(raw)).success).toBe(true);
     } catch (err) {
@@ -50,7 +50,7 @@ describe("coerceDraft", () => {
     }
   });
 
-  it.prop([fc.constantFrom(...PICK_TYPES), fc.constantFrom(...ROLES)])("normalizes canonical names to themselves", (t, r) => {
+  test.prop([fc.constantFrom(...PICK_TYPES), fc.constantFrom(...ROLES)])("normalizes canonical names to themselves", (t, r) => {
     expect(normalizeType(t)).toBe(t);
     expect(normalizeRole(r)).toBe(r);
   });
@@ -106,7 +106,7 @@ describe("applyReplacements", () => {
     expect(r.picks[0]).toEqual({ name: "Apple Music", type: "brand", role: "sponsor", rationale: "Qloo" });
   });
 
-  it.prop([fc.stringMatching(/^[A-Z][a-z]{2,8}$/), fc.stringMatching(/^[A-Z][a-z]{2,8}$/), fc.array(fc.stringMatching(/^[a-z ]{0,12}$/), { maxLength: 4 })])(
+  test.prop([fc.stringMatching(/^[A-Z][a-z]{2,8}$/), fc.stringMatching(/^[A-Z][a-z]{2,8}$/), fc.array(fc.stringMatching(/^[a-z ]{0,12}$/), { maxLength: 4 })])(
     "after replacing X with Y, X no longer appears as a whole word",
     (x, y, filler) => {
       fc.pre(x !== y && !y.includes(x));

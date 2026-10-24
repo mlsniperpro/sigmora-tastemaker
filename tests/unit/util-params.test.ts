@@ -1,22 +1,22 @@
-import { describe, expect } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { hashId, median, normName, sameName } from "@/lib/agent/util";
 import { QlooParamError, assertParams, checkParams, requestKey } from "@/lib/qloo/params";
 
 const name = fc.string({ minLength: 1, maxLength: 40 });
 
 describe("names", () => {
-  it.prop([fc.string({ maxLength: 60 })])("normName is idempotent", (s) => {
+  test.prop([fc.string({ maxLength: 60 })])("normName is idempotent", (s) => {
     expect(normName(normName(s))).toBe(normName(s));
   });
-  it.prop([name])("sameName is reflexive for any name that normalizes to something", (s) => {
+  test.prop([name])("sameName is reflexive for any name that normalizes to something", (s) => {
     fc.pre(normName(s).length > 0);
     expect(sameName(s, s)).toBe(true);
   });
-  it.prop([name, name])("sameName is symmetric", (a, b) => {
+  test.prop([name, name])("sameName is symmetric", (a, b) => {
     expect(sameName(a, b)).toBe(sameName(b, a));
   });
-  it.prop([name])("ignores case, punctuation and a leading 'The'", (s) => {
+  test.prop([name])("ignores case, punctuation and a leading 'The'", (s) => {
     fc.pre(normName(s).length > 0);
     expect(sameName(s.toUpperCase(), `The ${s.toLowerCase()}!`)).toBe(sameName(s, s));
   });
@@ -29,7 +29,7 @@ describe("names", () => {
 });
 
 describe("median", () => {
-  it.prop([fc.array(fc.double({ noNaN: true, min: -1e6, max: 1e6 }), { minLength: 1, maxLength: 50 })])("lies between min and max and ignores order", (xs) => {
+  test.prop([fc.array(fc.double({ noNaN: true, min: -1e6, max: 1e6 }), { minLength: 1, maxLength: 50 })])("lies between min and max and ignores order", (xs) => {
     const m = median(xs);
     expect(m).toBeGreaterThanOrEqual(Math.min(...xs));
     expect(m).toBeLessThanOrEqual(Math.max(...xs));
@@ -41,7 +41,7 @@ describe("median", () => {
 });
 
 describe("hashId", () => {
-  it.prop([fc.string()])("is deterministic, short and URL-safe", (s) => {
+  test.prop([fc.string()])("is deterministic, short and URL-safe", (s) => {
     const h = hashId(s);
     expect(hashId(s)).toBe(h);
     expect(h).toMatch(/^[a-z0-9]{1,12}$/);
@@ -53,7 +53,7 @@ describe("requestKey", () => {
     fc.stringMatching(/^[a-z][a-z.]{0,20}$/),
     fc.oneof(fc.string({ maxLength: 10 }), fc.integer(), fc.boolean(), fc.array(fc.string({ maxLength: 5 }), { maxLength: 3 }), fc.constant(undefined)),
   );
-  it.prop([params])("ignores key order and undefined values", (p) => {
+  test.prop([params])("ignores key order and undefined values", (p) => {
     const shuffled = Object.fromEntries(Object.entries(p).reverse());
     const defined = Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined));
     expect(requestKey("/v2/insights", shuffled)).toBe(requestKey("/v2/insights", p));
@@ -65,7 +65,7 @@ describe("requestKey", () => {
 });
 
 describe("checkParams", () => {
-  it.prop([fc.dictionary(fc.string({ maxLength: 30 }), fc.string({ maxLength: 10 }))])("never throws, whatever the params", (p) => {
+  test.prop([fc.dictionary(fc.string({ maxLength: 30 }), fc.string({ maxLength: 10 }))])("never throws, whatever the params", (p) => {
     expect(() => checkParams("/v2/insights", { "filter.type": "urn:entity:artist", ...p })).not.toThrow();
   });
   it("accepts every param the agent sends", () => {

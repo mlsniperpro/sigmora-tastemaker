@@ -1,5 +1,5 @@
-import { describe, expect, vi } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, vi, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { ConfigError, loadConfig } from "@/lib/config";
 import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
@@ -16,7 +16,7 @@ describe("MemoryCounter", () => {
     expect(await c.incr("k", 60)).toBe(1);
   });
 
-  it.prop([fc.array(fc.string({ maxLength: 6 }), { maxLength: 300 })])("stays within its size bound", async (keys) => {
+  test.prop([fc.array(fc.string({ maxLength: 6 }), { maxLength: 300 })])("stays within its size bound", async (keys) => {
     const c = new MemoryCounter(50);
     for (const k of keys) await c.incr(k, 60);
     expect(c.size).toBeLessThanOrEqual(50);

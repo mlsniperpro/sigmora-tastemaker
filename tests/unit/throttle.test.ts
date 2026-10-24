@@ -1,5 +1,5 @@
-import { describe, expect } from "vitest";
-import { fc, it } from "@fast-check/vitest";
+import { describe, it, expect } from "vitest";
+import { fc, test } from "@fast-check/vitest";
 import { Throttle } from "@/lib/qloo/throttle";
 
 /** A fake clock: sleeping advances time instantly. */
@@ -9,7 +9,7 @@ function clock() {
 }
 
 describe("Throttle", () => {
-  it.prop([fc.integer({ min: 1, max: 6 }), fc.array(fc.integer({ min: 0, max: 3 }), { minLength: 1, maxLength: 25 })])(
+  test.prop([fc.integer({ min: 1, max: 6 }), fc.array(fc.integer({ min: 0, max: 3 }), { minLength: 1, maxLength: 25 })])(
     "never runs more than maxConcurrent tasks at once",
     async (maxConcurrent, delays) => {
       const c = clock();
@@ -31,7 +31,7 @@ describe("Throttle", () => {
     },
   );
 
-  it.prop([fc.integer({ min: 1, max: 10 }), fc.integer({ min: 1, max: 40 })])("starts at most perSecond·elapsed + burst calls", async (perSecond, n) => {
+  test.prop([fc.integer({ min: 1, max: 10 }), fc.integer({ min: 1, max: 40 })])("starts at most perSecond·elapsed + burst calls", async (perSecond, n) => {
     const c = clock();
     const th = new Throttle(perSecond, 100, c.now, c.sleep);
     for (let i = 0; i < n; i++) await th.run(async () => undefined);
