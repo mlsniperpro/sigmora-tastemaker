@@ -12,6 +12,8 @@ A **Without Qloo** toggle shows the plan the same model writes with no Qloo acce
 
 ![Tastemaker: agent trace, Taste Map and campaign pack with receipts](docs/screenshots/desktop.png)
 
+_Screenshot from an offline run (`pnpm screenshots`): the banner says the Qloo data is simulated, and the scoreboard leaves its rates blank, as it does on any simulated or scripted run._
+
 ## Why it matters
 
 An audience-research brief from an agency takes weeks. Tastemaker produces a checked launch plan (audience, city, references, assets, schedule) in one run, and shows you which of the AI's picks were wrong. LLM marketing agents *hallucinate culture*: they confidently pick artists, shows, brands and places an audience doesn't actually love, and sometimes ones that don't exist. Tastemaker measures that miss rate on every run and fixes it before anything ships.
@@ -41,7 +43,11 @@ resolve seeds ─► who over-indexes ─► taste vocabulary ─► cross-domai
          check venues are in the launch city, check hook references aren't fading
       ─► replace failures with Qloo-preferred picks ─► LLM revises ─► critic again (≤ 2 rounds)
       ─► pack with receipts ─► Ship (Sigmora /v1, sandbox on the public demo)
+      ─► measure ─► re-query: picks named in the posts that beat the median engagement
+         rate become the next run's seeds (signal.interests.entities)
 ```
+
+Discovery leans toward what's rising (`bias.trends` on artist, TV, film and podcast candidates) and spreads brand and venue candidates across subtypes (`diversify.by=subtype`). Trend-biased pools are re-scored with plain affinity, so the critic's pass bar and the pick scores are on the same scale, and scoring calls never carry either parameter.
 
 The same model also drafts with no Qloo context; the critic audits that plan without fixing it, which powers the Without Qloo view and the Culture Miss Rate.
 
@@ -85,6 +91,7 @@ pnpm install
 pnpm dev            # http://localhost:3000, runs fully offline
 pnpm demo           # the hero preset end to end in the terminal
 pnpm test           # unit (incl. property-based with fast-check), integration, and end-to-end (stubbed live + record/replay)
+pnpm test:e2e       # real Chromium at 390 px against `next dev`, no credentials (Playwright)
 ```
 
 With no keys, Qloo answers come from an **offline simulator** (placeholder numbers in Qloo's response shapes, labeled "simulated" everywhere) and drafts come from a **scripted model**. Add keys in `.env.local` (see [.env.example](.env.example)):
@@ -96,8 +103,16 @@ With no keys, Qloo answers come from an **offline simulator** (placeholder numbe
 | `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL`, `SIGMORA_API_TOKEN` | Ship to real channels through Sigmora `/v1` (sandbox otherwise) |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache and rate-limit/budget counters (per instance otherwise) |
 | `QLOO_RUN_CALL_CAP`, `QLOO_DAILY_CALL_CAP`, `RATE_LIMIT_PER_MINUTE`, `RUN_DAILY_CAP` | Budgets and abuse limits; defaults in [.env.example](.env.example) |
+| `QLOO_BIAS_TRENDS` | `bias.trends` on artist / TV / movie / podcast discovery (`medium` by default, `off` to stop sending it) |
+| `JUDGE_PROVIDER`, `JUDGE_MODEL`, `JUDGE_API_KEY`, `JUDGE_BASE_URL` | The benchmark's blind pairwise judge (falls back to `LLM_*`; a different vendor avoids self-preference) |
 
-Scripts: `pnpm fixtures:record` records live Qloo responses for every preset; `pnpm benchmark` runs the 30-brief Culture Miss Rate benchmark and writes [docs/benchmark.md](docs/benchmark.md); `pnpm video <url>` records the captioned judge-path walkthrough (needs Playwright + Chromium).
+Scripts:
+- `pnpm fixtures:record` records live Qloo responses for every preset.
+- `pnpm benchmark` runs the 30-brief Culture Miss Rate benchmark plus the blind pairwise LLM judge, and writes [docs/benchmark.md](docs/benchmark.md). It shows numbers only for a valid live measurement; raw runs go to the gitignored `benchmark/runs/`.
+- `pnpm screenshots <url>` retakes `docs/screenshots/`.
+- `pnpm video <url>` records the captioned judge-path walkthrough.
+
+Playwright's Chromium: `pnpm exec playwright install chromium`, or point `PLAYWRIGHT_CHROMIUM_PATH` at an existing one.
 
 ## Repo map
 
@@ -105,13 +120,16 @@ Scripts: `pnpm fixtures:record` records live Qloo responses for every preset; `p
 src/lib/net.ts      typed HTTP errors, timeouts, bounded retries with backoff
 src/lib/config.ts   validated env (the only place secrets are read)
 src/lib/qloo/       typed client (live / replay / simulated), param validation, throttle, cache, simulator
-src/lib/llm/        LLM providers (scripted, OpenAI-compatible, Anthropic) and output coercion
+src/lib/llm/        LLM providers (scripted, OpenAI-compatible, Anthropic), chat transport with record/replay, output coercion
+src/lib/benchmark/  blind pairwise judge and benchmark aggregation (pure; scripts/benchmark.ts does the I/O)
 src/lib/agent/      brief, presets, run loop, context, critic, cities, run cache, taste check
 src/lib/publisher/  Ship: sandbox publisher and the Sigmora /v1 client
 src/lib/mcp.ts      MCP tools: taste_check, plan_campaign
 src/app/api/        POST /api/run (NDJSON stream of trace steps + result), POST /api/ship, POST /api/mcp
 src/components/     the one-page UI
-benchmark/, scripts/  benchmark briefs, benchmark runner, fixture recorder, terminal demo
+benchmark/, scripts/  benchmark briefs, benchmark runner, fixture recorder, terminal demo, screenshots, video
+tests/              vitest: unit, property, integration, stubbed-live end to end
+e2e/                Playwright: the judge path in a real browser at 390 px
 ```
 
 ## Docs

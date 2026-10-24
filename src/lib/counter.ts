@@ -19,7 +19,7 @@ export class MemoryCounter implements Counter {
     private readonly now: () => number = Date.now,
   ) {}
 
-  async incr(key: string, ttlSeconds: number) {
+  incr(key: string, ttlSeconds: number) {
     const t = this.now();
     const cur = this.map.get(key);
     const entry = cur && cur.expires > t ? cur : { n: 0, expires: t + ttlSeconds * 1000 };
@@ -33,7 +33,7 @@ export class MemoryCounter implements Counter {
         this.map.delete(k);
       }
     }
-    return entry.n;
+    return Promise.resolve(entry.n);
   }
 
   get size() {

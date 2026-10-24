@@ -2,6 +2,7 @@ import { describe, expect, vi } from "vitest";
 import { fc, it } from "@fast-check/vitest";
 import { KvRest } from "@/lib/kv";
 import { KvCache, LayeredCache, MemoryCache } from "@/lib/qloo/cache";
+import { sentJson } from "../must";
 
 describe("MemoryCache", () => {
   it("expires entries after their TTL", async () => {
@@ -42,20 +43,20 @@ describe("KvCache", () => {
   it("round-trips JSON through GET/SET with a TTL and a key prefix", async () => {
     const store = new Map<string, string>();
     const f = vi.fn(async (_u: string, init: RequestInit) => {
-      const [cmd, key, value] = JSON.parse(String(init.body)) as string[];
+      const [cmd, key = "", value = ""] = sentJson(init) as string[];
       if (cmd === "SET") store.set(key, value);
       return Response.json({ result: cmd === "GET" ? (store.get(key) ?? null) : "OK" });
     });
     const c = new KvCache(new KvRest("https://kv.example", "tok", f as unknown as typeof fetch), "p:");
     await c.set("k", { a: 1 }, 99);
     expect(await c.get("k")).toEqual({ a: 1 });
-    expect(JSON.parse(String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual(["SET", "p:k", '{"a":1}', "EX", 99]);
+    expect(sentJson((f.mock.calls[0] as unknown as [string, RequestInit])[1])).toEqual(["SET", "p:k", '{"a":1}', "EX", 99]);
     expect(await c.get("missing")).toBeUndefined();
   });
 
   it("logs and degrades to a miss when KV is down (the cache is an optimisation)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const c = new KvCache(new KvRest("https://kv.example", "tok", (async () => new Response("down", { status: 500 })) as unknown as typeof fetch), "p:");
+    const c = new KvCache(new KvRest("https://kv.example", "tok", async () => new Response("down", { status: 500 })), "p:");
     expect(await c.get("k")).toBeUndefined();
     await expect(c.set("k", 1, 1)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(2);

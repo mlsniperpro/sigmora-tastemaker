@@ -28,13 +28,13 @@ export async function POST(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       // If the client goes away, keep running so the result still gets cached; just stop writing.
-      let open = true;
+      const reader = { open: true };
       const send = (e: RunEvent) => {
-        if (!open) return;
+        if (!reader.open) return;
         try {
           controller.enqueue(enc.encode(JSON.stringify(e) + "\n"));
         } catch {
-          open = false;
+          reader.open = false;
         }
       };
       try {
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Run failed" });
       } finally {
-        if (open) {
+        if (reader.open) {
           try {
             controller.close();
           } catch {

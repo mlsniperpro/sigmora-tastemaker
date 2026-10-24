@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { llmFromEnv } from "@/lib/llm";
+import { HttpChat, type HttpChatOptions } from "@/lib/llm/chat";
 import { LLMOutputError } from "@/lib/llm/coerce";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { LiveLLM, buildDraftPrompt } from "@/lib/llm/live";
 import type { Draft } from "@/lib/llm/types";
 import { HttpError, TimeoutError, type RetryPolicy } from "@/lib/net";
+import { must, sentJson } from "../must";
 
 const brief = Brief.parse(PRESETS[0].brief);
 const fastRetry: RetryPolicy = { retries: 2, baseMs: 1, maxMs: 5, sleep: async () => undefined };
@@ -20,8 +22,8 @@ const draft: Draft = {
   picks: [{ name: "Coors Light", type: "brand", role: "sponsor", rationale: "" }],
 };
 const openai = (content: string) => Response.json({ choices: [{ message: { content } }] });
-const live = (f: (url: string, init: RequestInit) => Promise<Response>, format: "openai" | "anthropic" = "openai", o: Partial<ConstructorParameters<typeof LiveLLM>[0]> = {}) =>
-  new LiveLLM({ format, model: "m", apiKey: "k", baseUrl: format === "openai" ? "https://llm.example/v1" : undefined, fetchImpl: f as unknown as typeof fetch, retry: fastRetry, ...o });
+const live = (f: (url: string, init: RequestInit) => Promise<Response>, format: "openai" | "anthropic" = "openai", o: Partial<HttpChatOptions> = {}) =>
+  new LiveLLM(new HttpChat({ format, model: "m", apiKey: "k", baseUrl: format === "openai" ? "https://llm.example/v1" : undefined, fetchImpl: f as unknown as typeof fetch, retry: fastRetry, ...o }));
 
 describe("provider selection", () => {
   it("picks the provider from env and never pins a vendor", () => {
@@ -45,7 +47,7 @@ describe("LiveLLM (OpenAI-compatible)", () => {
   it("posts to /chat/completions with a bearer token and parses the reply", async () => {
     const f = vi.fn(async () => openai(JSON.stringify(draft)));
     const d = await live(f).draft({ brief });
-    expect(d.picks[0].name).toBe("Coors Light");
+    expect(d.picks[0]?.name).toBe("Coors Light");
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://llm.example/v1/chat/completions");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer k");
@@ -53,7 +55,7 @@ describe("LiveLLM (OpenAI-compatible)", () => {
 
   it("retries 429 / 5xx with backoff, then succeeds", async () => {
     const replies = [new Response("busy", { status: 503 }), new Response("slow", { status: 429 }), openai(JSON.stringify(draft))];
-    const f = vi.fn(async () => replies.shift()!);
+    const f = vi.fn(async () => must(replies.shift(), "stub reply"));
     await live(f).draft({ brief });
     expect(f).toHaveBeenCalledTimes(3);
   });
@@ -80,7 +82,7 @@ describe("LiveLLM (OpenAI-compatible)", () => {
 
   it("asks once to repair unusable output, then fails with a typed error", async () => {
     const replies = ["not json", JSON.stringify(draft)];
-    const f = vi.fn(async () => openai(replies.shift()!));
+    const f = vi.fn(async () => openai(must(replies.shift(), "stub reply")));
     await expect(live(f).draft({ brief })).resolves.toMatchObject({ hooks: ["Coors Light nights"] });
     expect(f).toHaveBeenCalledTimes(2);
     const bad = vi.fn(async () => openai("still not json"));
@@ -98,7 +100,7 @@ describe("LiveLLM (OpenAI-compatible)", () => {
   it("drops response_format when the host rejects it", async () => {
     const bodies: Record<string, unknown>[] = [];
     const f = vi.fn(async (_u: string, init: RequestInit) => {
-      const b = JSON.parse(String(init.body)) as Record<string, unknown>;
+      const b = sentJson(init) as Record<string, unknown>;
       bodies.push(b);
       return b.response_format ? new Response("Unsupported parameter: response_format", { status: 400 }) : openai(JSON.stringify(draft));
     });
@@ -109,7 +111,7 @@ describe("LiveLLM (OpenAI-compatible)", () => {
   it("treats any other 400 as a real error and keeps JSON mode on", async () => {
     const bodies: Record<string, unknown>[] = [];
     const f = vi.fn(async (_u: string, init: RequestInit) => {
-      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      bodies.push(sentJson(init) as Record<string, unknown>);
       return new Response("maximum context length exceeded", { status: 400 });
     });
     await expect(live(f).draft({ brief })).rejects.toMatchObject({ status: 400 });

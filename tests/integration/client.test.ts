@@ -33,7 +33,7 @@ describe("QlooClient: offline", () => {
     const key = requestKey("/search", { query: "Tems", types: ["urn:entity:artist"], take: 5 });
     const r = await client(undefined, { fixtures: { [key]: { results: [{ name: "Tems", entity_id: "REAL-ID" }] } } }).search("Tems", ["artist"]);
     expect(r.meta.source).toBe("replay");
-    expect(r.data.results[0].entity_id).toBe("REAL-ID");
+    expect(r.data.results[0]?.entity_id).toBe("REAL-ID");
   });
 
   it("refuses a malformed fixture with a typed schema error", async () => {
@@ -123,8 +123,9 @@ describe("QlooClient: live", () => {
 
   it("never puts the key in metadata, keys or error messages", async () => {
     const c = new QlooClient({ apiKey: "secret-key", cache: new MemoryCache(), fixtures: {}, retry: fastRetry, fetchImpl: (async () => new Response("x", { status: 503 })) as unknown as typeof fetch });
-    const err = await c.search("x").catch((e: Error) => e);
-    expect(String(err)).not.toContain("secret-key");
+    const err = await c.search("x").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toContain("secret-key");
     const okc = new QlooClient({ apiKey: "secret-key", cache: new MemoryCache(), fixtures: {}, fetchImpl: (async () => ok(results)) as unknown as typeof fetch });
     expect(JSON.stringify(await okc.search("x"))).not.toContain("secret-key");
   });

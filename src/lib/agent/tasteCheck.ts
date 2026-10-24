@@ -3,7 +3,7 @@ import { qlooFromEnv, type QlooClient, type QlooSource } from "../qloo/client";
 import type { Pick as PlanPick, Replacement } from "../llm/types";
 import type { Brief } from "./brief";
 import { chooseReplacements, critique, metricsOf } from "./critic";
-import { loadCulture, loadVenues, makeCtx, resolveSeeds, type Audience, type CriticSettings } from "./context";
+import { discoveryFromConfig, loadCulture, loadVenues, makeCtx, resolveSeeds, type Audience, type CriticSettings } from "./context";
 import type { Metrics, Receipt } from "./types";
 
 export interface TasteCheckInput {
@@ -31,7 +31,7 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
   const unobserve = qloo.observe((m) => sources.add(m.source));
   try {
     const audience: Audience = { ages: input.ages, gender: input.gender, targetCity: input.city };
-    const ctx = makeCtx(audience, qloo, await resolveSeeds(qloo, { seeds: input.seeds, seedLinks: [] }), opts);
+    const ctx = makeCtx(audience, qloo, await resolveSeeds(qloo, { seeds: input.seeds, seedLinks: [] }), { ...opts, discovery: discoveryFromConfig() });
     const picks: PlanPick[] = input.picks.map((p) => ({ ...p, rationale: "" }));
     // Only the candidate pools these picks need (thresholds and replacements come from them).
     await loadCulture(ctx, [...new Set(picks.map((p) => p.role))]);

@@ -9,8 +9,13 @@ Everything below is already built behind a stub, fixture or sandbox, so each ite
 - [ ] **Vercel project.** Connect `mlsniperpro/sigmora-tastemaker`, set the env vars above (see `.env.example`), and deploy by `git push`. Point `tastemaker.sigmora.org` at it.
 - [ ] **`KV_REST_API_URL`, `KV_REST_API_TOKEN`** (Upstash or Vercel KV). These turn the response cache and rate-limit and budget counters into shared state across instances. Without them, the limits apply per instance.
 - [ ] **Sigmora `/v1`.** Set `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL` and `SIGMORA_API_TOKEN` once Sigmora exposes the endpoint below. The public demo stays on the labeled sandbox until then.
-- [ ] **Benchmark run.** With the Qloo and LLM keys set and `QLOO_DAILY_CALL_CAP` above the request count stated in `docs/benchmark.md`, run `pnpm benchmark` and commit `docs/benchmark.md` and `benchmark/results.json`. Until then the report is a labeled DRY RUN and must not be quoted.
+- [ ] **Benchmark run.** With the Qloo and LLM keys set (and ideally `JUDGE_PROVIDER`, `JUDGE_MODEL`, `JUDGE_API_KEY` for a judge from a different vendor than the generator), and `QLOO_DAILY_CALL_CAP` above the request count stated in `docs/benchmark.md`, run `pnpm benchmark`. Commit `docs/benchmark.md`, `benchmark/summary.json` (written only for a valid measurement) and `fixtures/judge/recorded.json`. Raw runs stay in the gitignored `benchmark/runs/`. Until then the report says "No measurement yet" and shows no numbers.
 - [ ] **Video.** Run `pnpm video https://<deployment>` against the live deployment (needs Playwright + Chromium), then add a voice-over.
+- [ ] **Make the repo public.** GitHub → `mlsniperpro/sigmora-tastemaker` → Settings → Danger zone → Change visibility → Public. The rules require a public repo with all source needed to run it.
+- [ ] **Merge PR #1 into `main`.** GitHub reads the licence from the default branch, so the MIT `LICENSE` only shows in the repo's About panel after the merge. Then check that About shows "MIT license" and add the live demo URL as the repo website.
+- [ ] **Devpost submission** (Oct 29–30, before Oct 30 23:45 ET). Paste from `SUBMISSION.md`: title, tagline, description, "built with", the live demo URL, the public repo URL, the video link and the screenshots in `docs/screenshots/`. Submit; a draft doesn't count.
+- [ ] **Dogfood campaign** (the playbook's P1 traction item). Run one real Sigmora campaign planned by Tastemaker, for a real client or for Sigmora itself. Ship it through `/v1` (needs the Sigmora item above), then add the real reach and engagement numbers and the client's permission to `SUBMISSION.md`. Don't publish numbers before they exist.
+- [ ] **Sigmora brand tokens.** Paste the colour and type values from `packages/brand` (private `sigmora-platform` repo) into the token block at the top of `src/app/globals.css`. Components use only the utilities generated from those tokens, so nothing else changes. This repo may not import private Sigmora code, so the values have to be copied in by hand.
 - [ ] **Spotify probe.** Set `PROBE_SPOTIFY_ID` to a real artist ID when running `pnpm fixtures:record`. That verifies the `/entities` external-ID lookup.
 
 ## The Sigmora `/v1` contract this repo calls
@@ -23,6 +28,15 @@ Everything below is already built behind a stub, fixture or sandbox, so each ite
 ```
 
 Expected reply: `{ "id": "<campaign id>", "posts": [{ "id": "<post id>" }] }`. Sigmora implements this endpoint, or `SigmoraPublisher` in `src/lib/publisher/index.ts` gets adapted to whatever `/v1` actually exposes.
+
+**Measure → re-query** reads performance back: `GET {SIGMORA_API_URL}/v1/campaigns/<id>/metrics` with the same bearer token, replying
+
+```json
+{ "id": "<campaign id>", "metadata": { "tastemakerRunId": "…" },
+  "posts": [{ "platform": "TikTok", "text": "<what was posted>", "impressions": 1200, "engagements": 96 }] }
+```
+
+`metadata.tastemakerRunId` (sent at ship time) names the run to re-query, and a run shipped through Sigmora is kept for 30 days for this. Posts with 500+ impressions are compared, each by its own text. Verified picks named in posts that beat the median engagement rate become the next run's seeds (`src/lib/agent/requery.ts`). After a real Sigmora ship, the receipt offers "Measure and re-query" and a bookmarkable `/?measure=<campaign id>` link. The sandbox has nothing to measure and says so.
 
 ## Live calls to verify when the key lands (`pnpm fixtures:record` prints a line per preset)
 
@@ -44,4 +58,6 @@ Each call below is built from Qloo's docs plus notes from other entrants who ran
 | 12 | `/v2/analysis/compare?a.signal.interests.entities=…&b.signal.interests.entities=…` | Response `results.tags[].query.a/b/delta` (assumed) | compare step |
 | 13 | **The critic:** `filter.results.entities` + `feature.explainability=true` | Affinity is kept; explainability sits at `query.explainability["signal.interests.entities"][]` | `critic.ts` `scoreByType` |
 | 14 | Param allow-lists | Each list in `params.ts` against [available-parameters-by-entity-type](https://docs.qloo.com/reference/available-parameters-by-entity-type) | `params.ts` |
-| 15 | Nairobi coverage (probe) | `/search?query=Nairobi&types=urn:entity:locality`, places in Nairobi. Pass means a Nairobi preset can be added (P2) | `scripts/record-fixtures.ts` |
+| 15 | `bias.trends` on artist / tv_show / movie / podcast discovery | We send `QLOO_BIAS_TRENDS` (default `medium`; values `low`/`medium`/`high` assumed, since no public doc lists them). Compare results with and without it; if it's silently dropped (identical lists) or empties results, set `QLOO_BIAS_TRENDS=off` | `context.ts` `discoveryParams` |
+| 16 | `diversify.by=subtype&diversify.take=5` on brand and place discovery | Lists hold at most 5 per subtype and stay non-empty (the same params other entrants used on this host) | `context.ts` `discoveryParams` |
+| 17 | Nairobi coverage (probe) | `/search?query=Nairobi&types=urn:entity:locality`, places in Nairobi. Pass means a Nairobi preset can be added (P2) | `scripts/record-fixtures.ts` |

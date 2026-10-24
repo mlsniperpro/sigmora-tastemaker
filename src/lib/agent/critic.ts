@@ -4,10 +4,9 @@
  * Role rules (types, pass bar, venue/fading checks) come from ROLE_SPEC;
  * results are memoised on the context, so later passes only pay for new names.
  */
-import type { EntityType } from "../qloo/types";
 import type { Pick as PlanPick, Replacement } from "../llm/types";
 import { ROLE_SPEC, type PickType, type Role } from "./brief";
-import { isFading, loadTrends, pickKey, resolveByName, resolvedType, signalFor, type Ctx, type RankedCandidate, type Resolved } from "./context";
+import { isFading, loadTrends, pickKey, resolveByName, resolvedType, scoreEntities, signalFor, type Ctx, type RankedCandidate, type Resolved } from "./context";
 import type { Metrics, Receipt, Verdict } from "./types";
 import { median, normName, sameName } from "./util";
 
@@ -17,7 +16,7 @@ const r3 = (x: number) => Math.round(x * 1000) / 1000;
 export function thresholdFor(ctx: Pick<Ctx, "candidates" | "missRatio" | "minAffinity">, role: Role): number {
   const pool = ctx.candidates[role] ?? [];
   if (!pool.length) return 0.5;
-  if (ROLE_SPEC[role].bar === "top3") return [...pool].sort((a, b) => b.affinity - a.affinity)[Math.min(2, pool.length - 1)].affinity;
+  if (ROLE_SPEC[role].bar === "top3") return [...pool].sort((a, b) => b.affinity - a.affinity)[Math.min(2, pool.length - 1)]?.affinity ?? 0.5;
   return r3(Math.max(ctx.minAffinity, ctx.missRatio * median(pool.map((c) => c.affinity))));
 }
 
@@ -55,7 +54,7 @@ async function resolvePick(ctx: Ctx, p: PlanPick): Promise<Resolved> {
   else {
     const spec = ROLE_SPEC[p.role];
     const searched: PickType = spec.types.includes(p.type) ? p.type : spec.types[0];
-    const { hit, key, source } = await resolveByName(ctx.qloo, p.name, { types: spec.types as EntityType[] });
+    const { hit, key, source } = await resolveByName(ctx.qloo, p.name, { types: spec.types });
     out = { ...base, entityId: hit?.entity_id, type: hit ? resolvedType(p.role, searched, hit) : searched, calls: [key], source };
   }
   ctx.resolved.set(pickKey(p.role, p.name), out);
@@ -69,31 +68,12 @@ async function scoreNew(ctx: Ctx, resolved: readonly Resolved[]) {
     if (!r.entityId || ROLE_SPEC[r.role].scoreFromPool || ctx.scores.has(r.entityId)) continue;
     byType.set(r.type, (byType.get(r.type) ?? new Set()).add(r.entityId));
   }
-  await Promise.all(
-    [...byType].map(async ([type, set]) => {
-      const ids = [...set];
-      const res = await ctx.qloo.insights(`urn:entity:${type as EntityType}`, {
-        ...signalFor(ctx),
-        "filter.results.entities": ids,
-        "feature.explainability": true,
-        take: ids.length,
-      });
-      for (const e of res.data.results.entities ?? []) {
-        const ex = e.query?.explainability?.["signal.interests.entities"] ?? [];
-        ctx.scores.set(e.entity_id, {
-          affinity: e.query?.affinity ?? 0,
-          drivers: ex.map((d) => ({ name: d.name ?? ctx.seedNames.get(d.entity_id ?? "") ?? d.entity_id ?? "signal", score: d.score })),
-          key: res.meta.key,
-          source: res.meta.source,
-        });
-      }
-    }),
-  );
+  await Promise.all([...byType].map(([type, set]) => scoreEntities(ctx, type, [...set])));
 }
 
 /** Location-bound roles must be in the launch city: ask Qloo with the location filter, once per entity. */
 async function checkInCity(ctx: Ctx, resolved: readonly Resolved[]) {
-  const ids = [...new Set(resolved.filter((r) => ROLE_SPEC[r.role].inCity && r.entityId && !ctx.inCity.has(r.entityId)).map((r) => r.entityId!))];
+  const ids = [...new Set(resolved.flatMap((r) => (ROLE_SPEC[r.role].inCity && r.entityId && !ctx.inCity.has(r.entityId) ? [r.entityId] : [])))];
   if (!ctx.city || !ids.length) return;
   const res = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), "filter.location.query": ctx.city, "filter.results.entities": ids, take: ids.length });
   const found = new Set((res.data.results.entities ?? []).map((e) => e.entity_id));
@@ -137,7 +117,7 @@ export async function critique(ctx: Ctx, picks: readonly PlanPick[]): Promise<Cr
     checkInCity(ctx, resolved),
     loadTrends(
       ctx,
-      resolved.filter((r) => r.entityId).map((r) => ({ entityId: r.entityId!, type: r.type })),
+      resolved.flatMap((r) => (r.entityId ? [{ entityId: r.entityId, type: r.type }] : [])),
     ),
   ]);
   return { receipts: resolved.map((r) => receiptFor(ctx, r)), warnings };

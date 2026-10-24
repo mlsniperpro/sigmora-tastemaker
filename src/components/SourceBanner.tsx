@@ -9,7 +9,7 @@ export function SourceBanner({ result }: { result: RunResult }) {
   const allLive = q.live + q.cached === q.calls;
   if (allLive && !result.llm.scripted) return null;
   return (
-    <div role="note" className="space-y-0.5 rounded-xl border border-fade/40 bg-fade/10 px-3 py-2 text-[12px] leading-snug text-fade">
+    <div role="note" className="space-y-0.5 rounded-xl border border-fade/40 bg-fade/10 px-3 py-2 text-meta leading-snug text-fade">
       {fellBack && (
         <p>
           <strong>Live Qloo failed for {q.fallbackCalls} of {q.calls} calls</strong> ({q.fallbacks.map((f) => f.reason).join("; ")}). Those

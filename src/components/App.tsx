@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PRESETS } from "@/lib/agent/presets";
-import { decodeBrief } from "@/lib/permalink";
+import { measureFromUrl, requestFromUrl } from "@/lib/permalink";
 import { BriefForm } from "./BriefForm";
 import { CampaignPack } from "./CampaignPack";
 import { Scoreboard } from "./Scoreboard";
@@ -15,23 +15,18 @@ import { useRun } from "./useRun";
 
 export function App() {
   const params = useSearchParams();
-  const { steps, result, error, running, run } = useRun();
+  const { steps, result, error, running, run, requery } = useRun();
   const [mode, setMode] = useState<"qloo" | "without">("qloo");
-  const [activePreset, setActivePreset] = useState<string>();
+  // The URL decides what runs on first load; read it once, at mount.
+  const [initial] = useState(() => ({ measure: measureFromUrl(params), request: requestFromUrl(params) }));
+  const [activePreset, setActivePreset] = useState(!initial.measure && "preset" in initial.request ? initial.request.preset : undefined);
   const [showCustom, setShowCustom] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
-    const preset = params.get("preset");
-    const b = params.get("b");
-    const brief = b ? decodeBrief(b) : undefined;
-    const id = PRESETS.some((p) => p.id === preset) ? preset! : PRESETS[0].id;
-    // The URL decides what runs on first load; the fetch it starts must follow mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setActivePreset(brief ? undefined : id);
-    void run(brief ? { brief } : { preset: id });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void (initial.measure ? requery(initial.measure) : run(initial.request));
+  }, [initial, run, requery]);
 
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
 
@@ -39,14 +34,14 @@ export function App() {
     <main className="mx-auto w-full max-w-[1400px] space-y-4 px-4 py-5 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">Tastemaker by Sigmora</p>
+          <p className="text-caption font-semibold uppercase tracking-[0.2em] text-accent">Tastemaker by Sigmora</p>
           <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">Don&apos;t guess the culture. Query it.</h1>
-          <p className="mt-1 max-w-2xl text-[13px] leading-snug text-muted">
+          <p className="mt-1 max-w-2xl text-body leading-snug text-muted">
             A marketing agent that plans your launch and checks every cultural pick against Qloo before it ships. The model proposes, Qloo scores,
             weak picks get cut, and every survivor carries a receipt.
           </p>
         </div>
-        <div role="group" aria-label="Plan view" className="flex rounded-full border border-line bg-panel p-1 text-[12px]">
+        <div role="group" aria-label="Plan view" className="flex rounded-full border border-line bg-panel p-1 text-meta">
           <button type="button" aria-pressed={mode === "qloo"} onClick={() => setMode("qloo")} className={`rounded-full px-3 py-1.5 ${mode === "qloo" ? "bg-accent font-semibold text-accent-ink" : "text-muted"}`}>
             With Qloo
           </button>
@@ -58,7 +53,7 @@ export function App() {
 
       <section aria-label="Brief" className="space-y-3 rounded-2xl border border-line bg-panel p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wider text-muted">Try a preset</span>
+          <span className="text-caption uppercase tracking-wider text-muted">Try a preset</span>
           {PRESETS.map((p) => (
             <button
               key={p.id}
@@ -69,31 +64,33 @@ export function App() {
                 void run({ preset: p.id });
               }}
               title={p.blurb}
-              className={`rounded-full border px-3 py-1.5 text-[12px] disabled:opacity-60 ${activePreset === p.id ? "border-accent bg-accent/15 text-accent" : "border-line text-ink hover:border-accent/60"}`}
+              className={`rounded-full border px-3 py-1.5 text-meta disabled:opacity-60 ${activePreset === p.id ? "border-accent bg-accent/15 text-accent" : "border-line text-ink hover:border-accent/60"}`}
             >
               {p.title}
             </button>
           ))}
-          <button type="button" onClick={() => setShowCustom((s) => !s)} aria-expanded={showCustom} className="rounded-full border border-dashed border-line px-3 py-1.5 text-[12px] text-muted hover:text-ink">
+          <button type="button" onClick={() => setShowCustom((s) => !s)} aria-expanded={showCustom} className="rounded-full border border-dashed border-line px-3 py-1.5 text-meta text-muted hover:text-ink">
             {showCustom ? "Hide custom brief" : "Your own brief"}
           </button>
           {result && (
             <button
               type="button"
               onClick={() => {
-                void navigator.clipboard?.writeText(window.location.href).then(() => {
+                // Absent outside secure contexts, whatever lib.dom says.
+                const clipboard = navigator.clipboard as Clipboard | undefined;
+                void clipboard?.writeText(window.location.href).then(() => {
                   setCopied(true);
                   setTimeout(() => setCopied(false), 1500);
                 });
               }}
-              className="ml-auto rounded-full px-3 py-1.5 text-[12px] text-violet hover:underline"
+              className="ml-auto rounded-full px-3 py-1.5 text-meta text-violet hover:underline"
             >
               {copied ? "Link copied" : "Copy permalink"}
             </button>
           )}
         </div>
         {result && (
-          <p className="text-[12.5px] text-ink/85">
+          <p className="text-body-sm text-ink/85">
             <span className="text-muted">Brief:</span> {result.brief.subject} — {result.brief.product}. {result.brief.goal}{" "}
             <span className="text-muted">Audience loves {result.brief.seeds.join(", ")}.</span>
           </p>
@@ -104,7 +101,7 @@ export function App() {
             }} />}
       </section>
 
-      {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-[13px] text-miss">{error}</div>}
+      {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">{error}</div>}
       {result && <SourceBanner result={result} />}
       {result && <Scoreboard result={result} />}
 
@@ -116,9 +113,19 @@ export function App() {
         <div className="order-1 min-w-0 lg:order-3">{side ? <CampaignPack side={side} mode={mode} /> : <Placeholder running={running} label="Campaign pack" />}</div>
       </div>
 
-      {result && mode === "qloo" && <ShipBar result={result} />}
+      {result && mode === "qloo" && (
+        <ShipBar
+          // A new run starts with no receipt from the previous one.
+          key={result.id}
+          result={result}
+          onMeasure={(campaignId) => {
+            setActivePreset(undefined);
+            void requery(campaignId);
+          }}
+        />
+      )}
 
-      <footer className="grid gap-3 border-t border-line pt-4 text-[11.5px] leading-relaxed text-muted sm:grid-cols-2">
+      <footer className="grid gap-3 border-t border-line pt-4 text-caption leading-relaxed text-muted sm:grid-cols-2">
         <p>
           <strong className="text-ink">Responsible taste.</strong> Inputs are public catalog entities, tags and demographic buckets — never a
           person&apos;s data. Results are audience-level affinity, never &ldquo;this user likes X&rdquo;. Every number links to the Qloo call that
@@ -136,7 +143,7 @@ export function App() {
 
 function Placeholder({ running, label }: { running: boolean; label: string }) {
   return (
-    <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-line text-[12px] text-muted">
+    <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-dashed border-line text-meta text-muted">
       {running ? `${label} builds as the agent runs…` : label}
     </div>
   );

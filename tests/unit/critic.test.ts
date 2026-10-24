@@ -7,6 +7,7 @@ import type { Receipt, Verdict } from "@/lib/agent/types";
 import type { Pick } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
+import { must } from "../must";
 
 const audience: Audience = { ages: ["25_to_29", "30_to_34"] };
 const ctxWith = (candidates: Ctx["candidates"], a: Audience = audience): Ctx => {
@@ -79,8 +80,8 @@ describe("chooseReplacements", () => {
     const r1 = chooseReplacements(ctx, picksOf(["Ed Sheeran"]), [receipt("Ed Sheeran", "miss")], tried);
     // the model resubmitted the rejected pick in another spelling
     const r2 = chooseReplacements(ctx, picksOf(["ed sheeran"]), [receipt("ed sheeran", "miss")], tried);
-    expect(r1[0].to).toBe("Victony");
-    expect(r2[0].to).toBe("Omah Lay");
+    expect(r1[0]?.to).toBe("Victony");
+    expect(r2[0]?.to).toBe("Omah Lay");
     expect(chooseReplacements(ctx, picksOf(["Ed Sheeran"]), [receipt("Ed Sheeran", "miss")], tried)).toEqual([]);
   });
 
@@ -109,7 +110,7 @@ describe("chooseReplacements", () => {
 describe("critique (offline)", () => {
   it("scores cities from the ranked pool, without another call, and resolves later passes from memo", async () => {
     const ctx = ctxWith({ city: [cand("Washington", 0.7, "locality"), cand("Houston", 0.5, "locality"), cand("Atlanta", 0.4, "locality"), cand("Dallas", 0.2, "locality")] });
-    ctx.candidates.city!.forEach((c) => (c.key = "rank-call"));
+    for (const c of ctx.candidates.city ?? []) c.key = "rank-call";
     const keys: string[] = [];
     ctx.qloo.observe((m) => keys.push(m.key));
     const { receipts } = await critique(ctx, [...picksOf(["Washington", "Dallas"], "city")]);
@@ -117,7 +118,7 @@ describe("critique (offline)", () => {
       ["Washington", "pass", 0.7],
       ["Dallas", "miss", 0.2],
     ]);
-    expect(receipts[0].calls).toEqual(["rank-call"]);
+    expect(receipts[0]?.calls).toEqual(["rank-call"]);
     expect(keys).toEqual([]);
   });
 
@@ -125,7 +126,7 @@ describe("critique (offline)", () => {
     const ctx = ctxWith({}, { ...audience, targetCity: "Atlanta" });
     const { receipts } = await critique(ctx, picksOf(["Atlanta", "Dallas"], "city"));
     expect(receipts.map((r) => r.verdict)).toEqual(["pass", "miss"]);
-    expect(receipts[0].affinity).toBeUndefined();
+    expect(must(receipts[0]).affinity).toBeUndefined();
   });
 
   it("re-scores only entities it hasn't seen", async () => {

@@ -171,7 +171,8 @@ export function allowedParams(path: QlooPath, filterType?: string): string[] {
 export function checkParams(path: QlooPath, params: QlooParams): string[] {
   const problems: string[] = [];
   const keys = Object.keys(params).filter((k) => params[k] !== undefined);
-  const filterType = typeof params["filter.type"] === "string" ? (params["filter.type"] as string) : undefined;
+  const ft = params["filter.type"];
+  const filterType = typeof ft === "string" ? ft : undefined;
   if (path === "/v2/insights" && filterType && !BY_FILTER_TYPE[filterType]) {
     problems.push(`unknown filter.type "${filterType}"`);
     return problems;
@@ -186,6 +187,9 @@ export function checkParams(path: QlooPath, params: QlooParams): string[] {
   if (path === "/entities" && !keys.some((k) => k === "entity_ids" || k.startsWith("external."))) {
     problems.push(`/entities needs entity_ids or an external.*.ids parameter`);
   }
+  const bias = params["bias.trends"];
+  if (bias !== undefined && bias !== "low" && bias !== "medium" && bias !== "high") problems.push(`bias.trends "${String(bias)}" is not low, medium or high`);
+  if (keys.includes("diversify.take") && !keys.includes("diversify.by")) problems.push(`diversify.take needs diversify.by`);
   if (keys.includes("output.heatmap.boundary")) {
     const v = params["output.heatmap.boundary"];
     if (v !== "urn:entity:locality" && v !== "geohashes" && v !== "city" && v !== "neighborhood") {
@@ -206,13 +210,9 @@ export function assertParams(path: QlooPath, params: QlooParams, strict = proces
 
 /** Stable, credential-free representation of a request; used as cache and fixture key. */
 export function requestKey(path: QlooPath, params: QlooParams): string {
-  const parts = Object.keys(params)
-    .filter((k) => params[k] !== undefined)
-    .sort()
-    .map((k) => {
-      const v = params[k]!;
-      const s = Array.isArray(v) ? [...v].map(String).join(",") : String(v);
-      return `${encodeURIComponent(k)}=${encodeURIComponent(s)}`;
-    });
+  const parts = Object.entries(params)
+    .flatMap(([k, v]) => (v === undefined ? [] : [[k, Array.isArray(v) ? v.join(",") : String(v)] as const]))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, s]) => `${encodeURIComponent(k)}=${encodeURIComponent(s)}`);
   return parts.length ? `${path}?${parts.join("&")}` : path;
 }

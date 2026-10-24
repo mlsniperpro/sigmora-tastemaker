@@ -99,7 +99,7 @@ export class QlooClient {
     this.mode = opts.mode ?? "auto";
     this.baseUrl = opts.baseUrl ?? HACKATHON_HOST;
     this.cache = opts.cache ?? defaultCache();
-    this.fixtures = opts.fixtures ?? (recorded as Record<string, unknown>);
+    this.fixtures = opts.fixtures ?? recorded;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
@@ -121,7 +121,7 @@ export class QlooClient {
    * never simulator data mixed into a live run. Without a key (or in replay
    * mode): a recorded fixture, then the labeled simulator.
    */
-  async get<S extends z.ZodTypeAny>(path: QlooPath, params: QlooParams, schema: S): Promise<QlooCall<z.infer<S>>> {
+  async get<S extends z.ZodType>(path: QlooPath, params: QlooParams, schema: S): Promise<QlooCall<z.infer<S>>> {
     const clean = normalize(params);
     const problems = assertParams(path, clean);
     if (problems.length) console.warn(`[qloo] request to ${path} has unsupported params (Qloo drops them silently): ${problems.join("; ")}`);
@@ -149,7 +149,7 @@ export class QlooClient {
     return done(this.parse(path, schema, simulate(path, clean)), "simulated", false);
   }
 
-  private parse<S extends z.ZodTypeAny>(path: string, schema: S, raw: unknown): z.infer<S> {
+  private parse<S extends z.ZodType>(path: string, schema: S, raw: unknown): z.infer<S> {
     const r = schema.safeParse(raw);
     if (!r.success) throw new QlooSchemaError(path, formatZodIssues(r.error, { max: 3 }));
     return r.data;
@@ -186,6 +186,8 @@ export class QlooClient {
   }
 
   private async fetchOnce(path: QlooPath, params: QlooParams): Promise<unknown> {
+    const apiKey = this.apiKey;
+    if (!apiKey) throw new Error("QlooClient: a live call needs an API key");
     const url = new URL(joinUrl(this.baseUrl, path));
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined) url.searchParams.set(k, Array.isArray(v) ? v.join(",") : String(v));
@@ -195,7 +197,7 @@ export class QlooClient {
         this.fetchImpl,
         SERVICE,
         url,
-        { method: "GET", headers: { "X-Api-Key": this.apiKey!, Accept: "application/json" }, cache: "no-store" },
+        { method: "GET", headers: { "X-Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" },
         this.opts.timeoutMs ?? 12000,
       );
       await ensureOk(res, SERVICE, url);

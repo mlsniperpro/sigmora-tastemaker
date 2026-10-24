@@ -10,7 +10,7 @@ import type { LLMProvider } from "../llm/types";
 import { defaultCache, type CacheStore } from "../qloo/cache";
 import { qlooFromEnv, type QlooClient } from "../qloo/client";
 import { formatZodIssues } from "../zod";
-import { Brief } from "./brief";
+import { Brief, RunRequest } from "./brief";
 import { presetById } from "./presets";
 import { runTastemaker } from "./run";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult } from "./types";
@@ -18,9 +18,8 @@ import { hashId } from "./util";
 
 export const RESULT_TTL = 60 * 60 * 24;
 export const DEGRADED_TTL = 60 * 10;
-
-/** A run is requested by preset id or by a full brief. */
-export const RunRequest = z.union([z.object({ preset: z.string().max(40) }).strict(), z.object({ brief: Brief }).strict()]);
+/** A shipped campaign is measured days after it posts, so its run is kept that long. */
+export const SHIPPED_TTL = 60 * 60 * 24 * 30;
 
 export type ResolvedRequest = { ok: true; brief: Brief; preset: boolean } | { ok: false; status: 400 | 404; error: string };
 
@@ -76,6 +75,11 @@ const resultKey = (id: string) => `result:v${RUN_SCHEMA_VERSION}:${id}`;
 /** A previously computed run by id (for Ship): the server never trusts client-sent plan text. */
 export async function runById(id: string, cache: CacheStore = defaultCache()): Promise<RunResult | undefined> {
   return asRun(await cache.get(resultKey(id)));
+}
+
+/** Keeps a run that was shipped for real until its campaign can be measured. */
+export async function keepShippedRun(run: RunResult, cache: CacheStore = defaultCache()): Promise<void> {
+  await cache.set(resultKey(run.id), run, SHIPPED_TTL);
 }
 
 export interface Lookup {

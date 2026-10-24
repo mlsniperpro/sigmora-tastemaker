@@ -33,7 +33,7 @@ export function ReceiptChip({ r }: { r: Receipt }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className={`inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-full border px-2.5 py-0.5 text-left text-[11px] leading-5 ${v.cls}`}
+        className={`inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-full border px-2.5 py-0.5 text-left text-caption leading-5 ${v.cls}`}
       >
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${v.dot}`} aria-hidden />
         <span className="font-medium">{v.label}</span>
@@ -46,7 +46,7 @@ export function ReceiptChip({ r }: { r: Receipt }) {
         <TrendMark trend={r.trend} />
       </button>
       {open && (
-        <div className="mt-2 space-y-1.5 rounded-lg border border-line bg-bg/60 p-2.5 text-[11px] text-muted">
+        <div className="mt-2 space-y-1.5 rounded-lg border border-line bg-bg/60 p-2.5 text-caption text-muted">
           <p className="text-ink/90">{r.note}</p>
           {r.replaced && (
             <p>
@@ -63,7 +63,7 @@ export function ReceiptChip({ r }: { r: Receipt }) {
           {r.threshold !== undefined && <p>Pass bar for this role: {r.threshold.toFixed(2)}</p>}
           {r.source && <p>Source: {SOURCE_LABEL[r.source]}</p>}
           {r.calls.map((c) => (
-            <code key={c} className="block break-all font-mono text-[10px] text-violet">
+            <code key={c} className="block break-all font-mono text-label text-violet">
               GET {c}
             </code>
           ))}

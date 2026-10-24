@@ -17,12 +17,14 @@ import { applyReplacements, type Draft, type Grounding, type LLMProvider } from 
 import { Brief, ROLE_SPEC, type BriefInput } from "./brief";
 import { rankCities } from "./cities";
 import { chooseReplacements, critique, metricsOf } from "./critic";
-import { audienceOf, isFading, loadCulture, loadTrends, loadVenues, makeCtx, resolveByName, resolveSeeds, signalFor, type CriticSettings, type Ctx } from "./context";
+import { audienceOf, discoveryFromConfig, isFading, loadCulture, loadTrends, loadVenues, makeCtx, resolveByName, resolveSeeds, signalFor, type CriticSettings, type Ctx, type Discovery } from "./context";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
 import { newRunId, normName } from "./util";
 
 export interface RunOptions extends Partial<CriticSettings> {
+  /** Defaults to QLOO_BIAS_TRENDS / QLOO_DIVERSIFY. */
+  discovery?: Discovery;
   qloo?: QlooClient;
   llm?: LLMProvider;
   emit?: (e: RunEvent) => void;
@@ -57,7 +59,7 @@ function groundingFor(ctx: Ctx, audience: RunResult["audience"], positioning: Ru
     candidates: Object.fromEntries(
       Object.entries(ctx.candidates).map(([role, list]) => [
         role,
-        (list ?? [])
+        list
           .filter((c) => !(ROLE_SPEC[role as keyof typeof ROLE_SPEC].checkFading && isFading(ctx, c.entityId)))
           .slice(0, role === "city" ? 3 : 6)
           .map(({ name, type, affinity }) => ({ name, type, affinity })),
@@ -99,14 +101,15 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       s.detail = `${ok.length}/${all.length} seeds resolved: ${ok.map((x) => x.matched ?? x.name).join(", ")}`;
       return all;
     });
-    const ctx = makeCtx(audienceOf(brief), qloo, seeds, opts);
+    const ctx = makeCtx(audienceOf(brief), qloo, seeds, { ...opts, discovery: opts.discovery ?? discoveryFromConfig() });
 
-    if (brief.vibe) {
+    const vibe = brief.vibe;
+    if (vibe) {
       await tracer.optional("vibe", "Map the brief's vibe to taste tags (/v2/tags, semantic search)", async (s) => {
-        const r = await qloo.tags(brief.vibe!, 5);
+        const r = await qloo.tags(vibe, 5);
         const tags = (r.data.results.tags ?? []).slice(0, 3);
         ctx.tagIds = tags.map((t) => t.tag_id ?? t.id).filter((x): x is string => !!x);
-        s.detail = tags.length ? `“${brief.vibe}” → ${tags.map((t) => t.name).join(", ")}` : "No matching tags; seeds only";
+        s.detail = tags.length ? `“${vibe}” → ${tags.map((t) => t.name).join(", ")}` : "No matching tags; seeds only";
       });
     }
 
@@ -114,7 +117,10 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     await tracer.optional("demographics", "Who over-indexes (urn:demographics)", async (s) => {
       const r = await qloo.insights("urn:demographics", { "signal.interests.entities": ctx.seedIds });
       const q = r.data.results.demographics?.[0]?.query;
-      audience.age = AGE_BUCKETS.filter((b) => q?.age?.[b] !== undefined).map((b) => ({ bucket: b, value: q!.age![b] }));
+      audience.age = AGE_BUCKETS.flatMap((bucket) => {
+        const value = q?.age?.[bucket];
+        return value === undefined ? [] : [{ bucket, value }];
+      });
       audience.gender = Object.entries(q?.gender ?? {}).map(([bucket, value]) => ({ bucket, value }));
       const top = [...audience.age].sort((a, b) => b.value - a.value)[0];
       s.detail = top ? `Strongest age over-index: ${top.bucket.replace(/_/g, " ")} (${top.value > 0 ? "+" : ""}${top.value.toFixed(2)})` : "No demographic signal";
@@ -156,7 +162,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
 
     // ---- timing & positioning ------------------------------------------------
     await tracer.optional("trending", "Rising vs. fading (/v2/trending)", async (s) => {
-      const items = Object.values(ctx.candidates).flatMap((list) => (list ?? []).map((c) => ({ entityId: c.entityId, type: c.type })));
+      const items = Object.values(ctx.candidates).flatMap((list) => list.map((c) => ({ entityId: c.entityId, type: c.type })));
       const failures = await loadTrends(ctx, items);
       if (failures.length && !ctx.trends.size) throw new Error(failures.join("; "));
       const fading = (ctx.candidates.reference ?? []).filter((c) => isFading(ctx, c.entityId));

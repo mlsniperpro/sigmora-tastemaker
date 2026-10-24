@@ -2,7 +2,7 @@
 import type { BriefInput } from "../src/lib/agent/brief";
 import { PRESETS } from "../src/lib/agent/presets";
 
-const METROS = PRESETS[0].brief.candidateCities!;
+const METROS = PRESETS[0].brief.candidateCities ?? [];
 type A = BriefInput["ages"];
 const YOUNG: A = ["24_and_younger", "25_to_29"];
 const CORE: A = ["25_to_29", "30_to_34"];

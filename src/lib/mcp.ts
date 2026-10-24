@@ -6,7 +6,8 @@
 import { z } from "zod";
 import { Brief, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
-import { cachedRun, costsMoney, getOrRun, resolveRunRequest, RunRequest } from "./agent/runCache";
+import { RunRequest } from "./agent/brief";
+import { cachedRun, costsMoney, getOrRun, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
 import type { GuardResult } from "./guard";
@@ -143,7 +144,7 @@ const toolErrorText = (err: unknown) =>
  * Handle one JSON-RPC message. Returns undefined for notifications (no reply
  * is sent for them, whatever the method).
  */
-export async function handleRpc(raw: unknown, gate: Gate = async () => ({ ok: true })): Promise<RpcReply | undefined> {
+export async function handleRpc(raw: unknown, gate: Gate = () => Promise.resolve({ ok: true })): Promise<RpcReply | undefined> {
   const parsed = JsonRpcMessage.safeParse(raw);
   if (!parsed.success) {
     const id = typeof raw === "object" && raw !== null && "id" in raw && (typeof raw.id === "string" || typeof raw.id === "number") ? raw.id : null;
@@ -155,7 +156,7 @@ export async function handleRpc(raw: unknown, gate: Gate = async () => ({ ok: tr
   try {
     switch (msg.method) {
       case "initialize": {
-        const asked = String(msg.params?.protocolVersion ?? "");
+        const asked = typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : "";
         return ok(id, {
           protocolVersion: SUPPORTED_VERSIONS.includes(asked) ? asked : SUPPORTED_VERSIONS[0],
           capabilities: { tools: { listChanged: false } },
@@ -168,7 +169,7 @@ export async function handleRpc(raw: unknown, gate: Gate = async () => ({ ok: tr
       case "tools/list":
         return ok(id, { tools: TOOLS });
       case "tools/call": {
-        const name = String(msg.params?.name ?? "");
+        const name = typeof msg.params?.name === "string" ? msg.params.name : "";
         try {
           return ok(id, await callTool(name, msg.params?.arguments, gate));
         } catch (err) {

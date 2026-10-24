@@ -3,6 +3,7 @@
  * signal, Qloo's candidate pool per role, trend readings, and memos so the
  * critic never re-resolves or re-scores an entity it has already seen.
  */
+import { loadConfig } from "../config";
 import type { QlooClient, QlooSource } from "../qloo/client";
 import type { QlooParams } from "../qloo/params";
 import type { Entity, EntityType } from "../qloo/types";
@@ -53,8 +54,24 @@ export interface Resolved {
   source?: QlooSource;
 }
 
+/** How strongly candidate discovery leans toward trending entities (Qloo's bias.trends); "off" sends nothing. */
+export type TrendBias = "off" | "low" | "medium" | "high";
+
+/** How candidate pools are discovered (never how picks are scored). */
+export interface Discovery {
+  trendBias: TrendBias;
+  /** diversify.by=subtype on brand and place discovery. */
+  diversify: boolean;
+}
+
+export const discoveryFromConfig = (): Discovery => {
+  const c = loadConfig();
+  return { trendBias: c.QLOO_BIAS_TRENDS, diversify: c.QLOO_DIVERSIFY === "on" };
+};
+
 export interface Ctx extends CriticSettings {
   audience: Audience;
+  discovery: Discovery;
   qloo: QlooClient;
   seedIds: string[];
   seedNames: Map<string, string>;
@@ -127,15 +144,16 @@ export async function resolveByName(qloo: QlooClient, name: string, opts: { type
   return { hit, key: r.meta.key, source: r.meta.source };
 }
 
-export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], settings: Partial<CriticSettings> = {}): Ctx {
-  const resolved = seeds.filter((s) => s.entityId);
+export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], settings: Partial<CriticSettings> & { discovery?: Discovery } = {}): Ctx {
+  const resolved = seeds.flatMap((s) => (s.entityId ? [{ id: s.entityId, name: s.name }] : []));
   return {
     ...DEFAULT_CRITIC,
     ...settings,
+    discovery: settings.discovery ?? { trendBias: "off", diversify: false },
     audience,
     qloo,
-    seedIds: [...new Set(resolved.map((s) => s.entityId!))],
-    seedNames: new Map(resolved.map((s) => [s.entityId!, s.name])),
+    seedIds: [...new Set(resolved.map((s) => s.id))],
+    seedNames: new Map(resolved.map((s) => [s.id, s.name])),
     tagIds: [],
     candidates: {},
     trends: new Map(),
@@ -160,10 +178,10 @@ export function parseSeedLinks(links: readonly string[]): { spotify: string[]; i
   const spotify: string[] = [];
   const imdb: string[] = [];
   for (const l of links) {
-    const sp = l.match(SPOTIFY);
-    if (sp) spotify.push(sp[1]);
-    const im = l.match(IMDB);
-    if (im) imdb.push(im[1]);
+    const sp = SPOTIFY.exec(l)?.[1];
+    if (sp) spotify.push(sp);
+    const im = IMDB.exec(l)?.[1];
+    if (im) imdb.push(im);
   }
   return { spotify: [...new Set(spotify)], imdb: [...new Set(imdb)] };
 }
@@ -190,6 +208,48 @@ export async function resolveSeeds(qloo: QlooClient, seeds: Pick<Brief, "seeds" 
   return all;
 }
 
+/** Types where timing matters (hooks, collabs, pitches): discovery leans toward what's rising. */
+const TREND_BIASED: readonly PickType[] = ["artist", "tv_show", "movie", "podcast"];
+/** Types where near-duplicates crowd the list: at most DIVERSIFY_TAKE per subtype. */
+const DIVERSIFIED: readonly PickType[] = ["brand", "place"];
+export const DIVERSIFY_TAKE = 5;
+
+/**
+ * Extra parameters for candidate-discovery calls (never for the critic's
+ * scoring calls, which must measure plain affinity): bias.trends on
+ * timing-sensitive types, diversify.by=subtype where near-duplicates crowd.
+ */
+export function discoveryParams(type: PickType, d: Discovery): QlooParams {
+  return {
+    ...(TREND_BIASED.includes(type) && d.trendBias !== "off" ? { "bias.trends": d.trendBias } : {}),
+    ...(DIVERSIFIED.includes(type) && d.diversify ? { "diversify.by": "subtype", "diversify.take": DIVERSIFY_TAKE } : {}),
+  };
+}
+
+/**
+ * The critic's scoring call: plain affinity plus explainability for the given
+ * entities, recorded in ctx.scores. Returns the entities Qloo scored.
+ */
+export async function scoreEntities(ctx: Ctx, type: PickType, ids: readonly string[]): Promise<Entity[]> {
+  const res = await ctx.qloo.insights(`urn:entity:${type as EntityType}`, {
+    ...signalFor(ctx),
+    "filter.results.entities": [...ids],
+    "feature.explainability": true,
+    take: ids.length,
+  });
+  const entities = res.data.results.entities ?? [];
+  for (const e of entities) {
+    const ex = e.query?.explainability?.["signal.interests.entities"] ?? [];
+    ctx.scores.set(e.entity_id, {
+      affinity: e.query?.affinity ?? 0,
+      drivers: ex.map((d) => ({ name: d.name ?? ctx.seedNames.get(d.entity_id ?? "") ?? d.entity_id ?? "signal", score: d.score })),
+      key: res.meta.key,
+      source: res.meta.source,
+    });
+  }
+  return entities;
+}
+
 /** The culture-map roles and the entity types they draw from. */
 const CULTURE_ROLES: readonly Role[] = ROLES.filter((r) => r !== "venue" && r !== "city");
 
@@ -199,8 +259,18 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
   const types = [...new Set(wanted.flatMap((r) => ROLE_SPEC[r].types))];
   const lists = await Promise.all(
     types.map(async (t) => {
-      const r = await ctx.qloo.insights(`urn:entity:${t as EntityType}`, { ...signalFor(ctx), take: 10 });
-      return [t, (r.data.results.entities ?? []).map((e) => toCandidate(e, t, r.meta.key))] as const;
+      const params = discoveryParams(t, ctx.discovery);
+      const r = await ctx.qloo.insights(`urn:entity:${t as EntityType}`, { ...signalFor(ctx), ...params, take: 10 });
+      const found = (r.data.results.entities ?? []).map((e) => toCandidate(e, t, r.meta.key));
+      if (!params["bias.trends"] || !found.length) return [t, found] as const;
+      // bias.trends picks *which* entities to consider; the pass bar must still be plain affinity,
+      // the scale the critic scores picks on. Re-score the pool once (this also pre-scores pool picks).
+      const scored = new Map((await scoreEntities(ctx, t, found.map((c) => c.entityId))).map((e) => [e.entity_id, e.query?.affinity ?? 0]));
+      const plain = found.flatMap((c) => {
+        const affinity = scored.get(c.entityId);
+        return affinity === undefined ? [] : [{ ...c, affinity }];
+      });
+      return [t, plain] as const;
     }),
   );
   const byType = new Map<PickType, RankedCandidate[]>(lists);
@@ -211,7 +281,7 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
 }
 
 export async function loadVenues(ctx: Ctx, city: string) {
-  const r = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), "filter.location.query": city, take: 10 });
+  const r = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), ...discoveryParams("place", ctx.discovery), "filter.location.query": city, take: 10 });
   ctx.candidates.venue = (r.data.results.entities ?? []).map((e) => toCandidate(e, "place", r.meta.key));
 }
 

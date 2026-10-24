@@ -9,6 +9,7 @@ import { DeterministicLLM } from "@/lib/llm/deterministic";
 import type { Draft, DraftInput } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
+import { must } from "../must";
 
 const qloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
 const deps = () => ({ qloo: qloo(), llm: new DeterministicLLM() });
@@ -16,7 +17,7 @@ const deps = () => ({ qloo: qloo(), llm: new DeterministicLLM() });
 /** A model that ignores revise instructions and resubmits its first draft, rejected picks and all. */
 class StubbornLLM extends DeterministicLLM {
   override async revise(_draft: Draft, _reps?: unknown, input?: DraftInput): Promise<Draft> {
-    return this.draft(input!);
+    return this.draft(must(input, "draft input"));
   }
 }
 /** A model whose rewrite call always fails. */
@@ -106,14 +107,14 @@ describe("agent loop (zero credentials)", () => {
 
   it("streams one step event per trace step, then the result", async () => {
     const events: RunEvent[] = [];
-    const r = await runTastemaker(PRESETS[2].brief, { ...deps(), emit: (e) => events.push(e) });
+    const r = await runTastemaker(must(PRESETS[2]).brief, { ...deps(), emit: (e) => events.push(e) });
     expect(events.filter((e) => e.type === "step")).toHaveLength(r.trace.length);
     expect(events.at(-1)?.type).toBe("result");
   });
 
   it("is deterministic for the same brief, but every run gets its own id", async () => {
-    const a = await runTastemaker(PRESETS[1].brief, deps());
-    const b = await runTastemaker(PRESETS[1].brief, deps());
+    const a = await runTastemaker(must(PRESETS[1]).brief, deps());
+    const b = await runTastemaker(must(PRESETS[1]).brief, deps());
     expect(a.grounded).toEqual(b.grounded);
     expect(a.baseline).toEqual(b.baseline);
     expect(a.id).not.toBe(b.id);
@@ -154,15 +155,18 @@ describe("agent loop: failure paths", () => {
   });
 
   it("passes a city pick that matches the brief's fixed market (and misses another)", async () => {
-    const r = await runTastemaker(PRESETS[1].brief, { qloo: qloo(), llm: new CityNamingLLM() });
+    const r = await runTastemaker(must(PRESETS[1]).brief, { qloo: qloo(), llm: new CityNamingLLM() });
     expect(r.grounded.receipts.find((x) => x.role === "city")).toMatchObject({ name: "Atlanta", verdict: "pass" });
     const other = await tasteCheck({ seeds: ["Glossier"], ages: ["25_to_29"], city: "Atlanta", picks: [{ name: "Madison Square Garden", type: "place", role: "venue" }] }, { qloo: qloo() });
-    expect(other.receipts[0]).toMatchObject({ verdict: "miss", note: expect.stringMatching(/Not in Atlanta/) });
+    expect(other.receipts[0]?.verdict).toBe("miss");
+    expect(other.receipts[0]?.note).toMatch(/Not in Atlanta/);
   });
 
   it("keeps going when optional surfaces fail, marks those steps, and reports it", async () => {
     const r = await runTastemaker(PRESETS[0].brief, { qloo: new PartialQloo({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
-    expect(r.trace.find((s) => s.id === "compare")).toMatchObject({ status: "error", detail: expect.stringMatching(/500/) });
+    const compare = r.trace.find((s) => s.id === "compare");
+    expect(compare?.status).toBe("error");
+    expect(compare?.detail).toMatch(/500/);
     expect(r.trace.find((s) => s.id === "trending")).toMatchObject({ status: "error" });
     expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/trend check failed/);
     expect(r.positioning).toEqual([]);

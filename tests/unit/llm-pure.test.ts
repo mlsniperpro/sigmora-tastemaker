@@ -86,7 +86,7 @@ describe("applyReplacements", () => {
     const d = Draft.parse({ ...draft, hooks: ["COORS LIGHT nights"], picks: [pick("coors light", "brand", "sponsor")] });
     const r = applyReplacements(d, [{ from: "Coors Light", to: "Apple Music", type: "brand", role: "sponsor", reason: "" }]);
     expect(r.hooks[0]).toBe("Apple Music nights");
-    expect(r.picks[0].name).toBe("Apple Music");
+    expect(r.picks[0]?.name).toBe("Apple Music");
   });
 
   it("is the identity with no replacements", () => {
@@ -114,7 +114,7 @@ describe("applyReplacements", () => {
       const d = Draft.parse({ ...minimal, positioning: text.slice(0, 400), picks: [pick(x)] });
       const r = applyReplacements(d, [{ from: x, to: y, type: "artist", role: "collab", reason: "" }]);
       expect(new RegExp(`(?<![\\p{L}\\p{N}])${x}(?![\\p{L}\\p{N}])`, "u").test(r.positioning)).toBe(false);
-      expect(r.picks[0].name).toBe(y);
+      expect(r.picks[0]?.name).toBe(y);
     },
   );
 });

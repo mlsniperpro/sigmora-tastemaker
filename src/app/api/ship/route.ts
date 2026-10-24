@@ -1,4 +1,4 @@
-import { runById } from "@/lib/agent/runCache";
+import { keepShippedRun, runById } from "@/lib/agent/runCache";
 import { admit, guardResponse } from "@/lib/guard";
 import { ShipRequest, publisherFromEnv } from "@/lib/publisher";
 import { formatZodIssues } from "@/lib/zod";
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
       verifiedPicks: run.grounded.receipts.filter((r) => r.verdict === "pass").map((r) => r.name),
       startDate: body.data.startDate,
     });
+    if (receipt.publisher === "sigmora") await keepShippedRun(run);
     return Response.json(receipt);
   } catch (err) {
     console.error(`[ship] ${(err as Error).message}`);

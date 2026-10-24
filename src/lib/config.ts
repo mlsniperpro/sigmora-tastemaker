@@ -5,10 +5,7 @@
 import { z } from "zod";
 import { formatZodIssues } from "./zod";
 
-const optional = z
-  .string()
-  .optional()
-  .transform((v) => (v && v.trim() ? v.trim() : undefined));
+const optional = z.string().optional();
 const int = (def: number, min: number, max: number) => z.coerce.number().int().min(min).max(max).default(def);
 
 export const EnvSchema = z.object({
@@ -22,12 +19,22 @@ export const EnvSchema = z.object({
   /** Requests per second to the Qloo host (the hackathon key allows ~5). */
   QLOO_RPS: int(4, 1, 50),
   QLOO_TIMEOUT_MS: int(12000, 1000, 60000),
+  /** bias.trends on candidate discovery for timing-sensitive types; "off" to stop sending it. */
+  QLOO_BIAS_TRENDS: z.enum(["off", "low", "medium", "high"]).default("medium"),
+  /** diversify.by=subtype on brand and venue discovery; "off" to stop sending it. */
+  QLOO_DIVERSIFY: z.enum(["on", "off"]).default("on"),
 
   LLM_PROVIDER: optional,
   LLM_MODEL: optional,
   LLM_API_KEY: optional,
   LLM_BASE_URL: optional.pipe(z.url().optional()),
   LLM_TIMEOUT_MS: int(25000, 1000, 120000),
+
+  /** Benchmark judge model; each unset value falls back to the LLM_* setting. */
+  JUDGE_PROVIDER: optional,
+  JUDGE_MODEL: optional,
+  JUDGE_API_KEY: optional,
+  JUDGE_BASE_URL: optional.pipe(z.url().optional()),
 
   SIGMORA_PUBLISH_MODE: z.enum(["sandbox", "live"]).default("sandbox"),
   SIGMORA_API_URL: optional.pipe(z.url().optional()),
@@ -64,7 +71,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 }
 
 function parseEnv(env: Record<string, string | undefined>): Env {
-  const r = EnvSchema.safeParse(env);
+  // A variable set to blank (common in hosting dashboards) means "unset": defaults apply, never "" or 0.
+  const set = Object.fromEntries(Object.entries(env).flatMap(([k, v]) => (v?.trim() ? [[k, v.trim()]] : [])));
+  const r = EnvSchema.safeParse(set);
   if (!r.success) {
     // formatZodIssues names the variables, never their values.
     throw new ConfigError(`Invalid environment: ${formatZodIssues(r.error)}`);

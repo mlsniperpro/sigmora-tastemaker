@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { BriefInput } from "@/lib/agent/brief";
 import type { RunEvent, RunResult, TraceStep } from "@/lib/agent/types";
 import { NdjsonParser } from "@/lib/ndjson";
+import type { BriefInput, RunRequest } from "@/lib/agent/brief";
 import { encodeBrief } from "@/lib/permalink";
-
-export type RunRequest = { preset: string } | { brief: BriefInput };
 
 /** Streams a run from /api/run and keeps the URL as a permalink to it. */
 export function useRun() {
@@ -28,14 +26,14 @@ export function useRun() {
     url.search = "preset" in req ? `?preset=${encodeURIComponent(req.preset)}` : `?b=${encodeBrief(req.brief)}`;
     window.history.replaceState(null, "", url);
 
-    let finished = false;
+    const state = { finished: false };
     const apply = (ev: RunEvent) => {
       if (ev.type === "step") setSteps((s) => [...s, ev.step]);
       else if (ev.type === "result") {
-        finished = true;
+        state.finished = true;
         setResult(ev.result);
       } else {
-        finished = true;
+        state.finished = true;
         setError(ev.message);
       }
     };
@@ -54,7 +52,7 @@ export function useRun() {
         parser.push(dec.decode(value, { stream: true })).forEach(apply);
       }
       parser.end().forEach(apply);
-      if (!finished) setError("The run was cut off before it finished. Try again; finished runs are cached and load instantly.");
+      if (!state.finished) setError("The run was cut off before it finished. Try again; finished runs are cached and load instantly.");
     } catch (err) {
       if ((err as Error).name !== "AbortError") setError((err as Error).message);
     } finally {
@@ -62,5 +60,21 @@ export function useRun() {
     }
   }, []);
 
-  return { steps, result, error, running, run };
+  /** Measure a shipped campaign; on success, run the brief seeded with what performed. */
+  const requery = useCallback(
+    async (campaignId: string) => {
+      setError(undefined);
+      try {
+        const res = await fetch("/api/requery", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ campaignId }) });
+        const body = (await res.json().catch(() => ({}))) as { brief?: BriefInput; error?: string };
+        if (!res.ok || !body.brief) throw new Error(body.error ?? `Measuring failed (${res.status})`);
+        await run({ brief: body.brief });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [run],
+  );
+
+  return { steps, result, error, running, run, requery };
 }

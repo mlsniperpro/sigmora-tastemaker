@@ -92,8 +92,8 @@ function choose(input: DraftInput): Pick[] {
       role,
       rationale: `Qloo affinity ${c.affinity.toFixed(2)} for this audience`,
     }));
-    if (role === HABIT[brief.family] && guesses[0] && !chosen.some((c) => c.name === guesses[0][0])) {
-      const g = guesses[0];
+    const g = guesses[0];
+    if (role === HABIT[brief.family] && g && !chosen.some((c) => c.name === g[0])) {
       if (chosen.length >= n) chosen.pop();
       chosen.push({ name: g[0], type: g[1], role, rationale: g[2] });
     }
@@ -185,13 +185,12 @@ export class DeterministicLLM implements LLMProvider {
   label = "Scripted offline model (no LLM key set)";
   scripted = true;
 
-  async draft(input: DraftInput): Promise<Draft> {
-    const picks = choose(input);
-    return write(input.brief, picks, input.grounding);
+  draft(input: DraftInput): Promise<Draft> {
+    return Promise.resolve(write(input.brief, choose(input), input.grounding));
   }
 
   /** The swaps are already applied by the caller; the scripted model leaves the copy as is. */
-  async revise(draft: Draft): Promise<Draft> {
-    return draft;
+  revise(draft: Draft): Promise<Draft> {
+    return Promise.resolve(draft);
   }
 }

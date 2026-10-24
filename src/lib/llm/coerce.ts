@@ -67,7 +67,7 @@ const ROLE_ALIASES: Record<string, Role> = {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-const list = (v: unknown, max: number) => (Array.isArray(v) ? v.slice(0, max * 2) : []);
+const list = (v: unknown, max: number): unknown[] => (Array.isArray(v) ? (v as unknown[]).slice(0, max * 2) : []);
 
 export function normalizeType(v: unknown): PickType | undefined {
   return typeof v === "string" ? TYPE_ALIASES[key(v)] : undefined;

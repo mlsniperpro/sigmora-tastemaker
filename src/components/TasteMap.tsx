@@ -7,8 +7,8 @@ const pct = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
 function Panel({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-line bg-panel-2/60 p-3">
-      <h3 className="text-[12px] font-semibold uppercase tracking-wider text-muted">{title}</h3>
-      {sub && <p className="mb-2 text-[11px] text-muted/80">{sub}</p>}
+      <h3 className="text-meta font-semibold uppercase tracking-wider text-muted">{title}</h3>
+      {sub && <p className="mb-2 text-caption text-muted/80">{sub}</p>}
       {children}
     </div>
   );
@@ -22,7 +22,7 @@ function Diverging({ rows }: { rows: { label: string; value: number; hint?: stri
       {rows.map((r) => {
         const w = (Math.abs(r.value) / max) * 50;
         return (
-          <li key={r.label} className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-2 text-[11px]" title={r.hint ?? `${r.label}: ${pct(r.value)}`}>
+          <li key={r.label} className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-2 text-caption" title={r.hint ?? `${r.label}: ${pct(r.value)}`}>
             <span className="truncate text-ink/80">{r.label}</span>
             <span className="relative h-3">
               <span className="absolute left-1/2 top-0 h-3 w-px bg-line" aria-hidden />
@@ -79,7 +79,7 @@ function CityMap({ result }: { result: RunResult }) {
           </g>
         ))}
       </svg>
-      <p className="mt-1 text-[10px] text-muted">
+      <p className="mt-1 text-label text-muted">
         {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; size = affinity.` : "Metro affinity."} Labels: top metros
         {winner ? `, ${winner.name} first` : ""} (ranked by {result.citiesRankedBy}). Outline is stylized.
       </p>
@@ -92,7 +92,7 @@ function Rank({ rows }: { rows: { name: string; affinity: number }[] }) {
   return (
     <ol className="space-y-1">
       {rows.map((r, i) => (
-        <li key={r.name} className="grid grid-cols-[1rem_6rem_1fr_2.2rem] items-center gap-2 text-[11px]" title={`${r.name}: ${r.affinity.toFixed(2)}`}>
+        <li key={r.name} className="grid grid-cols-[1rem_6rem_1fr_2.2rem] items-center gap-2 text-caption" title={`${r.name}: ${r.affinity.toFixed(2)}`}>
           <span className="font-mono text-muted">{i + 1}</span>
           <span className={`truncate ${i === 0 ? "font-semibold text-accent" : "text-ink/80"}`}>{r.name}</span>
           <span className="h-2 rounded bg-panel">
@@ -166,7 +166,7 @@ export function TasteMap({ result }: { result: RunResult }) {
     <section aria-label="Taste Map" className="space-y-3 rounded-2xl border border-line bg-panel p-4">
       <header className="flex items-baseline justify-between">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Taste Map</h2>
-        <span className="text-[10px] text-muted">seeded from {result.seeds.filter((s) => s.entityId).map((s) => s.name).join(", ")}</span>
+        <span className="text-label text-muted">seeded from {result.seeds.filter((s) => s.entityId).map((s) => s.name).join(", ")}</span>
       </header>
 
       {audience.age.length > 0 && (
@@ -184,7 +184,7 @@ export function TasteMap({ result }: { result: RunResult }) {
         <Panel title="Taste vocabulary" sub="urn:tag — the words this audience's taste is described in (feeds the copy)">
           <ul className="flex flex-wrap gap-1.5">
             {audience.tags.map((t) => (
-              <li key={t.name} className="rounded-full border border-line px-2 py-0.5 text-[11px] text-ink/85" title={`affinity ${t.affinity.toFixed(2)}`}>
+              <li key={t.name} className="rounded-full border border-line px-2 py-0.5 text-caption text-ink/85" title={`affinity ${t.affinity.toFixed(2)}`}>
                 {t.name} <span className="font-mono text-muted">{t.affinity.toFixed(2)}</span>
               </li>
             ))}

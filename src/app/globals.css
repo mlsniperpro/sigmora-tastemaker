@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/*
+ * Brand tokens: the single place for colour and type. Components use only the
+ * utilities generated from these (bg-panel, text-muted, text-caption, …), so
+ * swapping in Sigmora's packages/brand values is a change to this block.
+ * Keep --bg in sync with `themeColor` in src/app/layout.tsx.
+ */
 :root {
   --bg: #0b0b10;
   --panel: #13131b;
@@ -32,6 +38,15 @@
   --color-invented: var(--invented);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale for dense UI text (Tailwind's text-xs is 12px and up). */
+  --text-micro: 9px;
+  --text-label: 10px;
+  --text-caption: 11px;
+  --text-meta: 12px;
+  --text-body-sm: 12.5px;
+  --text-body: 13px;
+  --text-lead: 14px;
 }
 
 html,

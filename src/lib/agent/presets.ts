@@ -22,7 +22,8 @@ const US_METROS = [
   "Boston",
 ];
 
-export const PRESETS: Preset[] = [
+/** Non-empty: PRESETS[0] is the hero. */
+export const PRESETS: readonly [Preset, ...Preset[]] = [
   {
     id: "indie-release",
     title: "Indie artist: single launch",

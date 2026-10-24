@@ -153,6 +153,7 @@ function insightsEntities(params: QlooParams) {
       return { e, aff };
     })
     .sort((x, y) => y.aff - x.aff)
+    // diversify.by is accepted but not modelled: the catalog has no subtypes to spread across.
     .slice(0, only.length ? only.length : take);
   return {
     success: true,
@@ -204,10 +205,14 @@ function tagInsights(params: QlooParams) {
 
 /** Bounding box of a WKT POLYGON (lon lat pairs), or undefined. */
 export function wktBBox(wkt: string): { minLon: number; maxLon: number; minLat: number; maxLat: number } | undefined {
-  const m = wkt.match(/^POLYGON\s*\(\((.+)\)\)$/i);
-  if (!m) return undefined;
-  const pts = m[1].split(",").map((p) => p.trim().split(/\s+/).map(Number));
-  if (pts.some((p) => p.length !== 2 || p.some((n) => !Number.isFinite(n)))) return undefined;
+  const body = /^POLYGON\s*\(\((.+)\)\)$/i.exec(wkt)?.[1];
+  if (!body) return undefined;
+  const pts: [number, number][] = [];
+  for (const p of body.split(",")) {
+    const [lon, lat, ...rest] = p.trim().split(/\s+/).map(Number);
+    if (lon === undefined || lat === undefined || rest.length || !Number.isFinite(lon) || !Number.isFinite(lat)) return undefined;
+    pts.push([lon, lat]);
+  }
   const lons = pts.map((p) => p[0]);
   const lats = pts.map((p) => p[1]);
   return { minLon: Math.min(...lons), maxLon: Math.max(...lons), minLat: Math.min(...lats), maxLat: Math.max(...lats) };
@@ -222,10 +227,12 @@ function heatmap(params: QlooParams) {
   const box = typeof params["filter.location"] === "string" ? wktBBox(params["filter.location"]) : undefined;
   // Like the live host: unnamed geohash-sized cells, several per metro; `take` is ignored.
   const cells = CATALOG.filter((e) => e.type === "locality").flatMap((l) => {
+    const { lat, lon } = l;
+    if (lat === undefined || lon === undefined) return [];
     const base = affinity(ageless, l);
     return CELL_OFFSETS.map(([dLat, dLon], i) => ({
-      lat: r3(l.lat! + dLat),
-      lon: r3(l.lon! + dLon),
+      lat: r3(lat + dLat),
+      lon: r3(lon + dLon),
       affinity: r3(Math.max(0, Math.min(1, base + (hash01(`${l.id}:${i}`) - 0.5) * 0.08))),
       pop: l.pop,
     }));

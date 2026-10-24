@@ -30,7 +30,8 @@ export function haversineKm(a: { lat: number; lon: number }, b: { lat: number; l
 export function foldHeatmap<C extends { lat?: number; lon?: number; affinity: number }>(cities: readonly C[], cells: readonly HeatCell[], radiusKm = FOLD_RADIUS_KM): C[] {
   return cities.flatMap((c) => {
     if (c.lat === undefined || c.lon === undefined) return [];
-    const near = cells.filter((cell) => haversineKm({ lat: c.lat!, lon: c.lon! }, cell) <= radiusKm);
+    const at = { lat: c.lat, lon: c.lon };
+    const near = cells.filter((cell) => haversineKm(at, cell) <= radiusKm);
     if (!near.length) return [];
     return [{ ...c, affinity: Math.round((near.reduce((s, x) => s + x.affinity, 0) / near.length) * 1000) / 1000 }];
   });
@@ -63,7 +64,7 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): 
     ctx.qloo
       .insights("urn:heatmap", { ...signalFor(ctx), "filter.location": US_WKT })
       .then((r) => ({ ok: true as const, r }))
-      .catch((err: Error) => ({ ok: false as const, err })),
+      .catch((err: unknown) => ({ ok: false as const, err })),
   ]);
 
   const cells: HeatCell[] = heat.ok
@@ -72,15 +73,17 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): 
       )
     : [];
 
-  const byLocality: RankedCandidate[] = (ranked?.data.results.entities ?? []).flatMap((e) => {
-    const src = candidates.find((c) => c.entityId === e.entity_id);
-    return src ? [{ ...src, affinity: e.query?.affinity ?? 0, key: ranked!.meta.key, lat: src.lat ?? e.location?.lat, lon: src.lon ?? e.location?.lon }] : [];
-  });
+  const byLocality: RankedCandidate[] = ranked
+    ? (ranked.data.results.entities ?? []).flatMap((e) => {
+        const src = candidates.find((c) => c.entityId === e.entity_id);
+        return src ? [{ ...src, affinity: e.query?.affinity ?? 0, key: ranked.meta.key, lat: src.lat ?? e.location?.lat, lon: src.lon ?? e.location?.lon }] : [];
+      })
+    : [];
   const cities = byLocality.length ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
   return {
     cities: cities.sort((a, b) => b.affinity - a.affinity),
     heatmap: topCells(cells),
     rankedBy: byLocality.length ? "locality" : cities.length ? "heatmap" : "none",
-    heatmapError: heat.ok ? undefined : heat.err.message,
+    heatmapError: heat.ok ? undefined : heat.err instanceof Error ? heat.err.message : String(heat.err),
   };
 }

@@ -4,12 +4,15 @@ import { Brief } from "@/lib/agent/brief";
 import { briefFromForm } from "@/lib/agent/briefForm";
 import { FOLD_RADIUS_KM, foldHeatmap, haversineKm, topCells } from "@/lib/agent/cities";
 import { parseSeedLinks, resolvedType, signalAges, signalFor } from "@/lib/agent/context";
+import { placeholderReason } from "@/lib/agent/evidence";
 import { PRESETS } from "@/lib/agent/presets";
+import type { QlooHealth } from "@/lib/agent/types";
 import { NdjsonParser } from "@/lib/ndjson";
-import { decodeBrief, encodeBrief } from "@/lib/permalink";
+import { decodeBrief, encodeBrief, measureFromUrl, requestFromUrl } from "@/lib/permalink";
 import { schedule } from "@/lib/publisher";
 import { wktBBox } from "@/lib/qloo/sim/simulator";
 import { AGE_BUCKETS } from "@/lib/qloo/types";
+import { must } from "../must";
 
 describe("signals", () => {
   it("maps fine age buckets to the coarse signal buckets", () => {
@@ -70,8 +73,8 @@ describe("cities", () => {
     const near = cells.filter((c) => haversineKm(city, c) <= FOLD_RADIUS_KM);
     if (!near.length) expect(folded).toBeUndefined();
     else {
-      expect(folded.affinity).toBeGreaterThanOrEqual(Math.min(...near.map((c) => c.affinity)) - 0.001);
-      expect(folded.affinity).toBeLessThanOrEqual(Math.max(...near.map((c) => c.affinity)) + 0.001);
+      expect(must(folded).affinity).toBeGreaterThanOrEqual(Math.min(...near.map((c) => c.affinity)) - 0.001);
+      expect(must(folded).affinity).toBeLessThanOrEqual(Math.max(...near.map((c) => c.affinity)) + 0.001);
     }
   });
   it("skips cities without coordinates", () => {
@@ -80,7 +83,7 @@ describe("cities", () => {
   it.prop([fc.array(cell, { maxLength: 600 }), fc.integer({ min: 0, max: 500 })])("topCells is bounded and sorted by affinity", (cells, max) => {
     const out = topCells(cells, max);
     expect(out.length).toBe(Math.min(max, cells.length));
-    for (let i = 1; i < out.length; i++) expect(out[i - 1].affinity).toBeGreaterThanOrEqual(out[i].affinity);
+    for (const [i, c] of out.entries()) if (i) expect(must(out[i - 1]).affinity).toBeGreaterThanOrEqual(c.affinity);
   });
   it("parses WKT polygon bounding boxes (longitude first) and rejects junk", () => {
     expect(wktBBox("POLYGON((-125 24, -66 24, -66 50, -125 50, -125 24))")).toEqual({ minLon: -125, maxLon: -66, minLat: 24, maxLat: 50 });
@@ -108,6 +111,23 @@ describe("permalinks", () => {
   it("produces URL-safe text", () => {
     expect(encodeBrief(PRESETS[0].brief)).toMatch(/^[A-Za-z0-9_-]+$/);
   });
+  it("picks the first-load run from the URL: a valid brief, else a known preset, else the hero", () => {
+    const at = (q: string) => requestFromUrl(new URLSearchParams(q));
+    const b = PRESETS[0].brief;
+    expect(at(`b=${encodeBrief(b)}&preset=sports-club`)).toEqual({ brief: Brief.parse(b) });
+    expect(at("preset=sports-club")).toEqual({ preset: "sports-club" });
+    expect(at("preset=nope")).toEqual({ preset: PRESETS[0].id });
+    expect(at("b=garbage&preset=sports-club")).toEqual({ preset: "sports-club" });
+    expect(at("")).toEqual({ preset: PRESETS[0].id });
+  });
+  it("reads a campaign to measure from ?measure=, rejecting anything outside the id charset", () => {
+    expect(measureFromUrl(new URLSearchParams("measure=c_9-x"))).toBe("c_9-x");
+    for (const bad of ["", "measure=", "measure=../x", "measure=a%20b", `measure=${"x".repeat(81)}`]) expect(measureFromUrl(new URLSearchParams(bad)), bad).toBeUndefined();
+  });
+  it.prop([fc.string(), fc.string()])("always yields a runnable request", (b, preset) => {
+    const r = requestFromUrl(new URLSearchParams({ b, preset }));
+    expect("brief" in r ? Brief.safeParse(r.brief).success : PRESETS.some((p) => p.id === r.preset)).toBe(true);
+  });
 });
 
 describe("NdjsonParser", () => {
@@ -122,7 +142,7 @@ describe("NdjsonParser", () => {
       prev = c;
     }
     out.push(...p.end());
-    expect(out).toEqual(values.map((v) => JSON.parse(JSON.stringify(v))));
+    expect(out).toEqual(values.map((v): unknown => JSON.parse(JSON.stringify(v))));
   });
   it("flushes a final line without a newline", () => {
     const p = new NdjsonParser<unknown>();
@@ -153,8 +173,22 @@ describe("schedule", () => {
         const d = new Date(x.scheduledFor);
         expect(d.getUTCHours()).toBe(17);
         expect(d.getTime()).toBeGreaterThan(now.getTime());
-        if (i) expect(d.getTime() - new Date(s[i - 1].scheduledFor).getTime()).toBe(24 * 3600 * 1000);
+        if (i) expect(d.getTime() - new Date(must(s[i - 1]).scheduledFor).getTime()).toBe(24 * 3600 * 1000);
       });
     },
   );
+});
+
+describe("placeholderReason", () => {
+  const health = (o: Partial<QlooHealth> = {}): QlooHealth => ({ calls: 10, live: 10, cached: 0, replay: 0, simulated: 0, fallbackCalls: 0, fallbacks: [], ...o });
+  const llm = (scripted: boolean) => ({ id: "x", label: "x", scripted });
+  it("blanks simulated or scripted runs and says why", () => {
+    expect(placeholderReason({ qloo: health({ live: 0, simulated: 10 }), llm: llm(false) })).toMatch(/simulated Qloo data/);
+    expect(placeholderReason({ qloo: health(), llm: llm(true) })).toMatch(/scripted stand-in model/);
+    expect(placeholderReason({ qloo: health({ live: 0, simulated: 10 }), llm: llm(true) })).toMatch(/simulated Qloo data and a scripted/);
+  });
+  it("shows numbers for live or replayed Qloo with a real model", () => {
+    expect(placeholderReason({ qloo: health(), llm: llm(false) })).toBeUndefined();
+    expect(placeholderReason({ qloo: health({ live: 0, replay: 10 }), llm: llm(false) })).toBeUndefined();
+  });
 });

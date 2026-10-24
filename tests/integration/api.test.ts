@@ -7,9 +7,10 @@ import { PRESETS } from "@/lib/agent/presets";
 import { DEGRADED_TTL, RESULT_TTL, cachedRun, getOrRun, isHealthy, runById, runKey } from "@/lib/agent/runCache";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
-import { SandboxPublisher, SigmoraPublisher, publisherFromEnv } from "@/lib/publisher";
+import { SandboxPublisher, SigmoraPublisher, publisherFromEnv, type ShipReceipt } from "@/lib/publisher";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
+import { must } from "../must";
 
 const post = (body: unknown) =>
   new Request("http://x/api", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "1.2.3.4" }, body: typeof body === "string" ? body : JSON.stringify(body) });
@@ -40,7 +41,7 @@ describe("/api/run", () => {
 
   it("finishes and caches the run even if the client disconnects mid-stream", async () => {
     const res = await run(post({ preset: "sports-club" }));
-    const reader = res.body!.getReader();
+    const reader = must(res.body, "response body").getReader();
     await reader.read();
     await reader.cancel();
     await vi.waitFor(async () => expect((await run(post({ preset: "sports-club" }))).headers.get("x-run-cache")).toBe("hit"), { timeout: 5000 });
@@ -50,14 +51,16 @@ describe("/api/run", () => {
     expect((await run(post("{nope"))).status).toBe(400);
     const bad = await run(post({ brief: { family: "music" } }));
     expect(bad.status).toBe(400);
-    expect((await bad.json()).error).toMatch(/subject/);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/subject/);
     expect((await run(post({ preset: "nope" }))).status).toBe(404);
     expect((await run(post({ brief: { ...PRESETS[0].brief, seeds: Array(9).fill("x") } }))).status).toBe(400);
   });
 
   it("ends the stream with an error event when no seed resolves", async () => {
     const res = await run(post({ brief: { family: "music", subject: "x", product: "y", seeds: ["Qqqzzz Unknown"], ages: ["25_to_29"], goal: "g" } }));
-    expect((await events(res)).at(-1)).toMatchObject({ type: "error", message: expect.stringMatching(/resolve/) });
+    const last = (await events(res)).at(-1);
+    expect(last?.type).toBe("error");
+    expect(last && "message" in last ? last.message : "").toMatch(/resolve/);
   });
 });
 
@@ -94,15 +97,15 @@ describe("result cache health", () => {
 describe("/api/ship", () => {
   it("ships a run the server produced, using the server's captions", async () => {
     const ev = await events(await run(post({ preset: "indie-release" })));
-    const result = resultOf(ev)!;
+    const result = must(resultOf(ev), "run result");
     const res = await ship(post({ runId: result.id, posts: [{ platform: "X", text: "injected" }] }));
     expect(res.status).toBe(200);
-    const receipt = await res.json();
+    const receipt = (await res.json()) as ShipReceipt;
     expect(receipt.publisher).toBe("sandbox");
-    expect(receipt.posts.map((p: { platform: string }) => p.platform)).toEqual(result.grounded.draft.captions.map((c) => c.platform));
+    expect(receipt.posts.map((p) => p.platform)).toEqual(result.grounded.draft.captions.map((c) => c.platform));
   });
   it("gives every run its own id, even for the same brief", async () => {
-    const brief = Brief.parse(PRESETS[2].brief);
+    const brief = Brief.parse(must(PRESETS[2]).brief);
     const mk = () => ({ qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM(), cache: new MemoryCache() });
     const a = await getOrRun(await cachedRun(brief, mk()));
     const b = await getOrRun(await cachedRun(brief, mk()));
@@ -134,8 +137,8 @@ describe("publisher", () => {
 
   it("calls Sigmora /v1 with a bearer token and one idempotency key across retries", async () => {
     const replies = [new Response("busy", { status: 503 }), Response.json({ id: "c1", posts: [{ id: "p1" }, { id: "p2" }] })];
-    const f = vi.fn(async () => replies.shift()!);
-    const r = await new SigmoraPublisher("https://api.example/", "tok", f as unknown as typeof fetch, fastRetry).ship(plan);
+    const f = vi.fn(async () => must(replies.shift(), "stub reply"));
+    const r = await new SigmoraPublisher("https://api.example/", "tok", f, fastRetry).ship(plan);
     expect(f).toHaveBeenCalledTimes(2);
     const keys = f.mock.calls.map((c) => ((c as unknown as [string, RequestInit])[1].headers as Record<string, string>)["idempotency-key"]);
     expect(keys).toEqual(["tastemaker-r1", "tastemaker-r1"]);
@@ -143,7 +146,7 @@ describe("publisher", () => {
     expect(url).toBe("https://api.example/v1/campaigns");
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer tok");
     expect(r).toMatchObject({ campaignId: "c1", publisher: "sigmora" });
-    expect(r.posts[1].externalId).toBe("p2");
+    expect(r.posts[1]?.externalId).toBe("p2");
   });
 
   it("rejects a Sigmora reply without a campaign id", async () => {

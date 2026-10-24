@@ -1,6 +1,6 @@
 # Devpost submission: Tastemaker by Sigmora
 
-> Paste-ready. Fill the bracketed items only from measured sources: the live URL once hosted, the benchmark numbers once `docs/benchmark.md` is a live measurement (not the DRY RUN), and the video link.
+> Paste-ready. Fill the bracketed items only from measured sources: the live URL once hosted, the benchmark numbers once `docs/benchmark.md` is a live measurement (it currently says "No measurement yet"), and the video link.
 
 **Title:** Tastemaker by Sigmora
 
@@ -45,7 +45,7 @@ Every request is validated against per-`filter.type` parameter allow-lists (Qloo
 
 ## Culture Miss Rate
 
-Across 30 briefs (music, DTC, sports), the same model with no Qloo access produced **[X]%** picks that were invented or below the audience's affinity bar; with the Qloo critic the shipped plans had **[Y]%**. Method, script and raw outputs: `docs/benchmark.md`, `benchmark/results.json`. *(Fill only from a live run.)*
+Across 30 briefs (music, DTC, sports), the same model with no Qloo access produced **[X]%** picks that were invented or below the audience's affinity bar; with the Qloo critic the shipped plans had **[Y]%**. Method, script and summary: `docs/benchmark.md`, `benchmark/summary.json`; blind LLM-judge preference in the same report. *(Fill only from a live run.)*
 
 ## Responsible taste
 

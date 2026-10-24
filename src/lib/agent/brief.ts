@@ -31,6 +31,10 @@ export const Brief = z.object({
 export type Brief = z.infer<typeof Brief>;
 export type BriefInput = z.input<typeof Brief>;
 
+/** A run is requested by preset id or by a full brief (shared by the server and the browser). */
+export const RunRequest = z.union([z.object({ preset: z.string().max(40) }).strict(), z.object({ brief: Brief }).strict()]);
+export type RunRequest = z.input<typeof RunRequest>;
+
 export const ROLES = ["collab", "sponsor", "reference", "podcast", "venue", "presenter", "city"] as const;
 export type Role = (typeof ROLES)[number];
 
@@ -39,7 +43,7 @@ export type PickType = (typeof PICK_TYPES)[number];
 
 export interface RoleSpec {
   /** Qloo entity type(s) the role is drawn from. */
-  types: readonly PickType[];
+  types: readonly [PickType, ...PickType[]];
   /** How many picks of this role a plan carries. */
   count: number;
   /** "median": pass at ≥ missRatio × median candidate affinity; "top3": pass if within the top 3 of the candidate pool. */
@@ -52,7 +56,7 @@ export interface RoleSpec {
   checkFading: boolean;
 }
 
-const role = (types: readonly PickType[], count: number, extra: Partial<RoleSpec> = {}): RoleSpec => ({
+const role = (types: readonly [PickType, ...PickType[]], count: number, extra: Partial<RoleSpec> = {}): RoleSpec => ({
   types,
   count,
   bar: "median",

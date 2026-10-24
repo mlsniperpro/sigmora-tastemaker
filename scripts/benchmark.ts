@@ -1,105 +1,89 @@
 /**
  * Culture Miss Rate benchmark: run the same model on 30 briefs with and
- * without Qloo, audit both plans with the Qloo critic, and write
- * benchmark/results.json + docs/benchmark.md.
+ * without Qloo, audit both plans with the Qloo critic, ask a blind pairwise
+ * LLM judge which plan is better, and write the report.
  *
- * A run only counts as a measurement when every Qloo call was live or a
- * recorded live response AND the LLM is a real model. Otherwise the report is
- * written as a labeled DRY RUN and must not be quoted anywhere.
+ *   pnpm benchmark
+ *
+ * Raw runs go to benchmark/runs/ (gitignored). docs/benchmark.md and
+ * benchmark/summary.json carry numbers only when the run is a valid
+ * measurement (real LLM, live or recorded-live Qloo, no fallbacks, all briefs).
+ * Judge replies are replayed from fixtures/judge/recorded.json when present
+ * and recorded there when made live.
  */
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { BRIEFS } from "../benchmark/briefs";
+import { Brief } from "../src/lib/agent/brief";
 import { runTastemaker } from "../src/lib/agent/run";
-import type { Metrics, RunResult } from "../src/lib/agent/types";
-import { llmFromEnv } from "../src/lib/llm";
+import type { RunResult } from "../src/lib/agent/types";
+import { pct, renderReport, summarize, type BenchRow, type BenchSummary } from "../src/lib/benchmark/aggregate";
+import { judgePair, seededRandom, summarizeJudgements, type PairJudgement } from "../src/lib/benchmark/judge";
+import { judgeChatFromEnv, llmFromEnv } from "../src/lib/llm";
+import { ReplayChat } from "../src/lib/llm/chat";
 import { qlooFromEnv } from "../src/lib/qloo/client";
 
-const llm = llmFromEnv();
-const rows: { subject: string; family: string; grounded: Metrics; baseline: Metrics; sources: string[]; fallbacks: number; error?: string }[] = [];
-const raw: RunResult[] = [];
+const JUDGE_FIXTURES = "fixtures/judge/recorded.json";
+const zero = { picks: 0, hallucinations: 0, misses: 0, fading: 0, cultureMissRate: 0 };
 
-for (const brief of BRIEFS) {
+const llm = llmFromEnv();
+const liveJudge = judgeChatFromEnv();
+const judgeFixtures: Record<string, string> = existsSync(JUDGE_FIXTURES) ? (JSON.parse(readFileSync(JUDGE_FIXTURES, "utf8")) as Record<string, string>) : {};
+const recorder: Record<string, string> = {};
+const judgeModel = liveJudge?.model ?? process.env.JUDGE_MODEL ?? process.env.LLM_MODEL;
+const judge = judgeModel && (liveJudge || Object.keys(judgeFixtures).length) ? new ReplayChat(judgeModel, judgeFixtures, liveJudge, recorder) : undefined;
+
+const rows: BenchRow[] = [];
+const runs: RunResult[] = [];
+const judgements: PairJudgement[] = [];
+const judgeErrors: string[] = [];
+
+for (const input of BRIEFS) {
+  const brief = Brief.parse(input);
   try {
     // A fresh client per brief: the per-run Qloo call budget applies to each run, not to the whole benchmark.
     const r = await runTastemaker(brief, { qloo: qlooFromEnv(), llm });
-    raw.push(r);
-    const fallbacks = r.qloo.fallbackCalls;
-    rows.push({ subject: brief.subject, family: brief.family, grounded: r.metrics.grounded, baseline: r.metrics.baseline, sources: r.sources, fallbacks });
-    console.log(`${brief.subject.padEnd(10)} baseline CMR ${r.metrics.baseline.cultureMissRate.toFixed(2)} → grounded ${r.metrics.grounded.cultureMissRate.toFixed(2)}`);
+    runs.push(r);
+    rows.push({ subject: brief.subject, family: brief.family, grounded: r.metrics.grounded, baseline: r.metrics.baseline, sources: r.sources, fallbacks: r.qloo.fallbackCalls, qlooCalls: r.qloo.calls });
+    if (judge) {
+      try {
+        judgements.push(await judgePair(judge, brief, r.grounded.draft, r.baseline.draft, seededRandom(brief.subject)));
+      } catch (err) {
+        judgeErrors.push(`${brief.subject}: ${(err as Error).message}`);
+      }
+    }
+    console.log(`${brief.subject.padEnd(10)} done`);
   } catch (err) {
-    rows.push({ subject: brief.subject, family: brief.family, grounded: zero(), baseline: zero(), sources: [], fallbacks: 0, error: (err as Error).message });
+    rows.push({ subject: brief.subject, family: brief.family, grounded: zero, baseline: zero, sources: [], fallbacks: 0, qlooCalls: 0, error: (err as Error).message });
     console.error(`${brief.subject}: ${(err as Error).message}`);
   }
 }
 
-function zero(): Metrics {
-  return { picks: 0, hallucinations: 0, misses: 0, fading: 0, cultureMissRate: 0 };
-}
-
-function sum(ms: Metrics[]) {
-  const t = ms.reduce((a, m) => ({ picks: a.picks + m.picks, hallucinations: a.hallucinations + m.hallucinations, misses: a.misses + m.misses, fading: a.fading + m.fading }), { picks: 0, hallucinations: 0, misses: 0, fading: 0 });
-  const rate = (n: number) => (t.picks ? n / t.picks : 0);
-  return { ...t, hallucinationRate: rate(t.hallucinations), cultureMissRate: rate(t.hallucinations + t.misses), fadingRate: rate(t.fading) };
-}
-
-const ok = rows.filter((r) => !r.error);
-const sources = [...new Set(ok.flatMap((r) => r.sources))];
-const fallbacks = ok.reduce((n, r) => n + r.fallbacks, 0);
-const qlooCalls = raw.reduce((n, r) => n + r.qloo.calls, 0);
-const valid = ok.length === BRIEFS.length && !llm.scripted && fallbacks === 0 && sources.every((s) => s === "live" || s === "replay");
-const summary = {
-  valid,
-  ranAt: new Date().toISOString(),
-  model: llm.id,
-  qlooSources: sources,
-  qlooFallbacks: fallbacks,
-  qlooCalls,
+const ranAt = new Date().toISOString();
+const summary: BenchSummary = summarize(rows, {
   briefs: BRIEFS.length,
-  completed: ok.length,
-  baseline: sum(ok.map((r) => r.baseline)),
-  grounded: sum(ok.map((r) => r.grounded)),
-  byFamily: Object.fromEntries(
-    ["music", "dtc", "sports"].map((f) => [f, { baseline: sum(ok.filter((r) => r.family === f).map((r) => r.baseline)), grounded: sum(ok.filter((r) => r.family === f).map((r) => r.grounded)) }]),
-  ),
-};
+  model: llm.id,
+  modelScripted: llm.scripted,
+  ranAt,
+  judge:
+    judge && judgements.length
+      ? { ...summarizeJudgements(judgements), model: judge.model, sameAsGenerator: judge.model === llm.label, replayed: judge.replayed, live: judge.live, errors: judgeErrors }
+      : undefined,
+});
 
-writeFileSync("benchmark/results.json", JSON.stringify({ summary, rows, raw: raw.map((r) => ({ id: r.id, brief: r.brief, baseline: r.baseline, grounded: r.grounded })) }, null, 1) + "\n");
+mkdirSync("benchmark/runs", { recursive: true });
+writeFileSync(`benchmark/runs/${ranAt.replace(/[:.]/g, "-")}.json`, JSON.stringify({ summary, rows, judgements, judgeErrors, runs }, null, 1) + "\n");
+if (Object.keys(recorder).length) {
+  mkdirSync("fixtures/judge", { recursive: true });
+  writeFileSync(JUDGE_FIXTURES, JSON.stringify({ ...judgeFixtures, ...recorder }, null, 1) + "\n");
+}
+writeFileSync("docs/benchmark.md", renderReport(summary));
+if (summary.valid) writeFileSync("benchmark/summary.json", JSON.stringify(summary, null, 2) + "\n");
+else rmSync("benchmark/summary.json", { force: true });
 
-const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-const line = (name: string, s: ReturnType<typeof sum>) => `| ${name} | ${s.picks} | ${pct(s.hallucinationRate)} | ${pct(s.cultureMissRate)} | ${pct(s.fadingRate)} |`;
-const md = `# Culture Miss Rate benchmark
-
-${valid ? "" : `> **DRY RUN — NOT A MEASUREMENT.** This report was produced with ${llm.scripted ? "the scripted offline model" : `model \`${llm.id}\``} and Qloo source(s) \`${sources.join(", ")}\`. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks (${fallbacks} this run), and all ${BRIEFS.length} briefs completed. Do not quote these numbers. Re-run with \`QLOO_API_KEY\`, \`LLM_PROVIDER\`, \`LLM_MODEL\`, \`LLM_API_KEY\` and a \`QLOO_DAILY_CALL_CAP\` above ${qlooCalls} (this run's Qloo request count; a live run caches repeats, so it needs at most that many): \`pnpm benchmark\`.\n`}
-Generated by \`pnpm benchmark\` (scripts/benchmark.ts) at ${summary.ranAt}. Raw outputs: [benchmark/results.json](../benchmark/results.json).
-
-## Method
-
-- ${BRIEFS.length} briefs (benchmark/briefs.ts): 10 music releases, 10 DTC city launches, 10 sports-club fan markets.
-- For each brief the **same model** (\`${llm.id}\`) drafts two plans: one with Qloo grounding and the Qloo critic loop, one with no Qloo access.
-- Every cultural entity each plan names is resolved with Qloo \`/search\` and scored with \`/v2/insights\` + \`filter.results.entities\` + \`feature.explainability\` against the brief's audience signal.
-- **Hallucination rate:** named entities that do not resolve to any Qloo entity.
-- **Culture Miss Rate:** hallucinations plus resolved picks scoring below the pass bar (max(0.25, 0.7 × the median affinity of Qloo's top-10 candidates for that role); launch city: outside the top 3 metros; venues: not in the launch city).
-- **Fading-reference rate:** hook references that clear the bar but have /v2/trending velocity below −0.3.
-- The grounded plan is scored after the critic loop (up to 2 revise rounds), so it measures the shipped plan. The pass bar is the same one the critic uses; this measures what the product ships, not an independent judgment of taste.
-- Not done yet: the blind pairwise LLM-judge preference from the playbook.
-
-## Results (${ok.length}/${BRIEFS.length} briefs completed)
-
-| Plan | Picks | Hallucination rate | Culture Miss Rate | Fading-reference rate |
-|---|---|---|---|---|
-${line("Without Qloo", summary.baseline)}
-${line("Tastemaker (with Qloo)", summary.grounded)}
-
-### By family
-
-| Family | Plan | Picks | Hallucination rate | Culture Miss Rate | Fading-reference rate |
-|---|---|---|---|---|---|
-${(["music", "dtc", "sports"] as const)
-  .flatMap((f) => [
-    line(`${f} | Without Qloo`, summary.byFamily[f].baseline),
-    line(`${f} | With Qloo`, summary.byFamily[f].grounded),
-  ])
-  .join("\n")}
-${rows.some((r) => r.error) ? `\n### Errors\n\n${rows.filter((r) => r.error).map((r) => `- ${r.subject}: ${r.error}`).join("\n")}\n` : ""}`;
-writeFileSync("docs/benchmark.md", md);
-console.log(`\n${valid ? "MEASUREMENT" : "DRY RUN"}: baseline CMR ${pct(summary.baseline.cultureMissRate)} → grounded ${pct(summary.grounded.cultureMissRate)} (${ok.length} briefs)`);
+console.log(
+  `\n${summary.valid ? "MEASUREMENT" : `NOT A MEASUREMENT (${summary.invalidReasons.join("; ")}) — numbers below are not published`}: ` +
+    `Culture Miss Rate without Qloo ${pct(summary.baseline.cultureMissRate)} → with Qloo ${pct(summary.grounded.cultureMissRate)} (${summary.completed} briefs, ${summary.qlooCalls} Qloo requests)`,
+);
+if (summary.judge) console.log(`Judge ${summary.judge.model}: Tastemaker ${summary.judge.groundedWins} · without Qloo ${summary.judge.baselineWins} · ties ${summary.judge.ties} (${summary.judge.inconsistent} inconsistent)`);
+else console.log("Judge: not run (no JUDGE_* / LLM_* model and no recorded verdicts).");
+if (judgeErrors.length) console.log(`Judge errors: ${judgeErrors.length}\n- ${judgeErrors.join("\n- ")}`);

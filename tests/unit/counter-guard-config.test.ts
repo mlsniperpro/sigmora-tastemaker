@@ -4,6 +4,7 @@ import { ConfigError, loadConfig } from "@/lib/config";
 import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
 import { checkGuard, clientIp } from "@/lib/guard";
+import { sentJson } from "../must";
 
 describe("MemoryCounter", () => {
   it("counts within a window and resets after it expires", async () => {
@@ -25,11 +26,11 @@ describe("MemoryCounter", () => {
 describe("KvCounter", () => {
   it("creates the window with a TTL, then INCRs, in one pipeline call", async () => {
     const f = vi.fn(async () => Response.json([{ result: "OK" }, { result: 3 }]));
-    const n = await new KvCounter(new KvRest("https://kv.example/", "tok", f as unknown as typeof fetch)).incr("tm:k", 120);
+    const n = await new KvCounter(new KvRest("https://kv.example/", "tok", f)).incr("tm:k", 120);
     expect(n).toBe(3);
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://kv.example/pipeline");
-    expect(JSON.parse(String(init.body))).toEqual([
+    expect(sentJson(init)).toEqual([
       ["SET", "tm:k", "0", "EX", 120, "NX"],
       ["INCR", "tm:k"],
     ]);
@@ -63,7 +64,7 @@ describe("window helpers", () => {
     await incrPerMinute(spy, "y", t);
     expect(keys).toEqual([
       ["tm:x:2026-10-24", 93600],
-      ["tm:y:" + Math.floor(t / 60000), 120],
+      [`tm:y:${Math.floor(t / 60000)}`, 120],
     ]);
   });
 });
@@ -130,8 +131,19 @@ describe("config", () => {
       }
     })();
     expect(err).toBeInstanceOf(ConfigError);
-    expect(err!.message).toMatch(/QLOO_MODE/);
-    expect(err!.message).toMatch(/QLOO_RPS/);
-    expect(err!.message).not.toContain("secret-ish");
+    expect(err?.message).toMatch(/QLOO_MODE/);
+    expect(err?.message).toMatch(/QLOO_RPS/);
+    expect(err?.message).not.toContain("secret-ish");
+  });
+});
+
+describe("blank env values", () => {
+  it("count as unset: defaults apply instead of a crash or a zero budget", () => {
+    const c = loadConfig({ SIGMORA_PUBLISH_MODE: "", QLOO_MODE: "  ", QLOO_DAILY_CALL_CAP: "", QLOO_BIAS_TRENDS: "", QLOO_API_KEY: " " });
+    expect(c.SIGMORA_PUBLISH_MODE).toBe("sandbox");
+    expect(c.QLOO_MODE).toBe("auto");
+    expect(c.QLOO_DAILY_CALL_CAP).toBe(300);
+    expect(c.QLOO_BIAS_TRENDS).toBe("medium");
+    expect(c.QLOO_API_KEY).toBeUndefined();
   });
 });

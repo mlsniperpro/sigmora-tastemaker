@@ -44,13 +44,12 @@ for (const p of PRESETS) {
 }
 
 // Probes: coverage and parameter questions from BLOCKED.md.
+const spotifyProbe = process.env.PROBE_SPOTIFY_ID;
 const probes: [string, () => Promise<unknown>][] = [
   ["Nairobi locality search", () => qloo.search("Nairobi", ["locality"], 3)],
   ["Nairobi places", () => qloo.insights("urn:entity:place", { "filter.location.query": "Nairobi", take: 5 })],
   // Set PROBE_SPOTIFY_ID to a real Spotify artist id to check /entities external-ID lookup.
-  ...(process.env.PROBE_SPOTIFY_ID
-    ? ([["Spotify external id", () => qloo.entitiesByExternal("spotify", [process.env.PROBE_SPOTIFY_ID!])]] as [string, () => Promise<unknown>][])
-    : []),
+  ...(spotifyProbe ? ([["Spotify external id", () => qloo.entitiesByExternal("spotify", [spotifyProbe])]] as [string, () => Promise<unknown>][]) : []),
   ["Tags semantic search", () => qloo.tags("afrobeats", 5)],
 ];
 for (const [name, fn] of probes) {

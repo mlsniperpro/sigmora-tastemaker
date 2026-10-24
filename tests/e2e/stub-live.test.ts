@@ -15,6 +15,7 @@ import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
 import type { QlooPath } from "@/lib/qloo/params";
 import { simulate } from "@/lib/qloo/sim/simulator";
+import { must } from "../must";
 
 const QLOO = "https://qloo.stub";
 const LLM = "https://llm.stub/v1";
@@ -82,7 +83,7 @@ describe("e2e: /api/run in live mode against stubbed Qloo + LLM hosts", () => {
     expect(res.status).toBe(200);
     const { events, result } = await readStream(res);
     expect(result, JSON.stringify(events.at(-1))).toBeDefined();
-    const r = result!;
+    const r = must(result, "result");
 
     // every Qloo answer came from the (stub) live host, none fell back
     expect(r.sources).toEqual(["live"]);
@@ -114,18 +115,18 @@ describe("e2e: record live responses, then replay them with the network off", ()
     const recorder: Record<string, unknown> = {};
     const seen: Seen = { qloo: [], llm: 0, injected429: true };
     const live = new QlooClient({ apiKey: "k", baseUrl: QLOO, mode: "live", cache: new MemoryCache(), fixtures: {}, recorder, fetchImpl: stubNetwork(seen) as unknown as typeof fetch });
-    const recorded = await runTastemaker(PRESETS[1].brief, { qloo: live, llm: new DeterministicLLM() });
+    const recorded = await runTastemaker(must(PRESETS[1]).brief, { qloo: live, llm: new DeterministicLLM() });
     expect(recorded.sources).toEqual(["live"]);
 
     const offline = vi.fn(async () => {
       throw new Error("network is off");
     });
     const replay = new QlooClient({ mode: "replay", cache: new MemoryCache(), fixtures: recorder, fetchImpl: offline as unknown as typeof fetch });
-    const replayed = await runTastemaker(PRESETS[1].brief, { qloo: replay, llm: new DeterministicLLM() });
+    const replayed = await runTastemaker(must(PRESETS[1]).brief, { qloo: replay, llm: new DeterministicLLM() });
     expect(offline).not.toHaveBeenCalled();
     expect(replayed.sources).toEqual(["replay"]);
     // identical except for the provenance label on each receipt
-    const unlabeled = (x: unknown) => JSON.parse(JSON.stringify(x, (k, v) => (k === "source" ? undefined : v)));
+    const unlabeled = (x: unknown): unknown => JSON.parse(JSON.stringify(x, (k, v: unknown) => (k === "source" ? undefined : v)));
     expect(unlabeled(replayed.grounded)).toEqual(unlabeled(recorded.grounded));
     expect(unlabeled(replayed.baseline)).toEqual(unlabeled(recorded.baseline));
     expect(replayed.grounded.receipts.every((r) => r.source === "replay")).toBe(true);
