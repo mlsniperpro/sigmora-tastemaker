@@ -35,7 +35,6 @@ export function App() {
   // The URL decides what runs on first load; read it once, at mount.
   const [initial] = useState(() => ({ measure: measureFromUrl(params), runId: runIdFromUrl(params), request: requestFromUrl(params) }));
   const [activePreset, setActivePreset] = useState(!initial.measure && !initial.runId && "preset" in initial.request ? initial.request.preset : undefined);
-  const [showCustom, setShowCustom] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
@@ -77,9 +76,6 @@ export function App() {
               {p.title}
             </button>
           ))}
-          <button type="button" onClick={() => setShowCustom((s) => !s)} aria-expanded={showCustom} className="rounded-full border border-dashed border-line px-3 py-1.5 text-meta text-muted hover:text-ink">
-            {showCustom ? "Hide custom brief" : "Your own brief"}
-          </button>
           {result && (
             <button
               type="button"
@@ -103,10 +99,13 @@ export function App() {
             <span className="text-muted">Audience loves {result.brief.seeds.join(", ")}.</span>
           </p>
         )}
-        {showCustom && <BriefForm busy={running} onRun={(b) => {
-              setActivePreset(undefined);
-              void run({ brief: b });
-            }} />}
+        <BriefForm
+          busy={running}
+          onRun={(b) => {
+            setActivePreset(undefined);
+            void run({ brief: b });
+          }}
+        />
       </section>
 
       {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">{error}</div>}

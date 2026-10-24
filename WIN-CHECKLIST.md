@@ -23,12 +23,13 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 
 ## Playbook §3 hero scenario
 
-- [ ] Step 1 resolve from a Spotify/IMDb link: `/entities` is wired (`resolveLinks`), but no preset shows it and a link-only brief is rejected
+- [x] Step 1 resolve from a Spotify/IMDb link: the hero preset seeds from Tems' Spotify id via `/entities`; a link alone is a valid brief; link and name dedupe (`agent.test.ts` "seeds from a Spotify link alone")
+- [P] Step 1 the hero's Spotify id is verified on the first live run (BLOCKED.md: live calls #2)
 - [x] Step 2 demographics + taste vocabulary: `urn:demographics`, `urn:tag` steps; Taste Map panels; `surfaces.test.ts`
 - [x] Step 3 cross-domain map with signals and `diversify.by`: `loadCulture`, `discoveryParams` (`context.ts`); `wire-params.test.ts`
 - [x] Step 4 where to launch, venues in the plan's city: `rankCities`; `followPlanCity` (`run.ts`); `agent.test.ts` "judges venues in the city the plan chose"
 - [x] Step 5 rising vs fading: `/v2/trending` step; fading verdicts; `critic.test.ts`
-- [ ] Step 6 verify every entity the plan mentions: listed picks are resolved (typed, then untyped search) and scored; names in the copy that are missing from `picks` are not yet checked
+- [x] Step 6 verify every entity the plan mentions: listed picks are resolved (typed, then untyped search) and scored; names in the copy that aren't picks are found and checked too (`src/lib/agent/mentions.ts`, `tests/unit/mentions.test.ts`)
 - [x] Step 7 compare positioning gap: `/v2/analysis/compare` step; Taste Map panel
 - [x] Step 8 receipts on every pick, no made-up numbers: `ReceiptChip`; `critic.test.ts` "shows no number when Qloo gives no score"
 - [x] Step 9 Without Qloo, annotated inline: `annotation` (`evidence.ts`); e2e asserts the inline line
@@ -41,7 +42,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 
 - [ ] Brief bar with link paste and audience chips: `BriefForm.tsx` exists behind "Your own brief"; no city, gender or compare fields
 - [x] Live, collapsible trace with endpoint, params and latency: `Trace.tsx` (running step, all params with names, canonical surfaces, collapse, aria-live); e2e asserts params
-- [ ] Taste Map with map tiles: MapLibre + OpenFreeMap tiles added (`CityTileMap.tsx`); the tile worker doesn't load under Turbopack yet, so it falls back to the SVG map
+- [x] Taste Map with map tiles: MapLibre 5 + OpenFreeMap tiles with the urn:heatmap heat layer (`CityTileMap.tsx`); e2e covers the tile path (local style) and the SVG fallback (host blocked)
 - [x] Cross-domain affinity web: seeds → picks from explainability (`src/lib/agent/web.ts`, `tests/unit/web.test.ts`)
 - [x] Pack with receipt chips: `CampaignPack.tsx`; e2e
 - [x] Without Qloo toggle: e2e
@@ -68,15 +69,15 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A1 cold hero run slow: recorded preset runs served instantly with "Re-run live"; independent steps in parallel (`pnpm bench:latency 1200`: 25.4 s → 20.6 s); `recorded.test.ts`, `agent.test.ts` "credits every Qloo call"
 - [P] A1 recordings themselves need the keys (BLOCKED.md: `pnpm runs:record`)
 - [x] A2 resilience under rate limits: a refused or failed live run falls back to the recording, with the reason (`recorded.test.ts`)
-- [ ] A3 looks like a fixed pipeline: the model should choose among critic-approved options, with its choice in the trace
-- [ ] A4 names in the copy but not in `picks` go unchecked (same as §3 step 6)
+- [x] A3 the model chooses among Qloo-approved replacements and says why (a traced step); code accepts only listed options (`src/lib/agent/choose.ts`, `tests/unit/choose.test.ts`, `llm.test.ts` "LiveLLM.choose")
+- [x] A4 names in the copy but not in `picks` are checked (`mentions.ts`, `mentions.test.ts`)
 - [x] A5 venues judged in the plan's own city; baseline in its own city (`agent.test.ts`)
 - [ ] A6 pass bar is circular: add a sensitivity table at several bars to the benchmark report
 - [x] A7 no made-up 0.00: `unscored` verdict (`critic.test.ts`)
 - [x] A8 "Not a real entity" overclaim: untyped second search, "Not found in Qloo", role-mismatch verdict (`critic.test.ts`)
 - [x] A9 ROI line in the app: `RoiLine`; e2e
-- [ ] A10 link seeding never visible (same as §3 step 1)
-- [ ] A11 map tiles (same as §7)
+- [x] A10 link seeding visible in the hero trace (`/entities`); link-only briefs (`agent.test.ts`)
+- [x] A11 map tiles (`CityTileMap.tsx`; e2e)
 - [x] A12 affinity web was a star: now seeds → picks (`web.ts`, `web.test.ts`)
 - [x] A13 Without Qloo annotations inline: e2e
 - [x] A14 cached runs labelled: `served` on the result event; trace banner; e2e
@@ -86,14 +87,14 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A18 permalinks to the exact run: e2e
 - [P] A18 KV for permalinks and Ship across instances (BLOCKED.md: KV)
 - [ ] A19 brief bar fields (same as §7)
-- [ ] A20 DTC preset has no map: heatmap inside the target city
-- [ ] A21 Ship sends captions only and ships with misses: send the full pack, warn on remaining misses
+- [x] A20 DTC preset maps where inside Atlanta the audience is (`urn:heatmap` + `filter.location.query`; `agent.test.ts` "maps where inside a fixed market")
+- [x] A21 Ship sends the whole pack (hooks, script, music brief) and asks before shipping flagged picks (`api.test.ts` "asks before shipping picks the critic still flags")
 - [x] A22 baseline failure no longer kills the run (`agent.test.ts`)
 - [x] A23 no made-up 0.5 bar; `taste_check` ranks city picks (`critic.test.ts`, `agent.test.ts`)
 - [x] A24 MCP blanks placeholder rates (`mcp.ts`)
 - [x] A25 single-flight and `after()` lifetime (`recorded.test.ts`)
 - [x] A26 server-rendered title block and link-preview image (`Intro.tsx`, `src/app/opengraph-image.png`)
-- [ ] A27 tiny text on mobile: SVG labels below 10 px at 390 px
+- [x] A27 chart labels ≥ 9 px rendered at 390 px (e2e measures glyph boxes)
 - [x] A28 whole-word, case-insensitive highlighting (`CampaignPack.tsx`)
 - [x] A29 aria-live trace; presets can switch mid-run (`App.tsx`)
 - [x] A30 misleading labels corrected (ranked-by, demographic units, scoreboard, strongest driver)

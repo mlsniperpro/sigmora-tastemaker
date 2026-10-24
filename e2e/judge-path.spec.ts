@@ -111,3 +111,22 @@ test("the city map draws real tiles, and falls back to the SVG map when the tile
   await expect(down.getByRole("img", { name: "Audience demand across the US" })).toBeVisible();
   await down.close();
 });
+
+test("a custom brief from the brief bar: a Spotify link alone, a fixed city and a comparable", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const bar = page.getByRole("form", { name: "Your own brief" });
+  await bar.getByLabel(/Spotify artist \/ IMDb link/).fill("https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq");
+  await bar.getByRole("button", { name: /More details/ }).click();
+  await bar.getByLabel("Who's launching").fill("Kofi Vale");
+  await bar.getByLabel(/^City/).fill("Atlanta");
+  await bar.getByLabel(/Position against/).fill("Burna Boy");
+  await bar.getByRole("button", { name: "Plan & taste-check" }).click();
+  await expect(page.getByText("Brief: Kofi Vale")).toBeVisible();
+  await finished(page);
+  const trace = page.getByRole("region", { name: "Agent trace" });
+  await expect(trace).toContainText("/entities (external IDs)");
+  await expect(trace).toContainText("Positioning vs. Burna Boy");
+  await expect(page.getByRole("region", { name: "Taste Map" })).toContainText("Where in Atlanta");
+  await noHorizontalScroll(page);
+});

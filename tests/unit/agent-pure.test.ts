@@ -154,11 +154,19 @@ describe("NdjsonParser", () => {
 
 describe("briefFromForm", () => {
   it("trims, de-duplicates and caps seeds, and fills defaults", () => {
-    const b = briefFromForm({ family: "music", subject: " ", product: "", seeds: "Tems, Rema,,Tems, A, B, C, D", link: " ", vibe: "", ages: ["25_to_29"], goal: "" });
+    const b = briefFromForm({ family: "music", subject: " ", product: "", seeds: "Tems, Rema,,Tems, A, B, C, D", link: " ", vibe: "", ages: ["25_to_29"], goal: "", city: " ", compareTo: "" });
     expect(b.seeds).toEqual(["Tems", "Rema", "A", "B", "C"]);
     expect(b.subject).toBe("My launch");
     expect(b.seedLinks).toEqual([]);
     expect(b.vibe).toBeUndefined();
+    expect(b.targetCity).toBeUndefined();
+    expect(b.candidateCities?.length).toBeGreaterThan(3);
+    expect(Brief.safeParse(b).success).toBe(true);
+  });
+  it("a city fixes the market, a comparable adds positioning, and a link alone is a valid brief", () => {
+    const b = briefFromForm({ family: "dtc", subject: "Dune & Dew", product: "pop-up", seeds: "", link: "https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq", vibe: "", ages: ["25_to_29"], gender: "female", goal: "", city: "Atlanta", compareTo: "Glossier" });
+    expect(b).toMatchObject({ targetCity: "Atlanta", compareTo: "Glossier", gender: "female", seeds: [] });
+    expect(b.candidateCities).toBeUndefined();
     expect(Brief.safeParse(b).success).toBe(true);
   });
 });
