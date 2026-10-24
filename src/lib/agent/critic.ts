@@ -114,7 +114,8 @@ function receiptFor(ctx: Ctx, r: Resolved): Receipt {
   // No score means no number: affinity stays undefined rather than a made-up 0.
   const pool = ctx.candidates[r.role] ?? [];
   const poolRank = affinity !== undefined && pool.length ? { above: pool.filter((c) => c.entityId !== r.entityId && c.affinity > affinity).length, of: pool.filter((c) => c.entityId !== r.entityId).length } : undefined;
-  const scoredBase = { ...base, affinity, threshold, poolRank, trend, drivers: scored?.drivers ?? [], calls, source: scored?.source ?? r.source };
+  const poolMedian = spec.bar === "median" && pool.length ? r3(median(pool.map((c) => c.affinity))) : undefined;
+  const scoredBase = { ...base, affinity, threshold, poolMedian, poolRank, trend, drivers: scored?.drivers ?? [], calls, source: scored?.source ?? r.source };
 
   if (affinity === undefined && spec.scoreFromPool && threshold !== undefined) {
     return { ...scoredBase, verdict: "miss", note: "Not among the candidates Qloo ranked for this audience." };

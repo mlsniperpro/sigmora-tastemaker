@@ -1,6 +1,6 @@
 import type { BriefInput, Family } from "./brief";
 import { PRESETS } from "./presets";
-import type { AgeBucket } from "../qloo/types";
+import type { AgeBucket } from "../vocab";
 
 export interface FormFields {
   family: Family;

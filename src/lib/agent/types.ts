@@ -22,6 +22,8 @@ export interface Receipt {
   entityId?: string;
   affinity?: number;
   threshold?: number;
+  /** Median affinity of Qloo's candidates for the role, when the bar is drawn from it (for sensitivity analysis). */
+  poolMedian?: number;
   /** Where the pick's affinity falls among Qloo's own candidates for the role: how many of them score higher. */
   poolRank?: { above: number; of: number };
   /** Explainability: which input signals drove the score. */

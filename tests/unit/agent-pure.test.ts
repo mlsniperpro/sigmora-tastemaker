@@ -102,7 +102,7 @@ describe("permalinks", () => {
     goal: fc.string({ minLength: 1, maxLength: 200 }),
   });
   test.prop([briefArb])("round-trips any valid brief, including non-ASCII text", (b) => {
-    expect(decodeBrief(encodeBrief(b))).toEqual(Brief.parse(b));
+    expect(Brief.parse(decodeBrief(encodeBrief(b)))).toEqual(Brief.parse(b));
   });
   test.prop([fc.string()])("returns undefined for junk instead of throwing", (s) => {
     const r = decodeBrief(s);

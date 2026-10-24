@@ -2,11 +2,17 @@ import { describe, it, vi, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
-import { renderReport, summarize, totals, type BenchRow } from "@/lib/benchmark/aggregate";
+import { DEFAULT_CRITIC } from "@/lib/agent/context";
+import { runTastemaker } from "@/lib/agent/run";
+import type { Verdict } from "@/lib/agent/types";
+import { SENSITIVITY_RATIOS, missRateAt, renderReport, summarize, totals, type BenchRow } from "@/lib/benchmark/aggregate";
 import { JUDGE_SYSTEM, blind, combine, judgePair, judgePrompt, renderPlan, seededRandom, sideOf, summarizeJudgements, type JudgeReply, type Outcome, type Side } from "@/lib/benchmark/judge";
 import { judgeChatFromEnv } from "@/lib/llm";
 import { NoRecordingError, ReplayChat, completionKey, type ChatClient } from "@/lib/llm/chat";
+import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { Draft } from "@/lib/llm/types";
+import { MemoryCache } from "@/lib/qloo/cache";
+import { QlooClient } from "@/lib/qloo/client";
 import { must } from "../must";
 
 const brief = Brief.parse(PRESETS[0].brief);
@@ -209,5 +215,34 @@ describe("summaries and the report", () => {
     expect(s.invalidReasons).toEqual(["1 of 2 briefs failed"]);
     expect(renderReport(s)).toMatch(/### Failed briefs\n\n- Kaya: No seed resolved/);
     expect(summarize([{ ...rowOf("music"), fallbacks: 3 }], { briefs: 1, model: "x", modelScripted: false, ranAt: "t" }).valid).toBe(false);
+  });
+});
+
+describe("pass-bar sensitivity", () => {
+  const rec = fc.record({
+    verdict: fc.constantFrom<Verdict>("pass", "miss", "hallucination", "fading", "unscored"),
+    affinity: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: undefined }),
+    poolMedian: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: undefined }),
+  });
+  test.prop([fc.array(rec, { maxLength: 30 }), fc.double({ min: 0, max: 1, noNaN: true }), fc.double({ min: 0, max: 1, noNaN: true })])(
+    "a higher bar never lowers the miss rate, and the rate stays in [0, 1]",
+    (rs, a, b) => {
+      const [lo, hi] = a <= b ? [a, b] : [b, a];
+      expect(missRateAt(rs, lo)).toBeLessThanOrEqual(missRateAt(rs, hi));
+      expect(missRateAt(rs, hi)).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it("at the critic's own bar it reproduces the run's Culture Miss Rate", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+    expect(missRateAt(r.baseline.receipts, DEFAULT_CRITIC.missRatio)).toBe(r.metrics.baseline.cultureMissRate);
+    expect(missRateAt(r.grounded.receipts, DEFAULT_CRITIC.missRatio)).toBe(r.metrics.grounded.cultureMissRate);
+  });
+
+  it("puts the table in a valid report", () => {
+    const row = { subject: "s", family: "music" as const, grounded: { picks: 1, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: 0 }, baseline: { picks: 1, hallucinations: 0, misses: 1, fading: 0, unscored: 0, cultureMissRate: 1 }, sources: ["live"], fallbacks: 0, qlooCalls: 1, receipts: { grounded: [{ verdict: "pass" as const, affinity: 0.9, poolMedian: 0.8 }], baseline: [{ verdict: "miss" as const, affinity: 0.3, poolMedian: 0.8 }] } };
+    const s = summarize([row, { ...row, family: "dtc" }, { ...row, family: "sports" }], { briefs: 3, model: "m", modelScripted: false, ranAt: "t" });
+    expect(s.sensitivity.map((x) => x.ratio)).toEqual([...SENSITIVITY_RATIOS]);
+    expect(renderReport(s)).toMatch(/\| 0\.7 \(used\) \| 100\.0% \| 0\.0% \|/);
   });
 });

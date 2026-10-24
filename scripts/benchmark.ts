@@ -45,7 +45,17 @@ for (const input of BRIEFS) {
     // Without a baseline there is nothing to compare: the brief counts as failed, not as a 0% baseline.
     if (r.baseline.unavailable) throw new Error(`baseline draft failed: ${r.baseline.unavailable}`);
     runs.push(r);
-    rows.push({ subject: brief.subject, family: brief.family, grounded: r.metrics.grounded, baseline: r.metrics.baseline, sources: r.sources, fallbacks: r.qloo.fallbackCalls, qlooCalls: r.qloo.calls });
+    const sens = (rs: typeof r.grounded.receipts) => rs.map(({ verdict, affinity, poolMedian }) => ({ verdict, affinity, poolMedian }));
+    rows.push({
+      subject: brief.subject,
+      family: brief.family,
+      grounded: r.metrics.grounded,
+      baseline: r.metrics.baseline,
+      receipts: { grounded: sens(r.grounded.receipts), baseline: sens(r.baseline.receipts) },
+      sources: r.sources,
+      fallbacks: r.qloo.fallbackCalls,
+      qlooCalls: r.qloo.calls,
+    });
     if (judge) {
       try {
         judgements.push(await judgePair(judge, brief, r.grounded.draft, r.baseline.draft, seededRandom(brief.subject)));

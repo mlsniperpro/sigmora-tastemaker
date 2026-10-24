@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
-import { ROLE_LABEL, ROLES } from "@/lib/agent/brief";
+import { ROLE_LABEL, ROLES } from "@/lib/vocab";
 import type { PlanSide, Receipt } from "@/lib/agent/types";
 import { annotation } from "@/lib/agent/evidence";
 import { ReceiptChip, VERDICT_STYLE } from "./Receipt";

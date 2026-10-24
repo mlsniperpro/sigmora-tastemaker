@@ -99,15 +99,7 @@ export const SearchResponse = z
   .loose();
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
-export const AGE_BUCKETS = [
-  "24_and_younger",
-  "25_to_29",
-  "30_to_34",
-  "35_to_44",
-  "45_to_54",
-  "55_and_older",
-] as const;
-export type AgeBucket = (typeof AGE_BUCKETS)[number];
+export { AGE_BUCKETS, type AgeBucket } from "../vocab";
 
 export const DemographicsRow = z
   .object({

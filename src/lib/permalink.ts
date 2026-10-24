@@ -1,7 +1,34 @@
-/** Permalinks: a brief is stored in the URL as base64url-encoded UTF-8 JSON. */
-import { Brief, type BriefInput, type RunRequest } from "./agent/brief";
+/**
+ * Permalinks: a brief is stored in the URL as base64url-encoded UTF-8 JSON.
+ * Browser-side, a `?b=` brief only gets a structural check (zod stays out of
+ * the client bundle); the server validates every brief before it runs.
+ */
+import type { BriefInput, RunRequest } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
-import { CampaignId } from "./ids";
+import { AGE_BUCKETS, CAMPAIGN_ID_RE, FAMILIES, RUN_ID_RE } from "./vocab";
+
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
+// Mirrors the schema's min(1): the server decides what else is acceptable.
+const nonEmpty = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+
+/** Structural check: the fields a brief must have, with the right kinds of values. */
+function looksLikeBrief(v: unknown): v is BriefInput {
+  if (typeof v !== "object" || v === null) return false;
+  const b = v as Record<string, unknown>;
+  const links = b.seedLinks === undefined ? [] : b.seedLinks;
+  return (
+    FAMILIES.some((f) => f === b.family) &&
+    nonEmpty(b.subject) &&
+    nonEmpty(b.product) &&
+    nonEmpty(b.goal) &&
+    isStrings(b.seeds) &&
+    isStrings(links) &&
+    b.seeds.length + links.length > 0 &&
+    isStrings(b.ages) &&
+    b.ages.length > 0 &&
+    b.ages.every((a) => AGE_BUCKETS.some((x) => x === a))
+  );
+}
 
 export function encodeBrief(b: BriefInput): string {
   const bytes = new TextEncoder().encode(JSON.stringify(b));
@@ -10,13 +37,12 @@ export function encodeBrief(b: BriefInput): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Returns a validated brief, or undefined for anything malformed (the URL is user input). */
+/** Returns the brief in a `?b=` value, or undefined for anything malformed (the URL is user input). */
 export function decodeBrief(s: string): BriefInput | undefined {
   try {
     const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
     const json: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
-    const r = Brief.safeParse(json);
-    return r.success ? r.data : undefined;
+    return looksLikeBrief(json) ? json : undefined;
   } catch {
     return undefined;
   }
@@ -33,12 +59,12 @@ export function requestFromUrl(params: { get(name: string): string | null }): Ru
 
 /** `?measure=<campaign id>`: measure a shipped campaign and re-run with what performed. */
 export function measureFromUrl(params: { get(name: string): string | null }): string | undefined {
-  const r = CampaignId.safeParse(params.get("measure"));
-  return r.success ? r.data : undefined;
+  const id = params.get("measure");
+  return id && CAMPAIGN_ID_RE.test(id) ? id : undefined;
 }
 
 /** `?run=<id>`: open a finished run exactly as it was. */
 export function runIdFromUrl(params: { get(name: string): string | null }): string | undefined {
   const id = params.get("run");
-  return id && /^[a-z0-9]{1,40}$/.test(id) ? id : undefined;
+  return id && RUN_ID_RE.test(id) ? id : undefined;
 }

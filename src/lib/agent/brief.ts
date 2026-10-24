@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { AGE_BUCKETS } from "../qloo/types";
+import { AGE_BUCKETS, FAMILIES, type PickType, type Role } from "../vocab";
 
-export const Family = z.enum(["music", "dtc", "sports"]);
+export const Family = z.enum(FAMILIES);
 export type Family = z.infer<typeof Family>;
 
 /** The brief's fields, without the cross-field rule (for reuse by other schemas). */
@@ -45,11 +45,9 @@ export const RunRequest = z.union([
 ]);
 export type RunRequest = z.input<typeof RunRequest>;
 
-export const ROLES = ["collab", "sponsor", "reference", "podcast", "venue", "presenter", "city"] as const;
-export type Role = (typeof ROLES)[number];
+export { ROLES, PICK_TYPES, ROLE_LABEL, type Role, type PickType } from "../vocab";
 
-export const PICK_TYPES = ["artist", "brand", "tv_show", "movie", "podcast", "place", "person", "locality"] as const;
-export type PickType = (typeof PICK_TYPES)[number];
+
 
 export interface RoleSpec {
   /** Qloo entity type(s) the role is drawn from. */
@@ -87,12 +85,3 @@ export const ROLE_SPEC: Record<Role, RoleSpec> = {
   city: role(["locality"], 1, { bar: "top3", scoreFromPool: true }),
 };
 
-export const ROLE_LABEL: Record<Role, string> = {
-  collab: "Collab target",
-  sponsor: "Brand partner",
-  reference: "Hook reference",
-  podcast: "Podcast pitch",
-  venue: "Venue / pop-up",
-  presenter: "Presenter match",
-  city: "Launch city",
-};

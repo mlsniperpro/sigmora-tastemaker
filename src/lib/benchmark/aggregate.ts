@@ -1,13 +1,19 @@
 /** Pure aggregation for the Culture Miss Rate benchmark (scripts/benchmark.ts does the I/O). */
 import type { Family } from "../agent/brief";
-import type { Metrics } from "../agent/types";
+import { DEFAULT_CRITIC } from "../agent/context";
+import type { Metrics, Receipt } from "../agent/types";
 import type { JudgeSummary } from "./judge";
+
+/** What the sensitivity analysis needs from a receipt. */
+export type SensReceipt = Pick<Receipt, "verdict" | "affinity" | "poolMedian">;
 
 export interface BenchRow {
   subject: string;
   family: Family;
   grounded: Metrics;
   baseline: Metrics;
+  /** The receipts behind the metrics, for re-scoring at other pass bars. */
+  receipts?: { grounded: SensReceipt[]; baseline: SensReceipt[] };
   sources: string[];
   fallbacks: number;
   qlooCalls: number;
@@ -38,6 +44,28 @@ export function totals(ms: readonly Metrics[]): Totals {
   return { ...t, hallucinationRate: rate(t.hallucinations), cultureMissRate: rate(t.hallucinations + t.misses), fadingRate: rate(t.fading) };
 }
 
+/** Pass-bar multipliers the report re-scores at (the critic uses 0.7 × the pool median). */
+export const SENSITIVITY_RATIOS = [0.5, 0.6, 0.7, 0.8, 0.9] as const;
+
+/**
+ * The Culture Miss Rate if the bar were `ratio` × the pool median instead.
+ * Only median-bar picks move; not-found picks, city ranks and venue-in-city
+ * checks keep their verdicts; unscored picks stay out of the denominator.
+ */
+export function missRateAt(receipts: readonly SensReceipt[], ratio: number, minAffinity = DEFAULT_CRITIC.minAffinity): number {
+  let judged = 0;
+  let missed = 0;
+  for (const r of receipts) {
+    if (r.verdict === "unscored") continue;
+    judged++;
+    if (r.verdict === "hallucination") missed++;
+    else if (r.affinity !== undefined && r.poolMedian !== undefined) {
+      if (r.affinity < Math.max(minAffinity, ratio * r.poolMedian)) missed++;
+    } else if (r.verdict === "miss") missed++;
+  }
+  return judged ? r3(missed / judged) : 0;
+}
+
 export interface BenchSummary {
   /** True only for a measurement that may be quoted. */
   valid: boolean;
@@ -56,6 +84,8 @@ export interface BenchSummary {
   byFamily: Record<Family, { baseline: Totals; grounded: Totals }>;
   /** Briefs that didn't complete, and why. */
   failures: { subject: string; error: string }[];
+  /** Culture Miss Rate at other pass bars (empty when the rows carry no receipts). */
+  sensitivity: { ratio: number; baseline: number; grounded: number }[];
   judge?: JudgeSummary & { model: string; sameAsGenerator: boolean; replayed: number; live: number; errors: string[] };
 }
 
@@ -91,6 +121,13 @@ export function summarize(
       FAMILIES.map((f) => [f, { baseline: totals(ok.filter((r) => r.family === f).map((r) => r.baseline)), grounded: totals(ok.filter((r) => r.family === f).map((r) => r.grounded)) }]),
     ) as BenchSummary["byFamily"],
     failures: rows.flatMap((r) => (r.error ? [{ subject: r.subject, error: r.error }] : [])),
+    sensitivity: ok.every((r) => r.receipts)
+      ? SENSITIVITY_RATIOS.map((ratio) => ({
+          ratio,
+          baseline: missRateAt(ok.flatMap((r) => r.receipts?.baseline ?? []), ratio),
+          grounded: missRateAt(ok.flatMap((r) => r.receipts?.grounded ?? []), ratio),
+        }))
+      : [],
     judge: meta.judge,
   };
 }
@@ -112,6 +149,19 @@ const METHOD = (briefs: number) => `## Method
 
 const failureList = (s: BenchSummary) =>
   s.failures.length ? `\n### Failed briefs\n\n${s.failures.map((f) => `- ${f.subject}: ${f.error}`).join("\n")}\n` : "";
+
+const sensitivityTable = (s: BenchSummary) =>
+  s.sensitivity.length
+    ? `
+### How much the pass bar matters
+
+The critic's bar is 0.7 × the median affinity of Qloo's candidates for the role. The same receipts re-scored at other multipliers (only median-bar picks move; the grounded plan is drafted from those candidates, so it passes most bars by construction, which is why the blind judge below exists):
+
+| Bar (× pool median) | Without Qloo | Tastemaker |
+|---|---|---|
+${s.sensitivity.map((x) => `| ${x.ratio.toFixed(1)}${x.ratio === DEFAULT_CRITIC.missRatio ? " (used)" : ""} | ${pct(x.baseline)} | ${pct(x.grounded)} |`).join("\n")}
+`
+    : "";
 
 /** docs/benchmark.md. Numbers appear only for a valid measurement (the playbook's no-placeholder-numbers rule). */
 export function renderReport(s: BenchSummary): string {
@@ -155,7 +205,7 @@ ${METHOD(s.briefs)}
 |---|---|---|---|---|---|
 ${row("Without Qloo", s.baseline)}
 ${row("Tastemaker (with Qloo)", s.grounded)}
-${failureList(s)}
+${failureList(s)}${sensitivityTable(s)}
 
 ### By family
 

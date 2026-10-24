@@ -17,7 +17,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 ## Stage Two criteria
 
 - [x] Technological implementation: 12 canonical surfaces (`src/lib/agent/surfaces.ts`), the hero run touches ≥ 10 (`tests/unit/surfaces.test.ts`); critic = `filter.results.entities` + `feature.explainability` (`critic.ts`); param allow-lists (`params.ts`); `bias.trends` / `diversify.by` on the wire (`tests/integration/wire-params.test.ts`); record/replay, throttle, budgets, retries (`tests/integration/client.test.ts`)
-- [ ] Design: complete, coherent product: open until map tiles, the brief bar and the DTC map below are done
+- [x] Design: one coherent screen: brief bar → live trace → Taste Map (tiles, heatmap, affinity web) → pack with receipts → Without Qloo → Ship; e2e at 390 and 1440 px (`e2e/judge-path.spec.ts`, 10 runs)
 - [P] Potential impact, measured: ROI line from the run's own measurements is live (`RoiLine` in `App.tsx`); the benchmark numbers and the dogfood campaign need the keys and a real campaign (BLOCKED.md: Benchmark run, Dogfood campaign)
 - [x] Quality of the idea: Qloo as the critic that audits the AI; Without Qloo diff on every run; measure → re-query (`src/lib/agent/requery.ts`)
 
@@ -40,7 +40,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 
 ## Playbook §7 design spec
 
-- [ ] Brief bar with link paste and audience chips: `BriefForm.tsx` exists behind "Your own brief"; no city, gender or compare fields
+- [x] Brief bar always visible: names or a Spotify/IMDb link plus age chips up front; city, gender, comparable, vibe and goal on demand (`BriefForm.tsx`, `briefFromForm` tests; e2e "a custom brief from the brief bar")
 - [x] Live, collapsible trace with endpoint, params and latency: `Trace.tsx` (running step, all params with names, canonical surfaces, collapse, aria-live); e2e asserts params
 - [x] Taste Map with map tiles: MapLibre 5 + OpenFreeMap tiles with the urn:heatmap heat layer (`CityTileMap.tsx`); e2e covers the tile path (local style) and the SVG fallback (host blocked)
 - [x] Cross-domain affinity web: seeds → picks from explainability (`src/lib/agent/web.ts`, `tests/unit/web.test.ts`)
@@ -72,7 +72,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A3 the model chooses among Qloo-approved replacements and says why (a traced step); code accepts only listed options (`src/lib/agent/choose.ts`, `tests/unit/choose.test.ts`, `llm.test.ts` "LiveLLM.choose")
 - [x] A4 names in the copy but not in `picks` are checked (`mentions.ts`, `mentions.test.ts`)
 - [x] A5 venues judged in the plan's own city; baseline in its own city (`agent.test.ts`)
-- [ ] A6 pass bar is circular: add a sensitivity table at several bars to the benchmark report
+- [x] A6 pass bar: the report re-scores the same receipts at 0.5–0.9 × the pool median (`missRateAt`, `SENSITIVITY_RATIOS`; `judge.test.ts` "pass-bar sensitivity", monotonic property) and states that the grounded plan passes most bars by construction
 - [x] A7 no made-up 0.00: `unscored` verdict (`critic.test.ts`)
 - [x] A8 "Not a real entity" overclaim: untyped second search, "Not found in Qloo", role-mismatch verdict (`critic.test.ts`)
 - [x] A9 ROI line in the app: `RoiLine`; e2e
@@ -86,7 +86,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A17 trace live and collapsible: `start` events, running step, collapse, aria-live
 - [x] A18 permalinks to the exact run: e2e
 - [P] A18 KV for permalinks and Ship across instances (BLOCKED.md: KV)
-- [ ] A19 brief bar fields (same as §7)
+- [x] A19 brief bar fields (same as §7)
 - [x] A20 DTC preset maps where inside Atlanta the audience is (`urn:heatmap` + `filter.location.query`; `agent.test.ts` "maps where inside a fixed market")
 - [x] A21 Ship sends the whole pack (hooks, script, music brief) and asks before shipping flagged picks (`api.test.ts` "asks before shipping picks the critic still flags")
 - [x] A22 baseline failure no longer kills the run (`agent.test.ts`)
@@ -101,8 +101,8 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A31 "every number links" claim corrected to what the UI does (`App.tsx`, `SUBMISSION.md`, `docs/responsible-taste.md`)
 - [x] A32 numbers in docs come from scripts (`.env.example`, route comment, README throttle note)
 - [-] A33 benchmark families food and creators: the three preset families are the product's scope; the report states its families
-- [ ] A34 component-level tests for `Marked`, `ReceiptChip`, `Scoreboard`
-- [ ] A35 client bundle weight: keep zod and presets out of the first-load bundle where possible
+- [x] A34 component tests rendered with react-dom/server (`tests/unit/components.test.tsx`: Scoreboard blanking, ReceiptChip unscored/not-found/driver, highlighting, unavailable baseline)
+- [x] A35 zod out of the client bundle (constants in `src/lib/vocab.ts`; `?b=` gets a structural check, the server validates): the 157 KB zod chunk is gone from `.next/static/chunks`; `tests/unit/client-bundle.test.ts` fails if a client import reaches zod or server code (mutation-tested). MapLibre (1 MB) loads lazily
 
 ## Owner audit (PR #1)
 
