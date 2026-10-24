@@ -1,0 +1,65 @@
+/**
+ * Record live Qloo responses for every preset into fixtures/qloo/recorded.json,
+ * then run the live probes listed in BLOCKED.md.
+ *
+ *   QLOO_API_KEY=… pnpm fixtures:record
+ *
+ * Refuses to run without a key. Never writes the key anywhere: fixture keys
+ * are normalized request paths.
+ */
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { PRESETS } from "../src/lib/agent/presets";
+import { runTastemaker } from "../src/lib/agent/run";
+import { DeterministicLLM } from "../src/lib/llm/deterministic";
+import { MemoryCache } from "../src/lib/qloo/cache";
+import { QlooClient } from "../src/lib/qloo/client";
+
+const key = process.env.QLOO_API_KEY;
+if (!key) {
+  console.error("QLOO_API_KEY is not set; nothing to record.");
+  process.exit(1);
+}
+
+const file = join(process.cwd(), "fixtures/qloo/recorded.json");
+const existing = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+const recorder: Record<string, unknown> = {};
+const qloo = new QlooClient({ apiKey: key, baseUrl: process.env.QLOO_BASE_URL, mode: "live", cache: new MemoryCache(5000), fixtures: {}, recorder });
+
+let failures = 0;
+for (const p of PRESETS) {
+  try {
+    // The scripted LLM is enough: we are recording Qloo, and its picks are a fixed set.
+    const r = await runTastemaker(p.brief, { qloo, llm: new DeterministicLLM() });
+    const empty = r.trace.filter((s) => s.status === "error").map((s) => `${s.id}: ${s.detail}`);
+    console.log(`✓ ${p.id}: ${r.trace.reduce((n, s) => n + s.calls.length, 0)} calls; failed steps: ${empty.join(" | ") || "none"}`);
+    if (!r.cities.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: no metro ranking — check urn:entity:locality params`);
+    if (!r.heatmap.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: empty heatmap — check heatmap params`);
+  } catch (err) {
+    failures++;
+    console.error(`✗ ${p.id}: ${(err as Error).message}`);
+  }
+}
+
+// Probes: coverage and parameter questions from BLOCKED.md.
+const probes: [string, () => Promise<unknown>][] = [
+  ["Nairobi locality search", () => qloo.search("Nairobi", ["locality"], 3)],
+  ["Nairobi places", () => qloo.insights("urn:entity:place", { "filter.location.query": "Nairobi", take: 5 })],
+  // Set PROBE_SPOTIFY_ID to a real Spotify artist id to check /entities external-ID lookup.
+  ...(process.env.PROBE_SPOTIFY_ID
+    ? ([["Spotify external id", () => qloo.entitiesByExternal("spotify", [process.env.PROBE_SPOTIFY_ID!])]] as [string, () => Promise<unknown>][])
+    : []),
+  ["Tags semantic search", () => qloo.tags("afrobeats", 5)],
+];
+for (const [name, fn] of probes) {
+  try {
+    const r = (await fn()) as { data: unknown };
+    console.log(`probe ${name}: ${JSON.stringify(r.data).slice(0, 200)}`);
+  } catch (err) {
+    console.log(`probe ${name}: FAILED ${(err as Error).message}`);
+  }
+}
+
+writeFileSync(file, JSON.stringify({ ...existing, ...recorder }, null, 1) + "\n");
+console.log(`Wrote ${Object.keys(recorder).length} responses to ${file}`);
+process.exit(failures ? 1 : 0);
