@@ -13,8 +13,8 @@ for (const s of result.trace) {
   console.log(`${s.status === "done" ? "✓" : "✗"} ${s.title} (${s.ms}ms, ${s.calls.length} Qloo calls) — ${s.detail}`);
 }
 console.log(`\nQloo sources: ${result.sources.join(", ")} · LLM: ${result.llm.label}`);
-// A cold run has an empty cache: a live key spends at most the uncached count (identical in-flight requests share one call).
-console.log(`Qloo requests: ${result.qloo.calls} (${result.qloo.calls - result.qloo.cached} uncached, the most a live run spends)`);
+// A cold run has an empty cache: with this (scripted) model, a live key spends at most the uncached count.
+console.log(`Qloo requests: ${result.qloo.calls} (${result.qloo.calls - result.qloo.cached} uncached; a real model that names more entities makes more)`);
 const fmt = (r: (typeof result.grounded.receipts)[number]) =>
   `  [${r.verdict.padEnd(13)}] ${r.role.padEnd(9)} ${r.name}${r.affinity !== undefined ? ` (${r.affinity.toFixed(2)})` : ""}${r.replaced ? `  ← replaced ${r.replaced.name}` : ""}`;
 console.log("\nWith Qloo:");

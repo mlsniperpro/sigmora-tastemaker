@@ -8,6 +8,7 @@
  */
 import type { Draft, Pick as PlanPick } from "../llm/types";
 import type { Brief, PickType, Role } from "./brief";
+import { isQlooStop } from "../qloo/errors";
 import { entityTypesOf, resolveByName, type Ctx } from "./context";
 import { normName, sameName } from "./util";
 
@@ -24,6 +25,19 @@ const ROLE_FOR: Partial<Record<PickType, Role>> = {
   place: "venue",
   person: "presenter",
 };
+
+/**
+ * Where people listen, watch, follow or buy: named in calls to action ("pre-save on Spotify"), never a
+ * cultural pick, so never added for the critic (and never swapped out of the copy).
+ */
+const CHANNELS = new Set(
+  [
+    "Spotify", "Apple Music", "Apple Podcasts", "YouTube", "YouTube Music", "Amazon", "Amazon Music", "Tidal", "Deezer", "SoundCloud",
+    "Audiomack", "Boomplay", "Bandcamp", "Shazam", "Pandora", "Instagram", "Facebook", "Snapchat", "Threads", "TikTok", "X", "Twitter",
+    "Reels", "Shorts", "Twitch", "Discord", "WhatsApp", "Telegram", "Reddit", "LinkedIn", "Pinterest", "Netflix", "Hulu", "Disney+",
+    "Prime Video", "Peacock", "Max", "Ticketmaster", "Eventbrite", "Dice", "Shopify", "Google", "Apple", "Linktree",
+  ].map(normName),
+);
 
 /** Runs of capitalised words (joined by "&", "of", "the" or "and"), e.g. "Love Island USA", "Men in Blazers". */
 // Words join on spaces only (never across a line break), and a "." only inside an abbreviation like "F.C.".
@@ -55,11 +69,13 @@ export function candidateMentions(
   const names = norm([...draft.picks.map((p) => p.name), ...brief.seeds, ...alsoKnown, brief.subject]);
   const other = norm([brief.product, brief.targetCity ?? "", ...brief.candidateCities]);
   // Platforms are skipped by exact name only: "X" must not hide every name with an x in it.
-  const platforms = new Set(draft.captions.map((c) => normName(c.platform)));
+  const platforms = new Set([...CHANNELS, ...draft.captions.map((c) => normName(c.platform))]);
   const priority = new Map<string, { name: string; rank: number }>();
   const add = (name: string, rank: number) => {
     const key = normName(name);
-    if (!key || platforms.has(key) || names.some((k) => hasWords(k, key) || hasWords(key, k)) || other.some((k) => hasWords(k, key))) return;
+    // "Spotify and Apple Music" is only platforms too.
+    const onlyPlatforms = name.split(/\s+(?:and|&)\s+/).every((part) => platforms.has(normName(part)));
+    if (!key || onlyPlatforms || names.some((k) => hasWords(k, key) || hasWords(key, k)) || other.some((k) => hasWords(k, key))) return;
     const prev = priority.get(key);
     if (!prev || prev.rank < rank) priority.set(key, { name, rank });
   };
@@ -91,7 +107,12 @@ export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Pr
     candidateMentions(draft, brief, [...ctx.seedNames.values()])
       .slice(0, MAX_MENTION_SEARCHES)
       .map(async (name) => {
-        const { hit } = await resolveByName(ctx.qloo, name, { take: 3 });
+        // Out of Qloo budget or time: the name goes unchecked rather than failing the plan.
+        const found = await resolveByName(ctx.qloo, name, { take: 3 }).catch((err: unknown) => {
+          if (isQlooStop(err)) return undefined;
+          throw err;
+        });
+        const hit = found?.hit;
         if (!hit || !sameName(hit.name, name)) return [];
         const type = entityTypesOf(hit).find((t): t is PickType => t in ROLE_FOR);
         const role = type ? ROLE_FOR[type] : undefined;

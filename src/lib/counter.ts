@@ -75,14 +75,9 @@ export class ResilientCounter implements Counter {
 
 const DAY_TTL = 60 * 60 * 26;
 
-/** Count one event in the current UTC day's window. */
-export function incrDaily(counter: Counter, name: string, now = Date.now()) {
-  return counter.incr(`tm:${name}:${new Date(now).toISOString().slice(0, 10)}`, DAY_TTL);
-}
-
-/** Read the current UTC day's count without changing it. */
-export function readDaily(counter: Counter, name: string, now = Date.now()) {
-  return counter.incr(`tm:${name}:${new Date(now).toISOString().slice(0, 10)}`, DAY_TTL, 0);
+/** Count `by` events (1 by default; negative gives back) in the current UTC day's window. */
+export function incrDaily(counter: Counter, name: string, now = Date.now(), by = 1) {
+  return counter.incr(`tm:${name}:${new Date(now).toISOString().slice(0, 10)}`, DAY_TTL, by);
 }
 
 /** Count one event in the current minute's window. */

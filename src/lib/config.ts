@@ -14,6 +14,8 @@ export const EnvSchema = z.object({
   QLOO_MODE: z.enum(["auto", "live", "replay"]).default("auto"),
   /** Live Qloo calls per run (cache hits are free). */
   QLOO_RUN_CALL_CAP: int(90, 10, 500),
+  /** Calls a new run reserves from the daily budget before it starts (the measured preset runs make 58–75; unspent calls go back). */
+  QLOO_RUN_ESTIMATE: int(80, 10, 500),
   /** Live Qloo calls per UTC day, shared across instances when KV is set. */
   QLOO_DAILY_CALL_CAP: int(300, 0, 100000),
   /** Requests per second to the Qloo host (the hackathon key allows ~5). */

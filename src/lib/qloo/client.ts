@@ -5,7 +5,7 @@ import { defaultCounter, incrDaily, type Counter } from "../counter";
 import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
 import { formatZodIssues } from "../zod";
 import { defaultCache, type CacheStore } from "./cache";
-import { QlooBudgetError, QlooSchemaError } from "./errors";
+import { QlooBudgetError, QlooDeadlineError, QlooSchemaError } from "./errors";
 import { assertParams, requestKey, type QlooParams, type QlooPath } from "./params";
 import { simulate } from "./sim/simulator";
 import { Throttle } from "./throttle";
@@ -93,6 +93,10 @@ export class QlooClient {
   /** Identical requests in flight share one network call. */
   private readonly inFlight = new Map<string, Promise<{ raw: unknown; cached: boolean }>>();
   private networkCalls = 0;
+  /** Calls already paid for out of today's budget by reserve(), not yet spent. */
+  private prepaid = 0;
+  /** Epoch ms after which no call is sent (set per job by setDeadline). */
+  private deadlineAt = Infinity;
 
   constructor(private readonly opts: QlooClientOptions = {}) {
     this.apiKey = opts.apiKey;
@@ -176,13 +180,48 @@ export class QlooClient {
     return { raw, cached: false };
   }
 
+  /** No Qloo call is sent after `at` (epoch ms), including ones still queued behind the rate limit. */
+  setDeadline(at: number) {
+    this.deadlineAt = at;
+  }
+
   private async spendBudget() {
     const cap = this.opts.runCallCap;
+    if (Date.now() > this.deadlineAt) throw new QlooDeadlineError();
     // Reserve synchronously so parallel calls can't all pass the check.
     if (cap !== undefined && this.networkCalls >= cap) throw new QlooBudgetError("run", cap);
     this.networkCalls++;
+    if (this.prepaid > 0) {
+      this.prepaid--;
+      return;
+    }
     const daily = this.opts.daily;
     if (daily && (await incrDaily(daily.counter, "qloo-calls")) > daily.cap) throw new QlooBudgetError("day", daily.cap);
+  }
+
+  /**
+   * Takes `calls` out of today's live budget up front, in one atomic step, so a
+   * job that starts can finish: concurrent jobs can't all pass a check and then
+   * run dry half-way. False (and nothing taken) when today's budget can't cover it.
+   * Free when this client makes no live calls.
+   */
+  async reserve(calls: number): Promise<boolean> {
+    const daily = this.opts.daily;
+    if (!daily || this.primarySource !== "live" || calls <= 0) return true;
+    if ((await incrDaily(daily.counter, "qloo-calls", Date.now(), calls)) > daily.cap) {
+      await incrDaily(daily.counter, "qloo-calls", Date.now(), -calls);
+      return false;
+    }
+    this.prepaid += calls;
+    return true;
+  }
+
+  /** Gives back whatever reserve() took and the job didn't spend. */
+  async release(): Promise<void> {
+    const daily = this.opts.daily;
+    const unspent = this.prepaid;
+    this.prepaid = 0;
+    if (daily && unspent > 0) await incrDaily(daily.counter, "qloo-calls", Date.now(), -unspent);
   }
 
   private async fetchOnce(path: QlooPath, params: QlooParams): Promise<unknown> {
@@ -193,6 +232,8 @@ export class QlooClient {
       if (v !== undefined) url.searchParams.set(k, Array.isArray(v) ? v.join(",") : String(v));
     }
     const call = async () => {
+      // Checked after the throttle wait too: a call queued behind other runs mustn't go out past the deadline.
+      if (Date.now() > this.deadlineAt) throw new QlooDeadlineError();
       const res = await fetchWithTimeout(
         this.fetchImpl,
         SERVICE,

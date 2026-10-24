@@ -5,6 +5,7 @@
  * results are memoised on the context, so later passes only pay for new names.
  */
 import type { Pick as PlanPick, Replacement } from "../llm/types";
+import { isQlooStop } from "../qloo/errors";
 import { ROLE_SPEC, type PickType, type Role } from "./brief";
 import { entityTypesOf, inCityKey, isFading, loadTrends, pickKey, resolveByName, resolvedType, scoreEntities, signalFor, type Ctx, type RankedCandidate, type Resolved } from "./context";
 import type { Metrics, Receipt, Verdict } from "./types";
@@ -136,7 +137,22 @@ function judge(ctx: Ctx, r: Resolved): Receipt {
   return { ...scoredBase, verdict: "pass", note: `Affinity ${affinity.toFixed(2)} clears the ${threshold.toFixed(2)} bar for this audience.` };
 }
 
+/**
+ * Resolves, scores and judges every pick. When the run's Qloo budget or time
+ * runs out mid-way, the picks are returned "unscored" with the reason rather
+ * than throwing away a finished plan; any other failure still throws.
+ */
 export async function critique(ctx: Ctx, picks: readonly PlanPick[]): Promise<Critique> {
+  try {
+    return await judgeAll(ctx, picks);
+  } catch (err) {
+    if (!isQlooStop(err)) throw err;
+    const note = `Not checked: ${err.message}.`;
+    return { receipts: uniquePicks(picks).map((p) => ({ name: p.name, type: p.type, role: p.role, verdict: "unscored", drivers: [], calls: [], note })), warnings: [err.message] };
+  }
+}
+
+async function judgeAll(ctx: Ctx, picks: readonly PlanPick[]): Promise<Critique> {
   const resolved = await Promise.all(uniquePicks(picks).map((p) => resolvePick(ctx, p)));
   const [, , warnings] = await Promise.all([
     scoreNew(ctx, resolved),

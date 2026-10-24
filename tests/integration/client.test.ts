@@ -1,11 +1,12 @@
 /** QlooClient against a stubbed HTTP layer: the live path, its failure modes, and the labeled fallbacks. */
 import { describe, expect, it, vi } from "vitest";
-import { MemoryCounter } from "@/lib/counter";
+import { MemoryCounter, incrDaily } from "@/lib/counter";
 import { HttpError, TimeoutError, type RetryPolicy } from "@/lib/net";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient, type QlooClientOptions } from "@/lib/qloo/client";
-import { QlooBudgetError, QlooSchemaError } from "@/lib/qloo/errors";
+import { QlooBudgetError, QlooDeadlineError, QlooSchemaError } from "@/lib/qloo/errors";
 import { requestKey } from "@/lib/qloo/params";
+import { must } from "../must";
 
 const fastRetry: RetryPolicy = { retries: 2, baseMs: 1, maxMs: 5, sleep: async () => undefined };
 const ok = (body: unknown) => Response.json(body);
@@ -119,6 +120,38 @@ describe("QlooClient: live", () => {
     await client(f, { daily }).search("a");
     await expect(client(f, { daily }).search("b")).rejects.toThrow(/Today's Qloo call budget/);
     expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it("reserves a job's calls atomically: concurrent jobs can't all start and then run dry", async () => {
+    const f = vi.fn(async () => ok(results));
+    const counter = new MemoryCounter();
+    const daily = { counter, cap: 100 };
+    const jobs = Array.from({ length: 5 }, () => client(f, { daily }));
+    const admitted = await Promise.all(jobs.map((c) => c.reserve(40)));
+    expect(admitted.filter(Boolean)).toHaveLength(2);
+    // An admitted job's calls come out of its reservation, not the shared count.
+    const [a] = jobs;
+    await must(a).search("a");
+    await must(a).search("b");
+    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(80);
+    // What it didn't spend goes back, and a refused job took nothing.
+    await must(a).release();
+    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(42);
+    expect(await jobs[4]?.reserve(58)).toBe(true);
+  });
+
+  it("sends no call after its deadline, so a crowded Qloo phase can't outlast the route", async () => {
+    const f = vi.fn(async () => ok(results));
+    const c = client(f);
+    c.setDeadline(Date.now() - 1);
+    await expect(c.search("late")).rejects.toBeInstanceOf(QlooDeadlineError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("reserves nothing when it makes no live calls", async () => {
+    const counter = new MemoryCounter();
+    expect(await client(undefined, { daily: { counter, cap: 1 } }).reserve(500)).toBe(true);
+    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(0);
   });
 
   it("never puts the key in metadata, keys or error messages", async () => {

@@ -1,14 +1,12 @@
 /**
  * Abuse and budget guard for the public demo: fixed-window counters per IP
- * per minute and per UTC day, and for all uncached runs per UTC day. A run
- * that would call live Qloo is also refused up front, before it starts,
- * when today's Qloo budget can't cover a whole run (rather than failing
- * half-way through). Counters live in KV when
+ * per minute and per UTC day, and for all uncached runs per UTC day. (A
+ * run's Qloo calls are reserved separately, by QlooClient.reserve.) Counters live in KV when
  * configured (shared by every instance; handlers stay stateless) and in a
  * bounded in-process map otherwise. Cached results never reach the guard.
  */
 import { loadConfig } from "./config";
-import { defaultCounter, incrDaily, incrPerMinute, readDaily, type Counter } from "./counter";
+import { defaultCounter, incrDaily, incrPerMinute, type Counter } from "./counter";
 
 export interface GuardConfig {
   /** Uncached runs per IP per minute. */
@@ -17,8 +15,6 @@ export interface GuardConfig {
   perIpDaily: number;
   /** Uncached runs per UTC day, all users. */
   dailyCap: number;
-  /** With a Qloo key: today's live-call cap, and the most one run may spend (a run needs that much headroom to start). */
-  qloo?: { dailyCap: number; runCap: number };
 }
 
 export function guardConfig(env: Record<string, string | undefined> = process.env): GuardConfig {
@@ -27,7 +23,6 @@ export function guardConfig(env: Record<string, string | undefined> = process.en
     perMinute: c.RATE_LIMIT_PER_MINUTE,
     perIpDaily: c.RATE_LIMIT_PER_DAY,
     dailyCap: c.RUN_DAILY_CAP,
-    ...(c.QLOO_API_KEY && c.QLOO_MODE !== "replay" ? { qloo: { dailyCap: c.QLOO_DAILY_CALL_CAP, runCap: c.QLOO_RUN_CALL_CAP } } : {}),
   };
 }
 
@@ -42,10 +37,6 @@ export interface GuardOptions {
 export async function checkGuard(ip: string, cfg: GuardConfig = guardConfig(), counter: Counter = defaultCounter(), opts: GuardOptions = {}): Promise<GuardResult> {
   const now = opts.now ?? Date.now();
   const untilMidnight = 86400 - Math.floor((now / 1000) % 86400);
-  // Today's live Qloo calls so far, counted by the Qloo client (qloo/client.ts) on the same counter: read here, not added to.
-  if (cfg.qloo && (await readDaily(counter, "qloo-calls", now)) + cfg.qloo.runCap > cfg.qloo.dailyCap) {
-    return { ok: false, status: 503, message: "Today's Qloo budget can't cover another new run. Presets and cached runs still load; try a new brief tomorrow.", retryAfter: untilMidnight };
-  }
   if (opts.perIp ?? true) {
     if ((await incrPerMinute(counter, `rl:ip:${ip}`, now)) > cfg.perMinute) {
       return {
@@ -64,6 +55,14 @@ export async function checkGuard(ip: string, cfg: GuardConfig = guardConfig(), c
   }
   return { ok: true };
 }
+
+/** Today's live Qloo budget can't cover another job (QlooClient.reserve said no). */
+export const QLOO_SPENT: Extract<GuardResult, { ok: false }> = {
+  ok: false,
+  status: 503,
+  message: "Today's Qloo budget can't cover another new run. Presets and cached runs still load; try a new brief tomorrow.",
+  retryAfter: 3600,
+};
 
 /** The HTTP response for a refused request. */
 export function guardResponse(g: Extract<GuardResult, { ok: false }>): Response {

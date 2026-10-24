@@ -1,9 +1,10 @@
 import { after } from "next/server";
 import { cachedRun, costsMoney, getOrRun, recordedRuns, replay, resolveRunRequest, runById } from "@/lib/agent/runCache";
 import type { RunEvent } from "@/lib/agent/types";
-import { admit, guardResponse } from "@/lib/guard";
+import { loadConfig } from "@/lib/config";
+import { QLOO_SPENT, admit, guardResponse } from "@/lib/guard";
 
-// A live run is throttled to the Qloo key's rate (at most 73 calls at 4/s for the hero preset; `pnpm demo` prints the count) plus up to four model calls.
+// A live run is throttled to the Qloo key's rate (the hero preset makes ~73 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
 export const maxDuration = 120;
 
 const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" };
@@ -71,12 +72,14 @@ export async function POST(req: Request) {
   }
   // Presets skip the per-IP limits so the one-click demo always works ("Re-run live" doesn't); they still count toward the daily cap.
   const g = await admit(req, { costs: !lookup.result && costsMoney(lookup.deps), perIp: !request.presetId || request.fresh });
-  if (!g.ok) {
-    if (!recording) return guardResponse(g);
-    const reason = `a live run was refused (${g.message})`;
+  // A new run takes its Qloo calls out of today's budget before it starts, so it can't run dry half-way.
+  const refusal = !g.ok ? g : !lookup.result && !(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE)) ? QLOO_SPENT : undefined;
+  if (refusal) {
+    if (!recording) return guardResponse(refusal);
+    const reason = `a live run was refused (${refusal.message})`;
     return ndjson((send) => Promise.resolve(replay(recording, { from: "recording", reason }, send)), { "X-Run-Cache": "recording" });
   }
-  return ndjson((send) => getOrRun(lookup, send, recording), { "X-Run-Cache": lookup.result ? "hit" : "miss" });
+  return ndjson((send) => getOrRun(lookup, send, recording).finally(() => lookup.deps.qloo.release()), { "X-Run-Cache": lookup.result ? "hit" : "miss" });
 }
 
 /** GET /api/run?id=<run id> → the finished run as JSON (permalinks). */

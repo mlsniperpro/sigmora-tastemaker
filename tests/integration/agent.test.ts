@@ -8,6 +8,7 @@ import type { RunEvent } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import type { Choice, Draft, DraftInput } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
+import { QlooBudgetError } from "@/lib/qloo/errors";
 import { QlooClient } from "@/lib/qloo/client";
 import { must } from "../must";
 
@@ -62,6 +63,24 @@ class PartialQloo extends QlooClient {
   }
   override trending(): never {
     throw new Error("Qloo 500 on /v2/trending");
+  }
+}
+
+/** Runs out of Qloo budget once the plan is drafted, as a run full of invented names would. */
+const spent = { after: false };
+class SpentQloo extends QlooClient {
+  override insights(...args: Parameters<QlooClient["insights"]>) {
+    return spent.after ? Promise.reject(new QlooBudgetError("run", 90)) : super.insights(...args);
+  }
+  override search(...args: Parameters<QlooClient["search"]>) {
+    return spent.after ? Promise.reject(new QlooBudgetError("run", 90)) : super.search(...args);
+  }
+}
+class DraftThenSpend extends DeterministicLLM {
+  override async draft(input: DraftInput): Promise<Draft> {
+    const d = await super.draft(input);
+    if (input.grounding) spent.after = true;
+    return d;
   }
 }
 
@@ -260,6 +279,16 @@ describe("agent loop: failure paths", () => {
     expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/trend check failed/);
     expect(r.positioning).toEqual([]);
     expect(r.grounded.receipts.length).toBeGreaterThan(0);
+  });
+
+  it("finishes the plan with unscored picks when the Qloo budget runs out mid-critic", async () => {
+    spent.after = false;
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: new SpentQloo({ cache: new MemoryCache(), fixtures: {} }), llm: new DraftThenSpend() });
+    expect(r.grounded.receipts.length).toBeGreaterThan(0);
+    expect(r.grounded.receipts.filter((x) => x.role !== "city").every((x) => x.verdict === "unscored" && /Not checked: Qloo call budget/.test(x.note))).toBe(true);
+    expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/budget/);
+    // The baseline audit degrades the same way instead of failing the run.
+    expect(r.baseline.receipts.every((x) => x.verdict === "unscored" || x.role === "city")).toBe(true);
   });
 
   it("never waits on a hung model past the run's deadline", async () => {

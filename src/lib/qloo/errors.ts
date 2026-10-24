@@ -8,6 +8,17 @@ export class QlooBudgetError extends Error {
   }
 }
 
+/** The job's time for Qloo calls ran out; no further call is sent (queued ones included). */
+export class QlooDeadlineError extends Error {
+  constructor() {
+    super("Out of time for Qloo calls in this run");
+    this.name = "QlooDeadlineError";
+  }
+}
+
+/** Errors that mean "stop asking Qloo for this job", not "Qloo is broken". */
+export const isQlooStop = (err: unknown): err is QlooBudgetError | QlooDeadlineError => err instanceof QlooBudgetError || err instanceof QlooDeadlineError;
+
 export class QlooSchemaError extends Error {
   constructor(
     readonly path: string,

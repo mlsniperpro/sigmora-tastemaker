@@ -19,6 +19,7 @@ import { applyChoices } from "./choose";
 import { rankCities } from "./cities";
 import { chooseReplacements, critique, metricsOf } from "./critic";
 import { audienceOf, discoveryFromConfig, isFading, loadCulture, loadTrends, loadVenues, makeCtx, resolveByName, resolveSeeds, signalFor, type CriticSettings, type Ctx, type Discovery } from "./context";
+import { isQlooStop } from "../qloo/errors";
 import { unlistedMentions } from "./mentions";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
@@ -40,6 +41,8 @@ export interface RunOptions extends Partial<CriticSettings> {
   reviseDeadlineMs?: number;
   /** No model call may still be pending this long after the start (the route's limit is 120 s). */
   deadlineMs?: number;
+  /** No Qloo call is sent this long after the start (queued calls included). */
+  qlooDeadlineMs?: number;
   now?: () => Date;
   newId?: () => string;
 }
@@ -112,6 +115,8 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
   const startedAt = Date.now();
   const reviseDeadlineMs = opts.reviseDeadlineMs ?? 60_000;
   const deadlineAt = startedAt + (opts.deadlineMs ?? 105_000);
+  // Qloo calls stop earlier, leaving the model time to finish: a slow or crowded Qloo phase degrades the critic, never the route.
+  qloo.setDeadline(startedAt + (opts.qlooDeadlineMs ?? 75_000));
   const unobserve = qloo.observe(tracer.onCall);
 
   // The baseline needs no Qloo data, so it drafts while the grounded path runs. Never rejects.
@@ -259,6 +264,8 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     };
 
     const tried = new Set<string>();
+    // Names found only by scanning the copy are flagged, never swapped: the model didn't offer them as picks.
+    const mentionedOnly = new Set<string>();
     // What each Qloo-preferred pick replaced, keyed by role + new name (chains keep the first original).
     const originals = new Map<string, Receipt>();
     let receipts: Receipt[] = [];
@@ -270,13 +277,14 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
         // Names the copy mentions without listing them are checked too.
         const extra = await unlistedMentions(ctx, current, brief);
         if (extra.length) current = draft = { ...current, picks: [...current.picks, ...extra] };
+        for (const e of extra) mentionedOnly.add(`${e.role}:${normName(e.name)}`);
         const c = await critique(ctx, current.picks);
         s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
         return c.receipts;
       });
       rounds = round;
       if (round > maxRounds || receipts.every((r) => r.verdict === "pass" || r.verdict === "unscored")) break;
-      const offered = chooseReplacements(ctx, current.picks, receipts, tried);
+      const offered = chooseReplacements(ctx, current.picks, receipts, tried).filter((r) => !mentionedOnly.has(`${r.role}:${normName(r.from)}`));
       if (!offered.length) break;
       // The model decides among Qloo-approved options; code accepts only those (applyChoices).
       const replacements = await tracer.step(
@@ -352,7 +360,13 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
         if (extra.length) base.draft = { ...base.draft, picks: [...base.draft.picks, ...extra] };
         // ...and against that city's own venue pool, so the venue's pass bar isn't another city's.
         const own: Ctx = { ...ctx, city: ownCity, candidates: { ...ctx.candidates } };
-        if (ownCity && normName(ownCity) !== normName(ctx.city ?? "") && base.draft.picks.some((p) => p.role === "venue")) await loadVenues(own, ownCity);
+        if (ownCity && normName(ownCity) !== normName(ctx.city ?? "") && base.draft.picks.some((p) => p.role === "venue")) {
+          // Out of Qloo budget or time: no venue pool, so that venue comes back unscored.
+          await loadVenues(own, ownCity).catch((err: unknown) => {
+            if (!isQlooStop(err)) throw err;
+            own.candidates.venue = [];
+          });
+        }
         const c = await critique(own, base.draft.picks);
         s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
         return c.receipts;

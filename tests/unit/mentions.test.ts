@@ -30,9 +30,15 @@ describe("candidateMentions: regressions", () => {
     Draft.parse({ ...draft(text, picks), captions: [{ platform: "TikTok", text: "t" }, { platform: "X", text: "u" }] });
 
   it("skips platforms by exact name only, so an X caption doesn't hide names with an x in them", () => {
-    const c = candidateMentions(withX("Stream it on Netflix with Alix Earle, then post to X."), brief);
-    expect(c).toEqual(expect.arrayContaining(["Netflix", "Alix Earle"]));
+    const c = candidateMentions(withX("A cameo from Rex Orange County with Alix Earle, then post to X."), brief);
+    expect(c).toEqual(expect.arrayContaining(["Rex Orange County", "Alix Earle"]));
     expect(c).not.toContain("X");
+  });
+
+  it("never treats a streaming service, social network or store in a call to action as a pick", () => {
+    const c = candidateMentions(draft("Pre-save on Spotify and Apple Music, watch on YouTube, follow on Instagram. Tickets on Ticketmaster with Burna Boy."), brief);
+    expect(c.filter((n) => /Spotify|Apple|YouTube|Instagram|Ticketmaster/.test(n) && !n.includes("Burna"))).toEqual([]);
+    expect(c).toContain("Burna Boy");
   });
 
   it("matches known names on whole words, not substrings", () => {
@@ -90,5 +96,18 @@ describe("unlistedMentions", () => {
     const r = await runTastemaker(PRESETS[0].brief, { qloo: qloo(), llm: new Sneaky() });
     expect(r.grounded.receipts.some((x) => x.name === "Burna Boy")).toBe(true);
     expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/named in the copy but not listed, so added: .*Burna Boy/);
+  });
+
+  it("flags a failing name found only in the copy, and never rewrites the copy around it", async () => {
+    class Sneaky extends DeterministicLLM {
+      override async draft(input: DraftInput) {
+        const d = await super.draft(input);
+        return { ...d, script: `${d.script} Cameo: Nickelback.` };
+      }
+    }
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: qloo(), llm: new Sneaky() });
+    expect(r.grounded.receipts.find((x) => x.name === "Nickelback")?.verdict).toBe("miss");
+    expect(r.grounded.receipts.some((x) => x.replaced?.name === "Nickelback")).toBe(false);
+    expect(r.grounded.draft.script).toContain("Nickelback");
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, vi, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { ConfigError, loadConfig } from "@/lib/config";
-import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute, readDaily } from "@/lib/counter";
+import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
 import { checkGuard, clientIp } from "@/lib/guard";
 import { sentJson } from "../must";
@@ -103,19 +103,6 @@ describe("guard", () => {
     expect(await checkGuard("a", cfg, c, { now: 5 * 60_000 })).toMatchObject({ ok: false, status: 429 });
     expect((await checkGuard("b", cfg, c, { now: 5 * 60_000 })).ok).toBe(true);
     expect((await checkGuard("a", cfg, c, { now: 86_400_000 })).ok).toBe(true);
-  });
-
-  it("refuses a run up front when today's Qloo budget can't cover a whole one", async () => {
-    const c = new MemoryCounter();
-    const cfg = { perMinute: 100, perIpDaily: 100, dailyCap: 100, qloo: { dailyCap: 300, runCap: 90 } };
-    for (let i = 0; i < 210; i++) await incrDaily(c, "qloo-calls", 0);
-    expect((await checkGuard("a", cfg, c, { now: 0 })).ok).toBe(true);
-    await incrDaily(c, "qloo-calls", 0);
-    const refused = await checkGuard("b", cfg, c, { now: 0 });
-    expect(refused).toMatchObject({ ok: false, status: 503 });
-    expect(refused.ok || refused.message).toMatch(/Qloo budget/);
-    // Reading the budget never spends it, and a refusal counts no run.
-    expect(await readDaily(c, "qloo-calls", 0)).toBe(211);
   });
 
   it("reads the first forwarded IP", () => {

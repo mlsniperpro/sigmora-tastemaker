@@ -11,7 +11,8 @@ import { placeholderReason } from "./agent/evidence";
 import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
-import type { GuardResult } from "./guard";
+import { loadConfig } from "./config";
+import { QLOO_SPENT, type GuardResult } from "./guard";
 import { qlooFromEnv } from "./qloo/client";
 import { formatZodIssues } from "./zod";
 
@@ -91,9 +92,13 @@ class ToolError extends Error {
 async function tasteCheckTool(args: unknown, gate: Gate) {
   const a = TasteCheckArgs.parse(args);
   const qloo = qlooFromEnv();
-  // Only calls that would spend live Qloo quota are rate-limited.
-  if (qloo.primarySource === "live") await admitOrThrow(gate);
-  const r = await tasteCheck(a, { qloo });
+  // Only calls that would spend live Qloo quota are rate-limited, and they reserve their calls first
+  // (about two per pick to resolve and score, plus the role pools and trend checks).
+  if (qloo.primarySource === "live") {
+    await admitOrThrow(gate);
+    if (!(await qloo.reserve(2 * a.picks.length + 12))) throw new ToolError(QLOO_SPENT.message);
+  }
+  const r = await tasteCheck(a, { qloo }).finally(() => qloo.release());
   const text = [
     `Qloo taste check (${r.sources.join(", ")} data): ${r.metrics.hallucinations} not found in Qloo, ${r.metrics.misses} low-affinity, ${r.metrics.fading} fading, ${r.metrics.unscored} unscored, of ${r.metrics.picks}.${r.sources.includes("simulated") ? " Simulated data: the numbers are placeholders, not Qloo data." : ""}`,
     ...r.receipts.map(receiptLine),
@@ -111,13 +116,18 @@ async function admitOrThrow(gate: Gate) {
 async function planCampaignTool(args: unknown, gate: Gate) {
   const request = resolveRunRequest(args ?? {});
   if (!request.ok) throw new ToolError(request.status === 400 ? `Invalid arguments: ${request.error}` : request.error);
-  const lookup = await cachedRun(request.brief);
+  const cached = await cachedRun(request.brief);
+  // As in /api/run: "fresh" means live, so a cached result doesn't answer it.
+  const lookup = request.fresh ? { ...cached, result: undefined } : cached;
   const recording = request.presetId ? recordedRuns().get(request.presetId) : undefined;
   let r;
   if (!lookup.result && recording && !request.fresh) r = recording;
   else {
-    if (!lookup.result && costsMoney(lookup.deps)) await admitOrThrow(gate);
-    r = (await getOrRun(lookup, undefined, recording)).result;
+    if (!lookup.result && costsMoney(lookup.deps)) {
+      await admitOrThrow(gate);
+      if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE))) throw new ToolError(QLOO_SPENT.message);
+    }
+    r = (await getOrRun(lookup, undefined, recording).finally(() => lookup.deps.qloo.release())).result;
   }
   const text = [
     `${r.brief.subject} — ${r.brief.product}. Qloo data: ${r.sources.join(", ")}. Model: ${r.llm.label}.`,
