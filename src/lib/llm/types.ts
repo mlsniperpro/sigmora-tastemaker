@@ -1,0 +1,82 @@
+import { z } from "zod";
+import { PICK_TYPES, ROLES, type Brief, type PickType, type Role } from "../agent/brief";
+
+export const Pick = z.object({
+  name: z.string().min(1).max(100),
+  type: z.enum(PICK_TYPES),
+  role: z.enum(ROLES),
+  rationale: z.string().max(300).default(""),
+});
+export type Pick = z.infer<typeof Pick>;
+
+export const Draft = z.object({
+  positioning: z.string().max(400),
+  hooks: z.array(z.string().max(280)).min(1).max(5),
+  script: z.string().max(1500),
+  captions: z.array(z.object({ platform: z.string().max(30), text: z.string().max(500) })).min(1).max(6),
+  musicBrief: z.string().max(600),
+  /** Every cultural entity the plan names. Text fields may only mention these. */
+  picks: z.array(Pick).min(1).max(20),
+});
+export type Draft = z.infer<typeof Draft>;
+
+export interface Candidate {
+  name: string;
+  type: PickType;
+  affinity: number;
+}
+
+/** What Qloo hands the model before it drafts. Absent = "Without Qloo". */
+export interface Grounding {
+  /** Taste descriptors that over-index for this audience (urn:tag). */
+  tags: string[];
+  /** Age buckets that over-index (urn:demographics). */
+  overIndexAges: string[];
+  /** Qloo-ranked candidates per role, best first. */
+  candidates: Partial<Record<Role, Candidate[]>>;
+  /** Positioning gap vs. the comparable's audience (analysis/compare). */
+  positioningTags?: string[];
+}
+
+export interface Replacement {
+  from: string;
+  to: string;
+  type: PickType;
+  role: Role;
+  reason: string;
+}
+
+export interface DraftInput {
+  brief: Brief;
+  grounding?: Grounding;
+}
+
+export interface LLMProvider {
+  /** e.g. "deterministic" or "openai-compatible:gpt-x" */
+  id: string;
+  /** Human label for the UI and receipts. */
+  label: string;
+  /** True when outputs come from a scripted stand-in rather than a model. */
+  scripted: boolean;
+  draft(input: DraftInput): Promise<Draft>;
+  revise(draft: Draft, replacements: Replacement[], input: DraftInput): Promise<Draft>;
+}
+
+/** Swap names in every text field and in the pick list. Used by all providers as the safe fallback. */
+export function applyReplacements(draft: Draft, replacements: Replacement[]): Draft {
+  // Longest names first so "Black Panther" can't clobber "Black Panther: Wakanda Forever".
+  const ordered = [...replacements].sort((a, b) => b.from.length - a.from.length);
+  const swap = (s: string) => ordered.reduce((acc, r) => acc.split(r.from).join(r.to), s);
+  const replacedFrom = new Map(replacements.map((r) => [`${r.role}:${r.from}`, r]));
+  return {
+    positioning: swap(draft.positioning),
+    hooks: draft.hooks.map(swap),
+    script: swap(draft.script),
+    captions: draft.captions.map((c) => ({ ...c, text: swap(c.text) })),
+    musicBrief: swap(draft.musicBrief),
+    picks: draft.picks.map((p) => {
+      const r = replacedFrom.get(`${p.role}:${p.name}`);
+      return r ? { ...p, name: r.to, type: r.type, rationale: r.reason } : p;
+    }),
+  };
+}
