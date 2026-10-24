@@ -2,7 +2,7 @@ import { cachedRun, costsMoney, getOrRun, resolveRunRequest } from "@/lib/agent/
 import type { RunEvent } from "@/lib/agent/types";
 import { admit, guardResponse } from "@/lib/guard";
 
-// A live run is throttled to the Qloo key's rate (~54 calls at 4/s) plus up to four model calls.
+// A live run is throttled to the Qloo key's rate (~52 calls at 4/s for the hero preset) plus up to four model calls.
 export const maxDuration = 120;
 
 /**

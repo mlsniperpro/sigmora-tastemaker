@@ -2,7 +2,11 @@ import type { QlooCallMeta, QlooSource } from "../qloo/client";
 import type { Draft, Pick } from "../llm/types";
 import type { Brief, PickType, Role } from "./brief";
 
-export type Verdict = "pass" | "miss" | "hallucination" | "fading";
+/**
+ * "hallucination": no Qloo entity matches the name in a typed or an untyped search.
+ * "unscored": real, but Qloo gave no affinity to judge it by (no pool, no score); not counted as a miss.
+ */
+export type Verdict = "pass" | "miss" | "hallucination" | "fading" | "unscored";
 
 export interface Driver {
   name: string;
@@ -18,6 +22,8 @@ export interface Receipt {
   entityId?: string;
   affinity?: number;
   threshold?: number;
+  /** Where the pick's affinity falls among Qloo's own candidates for the role: how many of them score higher. */
+  poolRank?: { above: number; of: number };
   /** Explainability: which input signals drove the score. */
   drivers: Driver[];
   /** /v2/trending velocity, -1..1 when known. */
@@ -71,6 +77,8 @@ export interface QlooHealth {
 export interface PlanSide {
   draft: Draft;
   receipts: Receipt[];
+  /** Set when this side couldn't be produced (e.g. the baseline draft failed); the draft is then empty. */
+  unavailable?: string;
 }
 
 export interface Metrics {
@@ -78,18 +86,22 @@ export interface Metrics {
   hallucinations: number;
   misses: number;
   fading: number;
-  /** (hallucinations + misses) / picks */
+  /** Picks Qloo couldn't score; excluded from the rate's denominator. */
+  unscored: number;
+  /** (hallucinations + misses) / (picks − unscored) */
   cultureMissRate: number;
 }
 
 /** Bump when RunResult's shape changes; cache keys carry it, so an older deploy's entries are never served. */
-export const RUN_SCHEMA_VERSION = 2;
+export const RUN_SCHEMA_VERSION = 3;
 
 export interface RunResult {
   id: string;
   version: typeof RUN_SCHEMA_VERSION;
   brief: Brief;
   createdAt: string;
+  /** Wall-clock time of the whole run, measured. */
+  durationMs: number;
   llm: { id: string; label: string; scripted: boolean };
   sources: QlooSource[];
   qloo: QlooHealth;
@@ -112,8 +124,11 @@ export interface RunResult {
 }
 
 export type RunEvent =
+  /** A step began; the trace shows it as running until its "step" event arrives. */
+  | { type: "start"; id: string; title: string }
   | { type: "step"; step: TraceStep }
-  | { type: "result"; result: RunResult }
+  /** `cached`: served from a run finished earlier (its trace is a replay of that run). */
+  | { type: "result"; result: RunResult; cached?: boolean }
   | { type: "error"; message: string };
 
 export type { Pick };

@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PRESETS } from "@/lib/agent/presets";
+import type { RunResult } from "@/lib/agent/types";
+import { entityNames } from "@/lib/agent/evidence";
 import { measureFromUrl, requestFromUrl } from "@/lib/permalink";
 import { BriefForm } from "./BriefForm";
 import { CampaignPack } from "./CampaignPack";
@@ -13,9 +15,21 @@ import { TasteMap } from "./TasteMap";
 import { Trace } from "./Trace";
 import { useRun } from "./useRun";
 
+/** The ROI line, from this run's own measurements. */
+function RoiLine({ result }: { result: RunResult }) {
+  const seconds = Math.max(1, Math.round(result.durationMs / 1000));
+  const checked = result.grounded.receipts.length + result.baseline.receipts.length;
+  return (
+    <p className="mt-1 text-meta text-ink/80">
+      <strong className="text-accent">This plan took {seconds} s</strong> and {result.qloo.calls} Qloo calls, with {checked} cultural picks checked. An
+      agency audience-research brief takes weeks.
+    </p>
+  );
+}
+
 export function App() {
   const params = useSearchParams();
-  const { steps, result, error, running, run, requery } = useRun();
+  const { steps, pending, cached, result, error, running, run, requery } = useRun();
   const [mode, setMode] = useState<"qloo" | "without">("qloo");
   // The URL decides what runs on first load; read it once, at mount.
   const [initial] = useState(() => ({ measure: measureFromUrl(params), request: requestFromUrl(params) }));
@@ -40,6 +54,7 @@ export function App() {
             A marketing agent that plans your launch and checks every cultural pick against Qloo before it ships. The model proposes, Qloo scores,
             weak picks get cut, and every survivor carries a receipt.
           </p>
+          {result && <RoiLine result={result} />}
         </div>
         <div role="group" aria-label="Plan view" className="flex rounded-full border border-line bg-panel p-1 text-meta">
           <button type="button" aria-pressed={mode === "qloo"} onClick={() => setMode("qloo")} className={`rounded-full px-3 py-1.5 ${mode === "qloo" ? "bg-accent font-semibold text-accent-ink" : "text-muted"}`}>
@@ -107,7 +122,7 @@ export function App() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="order-3 min-w-0 lg:sticky lg:top-4 lg:order-1 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
-          <Trace steps={steps} running={running} />
+          <Trace steps={steps} running={running} pending={pending} replayedAt={cached ? result?.createdAt : undefined} names={result ? entityNames(result) : undefined} />
         </div>
         <div className="order-2 min-w-0">{result ? <TasteMap result={result} /> : <Placeholder running={running} label="Taste Map" />}</div>
         <div className="order-1 min-w-0 lg:order-3">{side ? <CampaignPack side={side} mode={mode} /> : <Placeholder running={running} label="Campaign pack" />}</div>

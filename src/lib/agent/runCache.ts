@@ -104,7 +104,7 @@ export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void): Pr
   const { brief, key, result: hit, deps } = lookup;
   if (hit) {
     for (const step of hit.trace) emit?.({ type: "step", step });
-    emit?.({ type: "result", result: hit });
+    emit?.({ type: "result", result: hit, cached: true });
     return { result: hit, cached: true };
   }
   const result = await runTastemaker(brief, { qloo: deps.qloo, llm: deps.llm, emit });

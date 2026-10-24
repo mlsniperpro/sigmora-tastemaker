@@ -40,19 +40,23 @@ describe("thresholdFor", () => {
     const sorted = [...affs].sort((a, b) => b - a);
     expect(thresholdFor(ctx, "city")).toBe(sorted[Math.min(2, sorted.length - 1)]);
   });
-  it("falls back to 0.5 with no candidates", () => {
-    expect(thresholdFor(ctxWith({}), "collab")).toBe(0.5);
+  it("sets no bar (rather than a made-up one) when Qloo returned no candidates", () => {
+    expect(thresholdFor(ctxWith({}), "collab")).toBeUndefined();
   });
 });
 
 describe("metricsOf", () => {
-  const verdict = fc.constantFrom<Verdict>("pass", "miss", "hallucination", "fading");
+  const verdict = fc.constantFrom<Verdict>("pass", "miss", "hallucination", "fading", "unscored");
   test.prop([fc.array(verdict, { maxLength: 30 })])("counts add up and the miss rate is in [0, 1]", (vs) => {
     const m = metricsOf(vs.map((v, i) => receipt(`n${i}`, v)));
     expect(m.picks).toBe(vs.length);
-    expect(m.hallucinations + m.misses + m.fading).toBe(vs.filter((v) => v !== "pass").length);
+    expect(m.hallucinations + m.misses + m.fading + m.unscored).toBe(vs.filter((v) => v !== "pass").length);
     expect(m.cultureMissRate).toBeGreaterThanOrEqual(0);
     expect(m.cultureMissRate).toBeLessThanOrEqual(1);
+  });
+  it("leaves unscored picks out of the rate instead of counting them as passes or misses", () => {
+    expect(metricsOf([receipt("a", "unscored"), receipt("b", "miss")]).cultureMissRate).toBe(1);
+    expect(metricsOf([receipt("a", "unscored")]).cultureMissRate).toBe(0);
   });
   it("counts fading as a warning, not a miss", () => {
     expect(metricsOf([receipt("a", "fading"), receipt("b", "pass")]).cultureMissRate).toBe(0);
@@ -137,5 +141,53 @@ describe("critique (offline)", () => {
     const first = keys.length;
     await critique(ctx, picksOf(["Ayra Starr", "Victony"]));
     expect(keys.length).toBe(first);
+  });
+});
+
+describe("critic honesty", () => {
+  const live = (o: Partial<Record<"insights", QlooClient["insights"]>> = {}) => {
+    const q = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+    if (o.insights) q.insights = o.insights;
+    return q;
+  };
+
+  it("searches every type before calling a name 'not found', and says what it searched", async () => {
+    const ctx = ctxWith({ collab: [cand("Ayra Starr", 0.9)] });
+    const { receipts } = await critique(ctx, picksOf(["Lagos Velvet Collective"]));
+    const r = must(receipts[0]);
+    expect(r.verdict).toBe("hallucination");
+    expect(r.calls).toHaveLength(2);
+    expect(r.calls[1]).not.toMatch(/types=/);
+    expect(r.note).toMatch(/Not found in Qloo/);
+    expect(r.affinity).toBeUndefined();
+  });
+
+  it("calls a real entity filed under another type a role mismatch, not an invention", async () => {
+    const ctx = ctxWith({ collab: [cand("Ayra Starr", 0.9)] });
+    const r = must((await critique(ctx, picksOf(["Insecure"]))).receipts[0]);
+    expect(r.verdict).toBe("miss");
+    expect(r.note).toMatch(/files "Insecure" as tv show/);
+  });
+
+  it("shows no number when Qloo gives no score, and doesn't count it as a miss", async () => {
+    const empty: QlooClient["insights"] = async (type, params) => {
+      const q = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+      const r = await q.insights(type, params);
+      return params["filter.results.entities"] ? { ...r, data: { ...r.data, results: { ...r.data.results, entities: [] } } } : r;
+    };
+    const ctx = makeCtx(audience, live({ insights: empty }), [{ name: "Tems", entityId: "t" }]);
+    ctx.candidates = { collab: [cand("Ayra Starr", 0.9)] };
+    const r = must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]);
+    expect(r.verdict).toBe("unscored");
+    expect(r.affinity).toBeUndefined();
+    expect(metricsOf([r]).cultureMissRate).toBe(0);
+  });
+
+  it("marks a pick unscored, not missed, when its role has no candidate pool", async () => {
+    const ctx = ctxWith({});
+    const r = must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]);
+    expect(r.verdict).toBe("unscored");
+    expect(r.threshold).toBeUndefined();
+    expect(r.note).toMatch(/no candidates for this role/);
   });
 });

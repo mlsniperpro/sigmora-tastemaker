@@ -6,8 +6,9 @@ import type { Receipt, Verdict } from "@/lib/agent/types";
 export const VERDICT_STYLE: Record<Verdict, { label: string; cls: string; dot: string }> = {
   pass: { label: "Qloo-verified", cls: "text-pass border-pass/40 bg-pass/10", dot: "bg-pass" },
   miss: { label: "Low affinity", cls: "text-miss border-miss/40 bg-miss/10", dot: "bg-miss" },
-  hallucination: { label: "Not a real entity", cls: "text-invented border-invented/40 bg-invented/10", dot: "bg-invented" },
+  hallucination: { label: "Not found in Qloo", cls: "text-invented border-invented/40 bg-invented/10", dot: "bg-invented" },
   fading: { label: "Fading", cls: "text-fade border-fade/40 bg-fade/10", dot: "bg-fade" },
+  unscored: { label: "No Qloo score", cls: "text-muted border-line bg-panel-2", dot: "bg-muted" },
 };
 
 const SOURCE_LABEL = { live: "live Qloo", replay: "replayed Qloo response", simulated: "simulated (not Qloo data)" } as const;
@@ -26,7 +27,8 @@ function TrendMark({ trend }: { trend?: number }) {
 export function ReceiptChip({ r }: { r: Receipt }) {
   const [open, setOpen] = useState(false);
   const v = VERDICT_STYLE[r.verdict];
-  const top = r.drivers[0] && r.drivers[0].score > 0 ? r.drivers[0] : undefined;
+  const strongest = [...r.drivers].sort((a, b) => b.score - a.score)[0];
+  const top = strongest && strongest.score > 0 ? strongest : undefined;
   return (
     <div className="min-w-0">
       <button
@@ -40,7 +42,7 @@ export function ReceiptChip({ r }: { r: Receipt }) {
         {r.affinity !== undefined && <span className="font-mono">affinity {r.affinity.toFixed(2)}</span>}
         {top && r.verdict !== "hallucination" && (
           <span className="text-ink/70">
-            via {top.name} {Math.round(top.score * 100)}%
+            driven by {top.name} ({top.score.toFixed(2)})
           </span>
         )}
         <TrendMark trend={r.trend} />

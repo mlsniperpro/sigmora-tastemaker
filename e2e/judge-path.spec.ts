@@ -28,7 +28,15 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   const chip = pack.getByRole("button", { expanded: false }).first();
   await chip.click();
   await expect(pack.getByRole("button", { expanded: true }).first()).toBeVisible();
-  await expect(page.getByRole("region", { name: "Agent trace" })).toBeVisible();
+  // The ROI line comes from the run's own measurements.
+  await expect(page.getByText(/This plan took \d+ s/)).toBeVisible();
+
+  // The trace names Qloo surfaces and shows every parameter of a call on demand.
+  const trace = page.getByRole("region", { name: "Agent trace" });
+  await expect(trace).toContainText(/\d+ Qloo calls · (1\d|[2-9]\d) Qloo surfaces/);
+  await trace.getByRole("button", { name: /Qloo critic, pass 1/ }).click();
+  await expect(trace).toContainText("feature.explainability=true");
+  await expect(trace).toContainText("filter.results.entities=");
   await expect(page.getByRole("region", { name: "Taste Map" })).toBeVisible();
   await noHorizontalScroll(page);
 
@@ -36,6 +44,9 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   const view = page.getByRole("group", { name: "Plan view" });
   await view.getByRole("button", { name: "Without Qloo" }).click();
   await expect(page.getByRole("heading", { name: "Campaign pack — without Qloo" })).toBeVisible();
+  // Failures are annotated inline, not only on hover.
+  await expect(pack.getByText(/Qloo affinity \d\.\d\d: .*Qloo's .*candidates/).first()).toBeVisible();
+  await expect(pack.getByText("Not found in Qloo").first()).toBeVisible();
   await view.getByRole("button", { name: "With Qloo" }).click();
   await expect(page.getByRole("heading", { name: "Campaign pack", exact: true })).toBeVisible();
 
@@ -61,5 +72,7 @@ test("a permalink reloads the same run", async ({ page }) => {
   expect(first).not.toBe("");
   await page.reload();
   await finished(page);
+  // The second load is the cached run, and the trace says so.
+  await expect(page.getByRole("region", { name: "Agent trace" })).toContainText("Replay of a finished run");
   await expect(page.getByRole("region", { name: "Campaign pack" })).toHaveText(first);
 });

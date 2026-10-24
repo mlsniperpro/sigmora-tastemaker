@@ -158,11 +158,11 @@ describe("judge model selection", () => {
 });
 
 describe("summaries and the report", () => {
-  const m = (picks: number, hallucinations: number, misses: number) => ({ picks, hallucinations, misses, fading: 0, cultureMissRate: 0 });
+  const m = (picks: number, hallucinations: number, misses: number) => ({ picks, hallucinations, misses, fading: 0, unscored: 0, cultureMissRate: 0 });
   const rowOf = (family: BenchRow["family"], sources = ["live"]): BenchRow => ({ subject: "s", family, grounded: m(10, 0, 1), baseline: m(10, 2, 5), sources, fallbacks: 0, qlooCalls: 50 });
 
-  test.prop([fc.array(fc.record({ picks: fc.nat(30), hallucinations: fc.nat(10), misses: fc.nat(10), fading: fc.nat(5), cultureMissRate: fc.constant(0) }), { maxLength: 30 })])("totals add up and rates stay in [0, 1] when counts fit", (ms) => {
-    fc.pre(ms.every((x) => x.hallucinations + x.misses + x.fading <= x.picks));
+  test.prop([fc.array(fc.record({ picks: fc.nat(30), hallucinations: fc.nat(10), misses: fc.nat(10), fading: fc.nat(5), unscored: fc.nat(3), cultureMissRate: fc.constant(0) }), { maxLength: 30 })])("totals add up and rates stay in [0, 1] when counts fit", (ms) => {
+    fc.pre(ms.every((x) => x.hallucinations + x.misses + x.fading + x.unscored <= x.picks));
     const t = totals(ms);
     expect(t.picks).toBe(ms.reduce((a, x) => a + x.picks, 0));
     for (const r of [t.hallucinationRate, t.cultureMissRate, t.fadingRate]) {
@@ -195,7 +195,7 @@ describe("summaries and the report", () => {
     expect(s.grounded.cultureMissRate).toBe(0.1);
     expect(s.judge?.meanScores.grounded.audienceFit).toBe(5);
     const md = renderReport(s);
-    expect(md).toMatch(/\| Without Qloo \| 30 \| 20\.0% \| 70\.0% \|/);
+    expect(md).toMatch(/\| Without Qloo \| 30 \| 0 \| 20\.0% \| 70\.0% \|/);
     expect(md).toMatch(/self-preference possible/);
     expect(md).toMatch(/\| 1 \| 1 \| 0 \| 0 \| 0 \| 100\.0% \|/);
     expect(md).not.toMatch(/Incomplete/);

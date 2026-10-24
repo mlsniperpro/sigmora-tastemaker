@@ -52,6 +52,8 @@ export interface Resolved {
   entityId?: string;
   calls: string[];
   source?: QlooSource;
+  /** Unresolved for this role, but Qloo has it under another type. */
+  filedAs?: string;
 }
 
 /** How strongly candidate discovery leans toward trending entities (Qloo's bias.trends); "off" sends nothing. */
@@ -81,11 +83,13 @@ export interface Ctx extends CriticSettings {
   /** Critic memos for the run: affinity per entity, and resolution per role + name. */
   scores: Map<string, Score>;
   resolved: Map<string, Resolved>;
-  /** Venue-in-city checks: entity id → whether Qloo's location filter returns it in `city`. */
+  /** Venue-in-city checks, keyed by inCityKey(city, entity id): whether Qloo's location filter returns it there. */
   inCity: Map<string, { ok: boolean; key: string }>;
   /** Launch city, when known; venues must be in it. */
   city?: string;
 }
+
+export const inCityKey = (city: string, entityId: string) => `${normName(city)}|${entityId}`;
 
 export interface Seed {
   name: string;

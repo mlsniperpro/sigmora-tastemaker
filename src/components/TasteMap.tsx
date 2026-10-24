@@ -170,7 +170,7 @@ export function TasteMap({ result }: { result: RunResult }) {
       </header>
 
       {audience.age.length > 0 && (
-        <Panel title="Who over-indexes" sub="urn:demographics — signed affinity vs. the average audience">
+        <Panel title="Who over-indexes" sub="urn:demographics — signed affinity vs. the average audience, ×100 (+ over-indexes, − under)">
           <Diverging
             rows={[
               ...audience.age.map((a) => ({ label: a.bucket.replace(/_/g, " "), value: a.value })),
@@ -193,13 +193,20 @@ export function TasteMap({ result }: { result: RunResult }) {
       )}
 
       {(result.heatmap.length > 0 || result.cities.length > 0) && (
-        <Panel title="Where to launch" sub="Candidate metros ranked by audience affinity (urn:entity:locality)">
+        <Panel
+          title="Where to launch"
+          sub={
+            result.citiesRankedBy === "heatmap"
+              ? "Candidate metros ranked by the urn:heatmap cells around them (locality ranking came back empty)"
+              : "Candidate metros ranked by audience affinity (urn:entity:locality + filter.results.entities)"
+          }
+        >
           <CityMap result={result} />
           {result.cities.length > 0 && <div className="mt-2"><Rank rows={result.cities.slice(0, 6)} /></div>}
         </Panel>
       )}
 
-      <Panel title="Cross-domain affinity web" sub="Every verified pick in the final plan, linked to the audience by affinity">
+      <Panel title="Cross-domain affinity web" sub="The final plan's Qloo-scored picks around the audience; edge weight = affinity">
         <AffinityWeb receipts={result.grounded.receipts} />
       </Panel>
 

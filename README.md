@@ -2,7 +2,7 @@
 
 **Every marketing agent guesses the culture. Tastemaker checks it, then ships the campaign.**
 
-Tastemaker is a marketing agent that plans a launch for a creator or small brand: audience, launch city, collaborators, brand partners, hook references, podcast pitches, venue, presenter, hooks, a 30-second script and captions per platform. It uses [Qloo](https://www.qloo.com/) as the **critic inside the agent loop**. The LLM proposes, Qloo scores every cultural pick against the target audience, low-affinity and invented picks are cut and replaced with Qloo-preferred alternatives, and every surviving pick carries a **receipt**: affinity score, which input drove it (explainability), trend direction, and the exact Qloo call behind it.
+Tastemaker is a marketing agent that plans a launch for a creator or small brand: audience, launch city, collaborators, brand partners, hook references, podcast pitches, venue, presenter, hooks, a 30-second script and captions per platform. It uses [Qloo](https://www.qloo.com/) as the **critic inside the agent loop**. The LLM proposes, Qloo scores every cultural pick against the target audience, low-affinity picks and names Qloo can't find are cut and replaced with Qloo-preferred alternatives, and every surviving pick carries a **receipt**: affinity score, which input drove it (explainability), trend direction, and the exact Qloo call behind it.
 
 A **Without Qloo** toggle shows the plan the same model writes with no Qloo access, with its misses struck through.
 
@@ -38,7 +38,7 @@ resolve seeds ─► who over-indexes ─► taste vocabulary ─► cross-domai
          (urn:entity:locality) (urn:heatmap)    (place + filter.location) (/v2/trending)
       ─► positioning gap ─► LLM drafts the campaign
          (/v2/analysis/compare)
-      ─► QLOO CRITIC: resolve every named entity (invented = hallucination),
+      ─► QLOO CRITIC: resolve every named entity (typed, then untyped search; no match = not found in Qloo),
          score with filter.results.entities + feature.explainability,
          check venues are in the launch city, check hook references aren't fading
       ─► replace failures with Qloo-preferred picks ─► LLM revises ─► critic again (≤ 2 rounds)
@@ -55,7 +55,7 @@ The same model also drafts with no Qloo context; the critic audits that plan wit
 
 | Surface | Job in Tastemaker |
 |---|---|
-| `GET /search` | Resolve seeds, candidate cities and every name the model writes; no match = invented entity |
+| `GET /search` | Resolve seeds, candidate cities and every name the model writes; no match in a typed or an untyped search = not found in Qloo |
 | `GET /entities` (`external.spotify.ids`, `external.imdb.ids`) | Seed from a pasted Spotify or IMDb link |
 | `GET /v2/tags` (`feature.semantic_search=true`) | Map the brief's free-text vibe to real tag IDs, sent as `signal.interests.tags` |
 | `/v2/insights` `urn:demographics` | Which age and gender buckets over-index |
@@ -69,13 +69,13 @@ The same model also drafts with no Qloo context; the critic audits that plan wit
 | `GET /v2/analysis/compare` | Positioning gap vs. a comparable's audience |
 | `signal.demographics.age/gender` | Every call is conditioned on the target audience |
 
-Every request is validated against a per-`filter.type` parameter allow-list before it leaves the server (Qloo silently drops unknown params), throttled under the key's rate limit, retried with backoff on 429/5xx/timeouts, capped by a per-run and a daily call budget, cached by normalized request, and labeled in the UI as **live**, **replayed** (recorded fixture) or **simulated**. When a live call fails and an answer comes from a fallback, the trace and a banner say so and why.
+Every request is validated against a per-`filter.type` parameter allow-list before it leaves the server (Qloo silently drops unknown params), throttled under the key's rate limit (per server instance), retried with backoff on 429/5xx/timeouts, capped by a per-run and a daily call budget, cached by normalized request, and labeled in the UI as **live**, **replayed** (recorded fixture) or **simulated**. When a live call fails and an answer comes from a fallback, the trace and a banner say so and why.
 
 ## Use it from any agent (MCP)
 
 Tastemaker is also an MCP server at `POST /api/mcp` (Streamable HTTP per the 2025-06-18 spec: stateless, one JSON-RPC message per POST, JSON responses). Two tools:
 
-- `taste_check`: give it an audience (`seeds`, `ages`, optional `gender` and `city`) and a list of picks (artists, brands, shows, films, podcasts, venues, creators, cities); get back a verdict per pick (pass, low affinity, invented, fading), the Qloo affinity, explainability, the calls behind it, and Qloo-preferred replacements. Input schemas are generated from the same zod schemas the server enforces.
+- `taste_check`: give it an audience (`seeds`, `ages`, optional `gender` and `city`) and a list of picks (artists, brands, shows, films, podcasts, venues, creators, cities); get back a verdict per pick (pass, low affinity, not found in Qloo, fading, unscored), the Qloo affinity, explainability, the calls behind it, and Qloo-preferred replacements. Input schemas are generated from the same zod schemas the server enforces.
 - `plan_campaign`: the full agent, for a preset or a brief.
 
 ```bash

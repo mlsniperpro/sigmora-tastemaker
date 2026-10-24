@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Brief, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
 import { RunRequest } from "./agent/brief";
+import { placeholderReason } from "./agent/evidence";
 import { cachedRun, costsMoney, getOrRun, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
@@ -35,7 +36,7 @@ const TOOLS = [
     name: "taste_check",
     title: "Taste-check cultural picks against an audience (Qloo)",
     description:
-      "Score a list of cultural picks (artists, brands, shows, films, podcasts, venues, creators, cities) against an audience defined by what it already loves and its age buckets. Returns, per pick, a verdict (pass, miss, hallucination = not a real entity, fading), Qloo affinity, the pass bar, explainability and the Qloo calls behind it, plus Qloo-preferred replacements for failures.",
+      "Score a list of cultural picks (artists, brands, shows, films, podcasts, venues, creators, cities) against an audience defined by what it already loves and its age buckets. Returns, per pick, a verdict (pass; miss; hallucination = not found in Qloo by a typed or an untyped search; fading; unscored = no Qloo score to judge by), Qloo affinity, the pass bar, explainability and the Qloo calls behind it, plus Qloo-preferred replacements for failures.",
     inputSchema: inputSchema(TasteCheckArgs),
   },
   {
@@ -62,7 +63,7 @@ const fail = (id: JsonRpcId, code: number, message: string) => ({ jsonrpc: "2.0"
 type RpcReply = ReturnType<typeof ok> | ReturnType<typeof fail>;
 
 function receiptLine(r: Receipt) {
-  const aff = r.affinity !== undefined ? ` affinity ${r.affinity.toFixed(2)} (bar ${r.threshold?.toFixed(2)})` : "";
+  const aff = r.affinity !== undefined ? ` affinity ${r.affinity.toFixed(2)}${r.threshold !== undefined ? ` (bar ${r.threshold.toFixed(2)})` : ""}` : "";
   return `- [${r.verdict}] ${r.role}: ${r.name}${aff}${r.replaced ? ` — replaced ${r.replaced.name}` : ""}. ${r.note}`;
 }
 
@@ -93,7 +94,7 @@ async function tasteCheckTool(args: unknown, gate: Gate) {
   if (qloo.primarySource === "live") await admitOrThrow(gate);
   const r = await tasteCheck(a, { qloo });
   const text = [
-    `Qloo taste check (${r.sources.join(", ")} data): ${r.metrics.hallucinations} invented, ${r.metrics.misses} low-affinity, ${r.metrics.fading} fading of ${r.metrics.picks}.`,
+    `Qloo taste check (${r.sources.join(", ")} data): ${r.metrics.hallucinations} not found in Qloo, ${r.metrics.misses} low-affinity, ${r.metrics.fading} fading, ${r.metrics.unscored} unscored, of ${r.metrics.picks}.${r.sources.includes("simulated") ? " Simulated data: the numbers are placeholders, not Qloo data." : ""}`,
     ...r.receipts.map(receiptLine),
     ...(r.suggestions.length ? ["Qloo-preferred replacements:", ...r.suggestions.map((s) => `- ${s.from} → ${s.to}: ${s.reason}`)] : []),
     ...(r.warnings.length ? [`Warnings: ${r.warnings.join("; ")}`] : []),
@@ -114,7 +115,7 @@ async function planCampaignTool(args: unknown, gate: Gate) {
   const { result: r } = await getOrRun(lookup);
   const text = [
     `${r.brief.subject} — ${r.brief.product}. Qloo data: ${r.sources.join(", ")}. Model: ${r.llm.label}.`,
-    `Culture Miss Rate: without Qloo ${Math.round(r.metrics.baseline.cultureMissRate * 100)}%, with Qloo ${Math.round(r.metrics.grounded.cultureMissRate * 100)}%.`,
+    placeholderReason(r) ?? `Culture Miss Rate: without Qloo ${Math.round(r.metrics.baseline.cultureMissRate * 100)}%, with Qloo ${Math.round(r.metrics.grounded.cultureMissRate * 100)}%.`,
     `Positioning: ${r.grounded.draft.positioning}`,
     "Hooks:",
     ...r.grounded.draft.hooks.map((h) => `- ${h}`),

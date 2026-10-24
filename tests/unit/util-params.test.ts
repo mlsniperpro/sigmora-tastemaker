@@ -35,6 +35,10 @@ describe("median", () => {
     expect(m).toBeLessThanOrEqual(Math.max(...xs));
     expect(median([...xs].reverse())).toBe(m);
   });
+  it("doesn't depend on the order of 0 and -0 (soak counterexample)", () => {
+    expect(median([0, -0, 5e-324])).toBe(median([5e-324, -0, 0]));
+    expect(Object.is(median([-0]), 0)).toBe(true);
+  });
   it("is 0 for an empty list", () => {
     expect(median([])).toBe(0);
   });

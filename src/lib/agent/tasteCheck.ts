@@ -3,6 +3,8 @@ import { qlooFromEnv, type QlooClient, type QlooSource } from "../qloo/client";
 import type { Pick as PlanPick, Replacement } from "../llm/types";
 import type { Brief } from "./brief";
 import { chooseReplacements, critique, metricsOf } from "./critic";
+import { rankCities } from "./cities";
+import { PRESETS } from "./presets";
 import { discoveryFromConfig, loadCulture, loadVenues, makeCtx, resolveSeeds, type Audience, type CriticSettings } from "./context";
 import type { Metrics, Receipt } from "./types";
 
@@ -38,6 +40,13 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
     if (input.city) {
       ctx.city = input.city;
       if (picks.some((p) => p.role === "venue")) await loadVenues(ctx, input.city);
+    } else {
+      // No fixed market: rank the named cities alongside the default US metros, so a city pick is judged by rank.
+      const named = picks.filter((p) => p.role === "city").map((p) => p.name);
+      if (named.length) {
+        const pool = [...new Set([...named, ...(PRESETS[0].brief.candidateCities ?? [])])].slice(0, 16);
+        ctx.candidates.city = (await rankCities(ctx, pool)).cities;
+      }
     }
     const { receipts, warnings } = await critique(ctx, picks);
     return { receipts, metrics: metricsOf(receipts), suggestions: chooseReplacements(ctx, picks, receipts, new Set()), sources: [...sources], warnings };

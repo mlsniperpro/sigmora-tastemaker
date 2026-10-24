@@ -2,7 +2,7 @@
 
 ## What to remember
 
-**"Don't guess the culture. Query it."** Tastemaker uses Qloo as the critic inside a marketing agent's loop: the model proposes, Qloo scores, weak or invented picks are replaced, and every survivor carries a receipt. The Without Qloo toggle shows what the same model gets wrong on its own.
+**"Don't guess the culture. Query it."** Tastemaker uses Qloo as the critic inside a marketing agent's loop: the model proposes, Qloo scores, weak picks and names Qloo can't find are replaced, and every survivor carries a receipt. The Without Qloo toggle shows what the same model gets wrong on its own.
 
 ## The 3-click path
 

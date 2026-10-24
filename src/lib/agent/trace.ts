@@ -45,6 +45,7 @@ export class Tracer {
   private open(id: string, title: string, model?: string): TraceStep {
     const s: TraceStep = { id, title, detail: "", status: "done", ms: 0, calls: [], model };
     this.current = s;
+    this.emit?.({ type: "start", id, title });
     return s;
   }
 

@@ -20,7 +20,9 @@ import { chooseReplacements, critique, metricsOf } from "./critic";
 import { audienceOf, discoveryFromConfig, isFading, loadCulture, loadTrends, loadVenues, makeCtx, resolveByName, resolveSeeds, signalFor, type CriticSettings, type Ctx, type Discovery } from "./context";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
-import { newRunId, normName } from "./util";
+import { newRunId, normName, sameName } from "./util";
+
+const emptyDraft = (): Draft => ({ positioning: "", hooks: [], script: "", captions: [], musicBrief: "", picks: [] });
 
 export interface RunOptions extends Partial<CriticSettings> {
   /** Defaults to QLOO_BIAS_TRENDS / QLOO_DIVERSIFY. */
@@ -198,6 +200,23 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       { model: llm.label },
     );
 
+    /**
+     * Venues are judged in the city the plan actually chose. When the model picks
+     * another ranked metro (the critic accepts the top 3), reload that city's venues.
+     */
+    const followPlanCity = async (d: Draft) => {
+      if (brief.targetCity) return;
+      const named = d.picks.find((p) => p.role === "city")?.name;
+      const ranked = named ? ctx.candidates.city?.find((c) => sameName(c.name, named)) : undefined;
+      if (!ranked || (ctx.city && sameName(ranked.name, ctx.city))) return;
+      const city = ranked.name;
+      ctx.city = city;
+      await tracer.optional(`venues-${normName(city).replace(/ /g, "-")}`, `Venues in ${city}, the plan's city (urn:entity:place + filter.location)`, async (s) => {
+        await loadVenues(ctx, city);
+        s.detail = (ctx.candidates.venue ?? []).slice(0, 3).map((v) => v.name).join(", ") || "No venues returned";
+      });
+    };
+
     const tried = new Set<string>();
     // What each Qloo-preferred pick replaced, keyed by role + new name (chains keep the first original).
     const originals = new Map<string, Receipt>();
@@ -205,13 +224,14 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     let rounds = 0;
     for (let round = 1; round <= maxRounds + 1; round++) {
       const current = draft;
+      await followPlanCity(current);
       receipts = await tracer.step(`critic-${round}`, `Qloo critic, pass ${round} (filter.results.entities + explainability)`, async (s) => {
         const c = await critique(ctx, current.picks);
         s.detail = critiqueDetail(c.receipts, c.warnings);
         return c.receipts;
       });
       rounds = round;
-      if (round > maxRounds || receipts.every((r) => r.verdict === "pass")) break;
+      if (round > maxRounds || receipts.every((r) => r.verdict === "pass" || r.verdict === "unscored")) break;
       const replacements = chooseReplacements(ctx, current.picks, receipts, tried);
       if (!replacements.length) break;
       for (const rep of replacements) {
@@ -258,15 +278,20 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       ms: base.ms,
       model: llm.label,
     });
-    if ("err" in base) throw base.err;
-    const baselineReceipts = await tracer.step("audit", "Qloo audit of the baseline plan", async (s) => {
-      const c = await critique(ctx, base.draft.picks);
-      s.detail = critiqueDetail(c.receipts, c.warnings);
-      return c.receipts;
-    });
+    let baselineReceipts: Receipt[] = [];
+    if (!("err" in base)) {
+      // The baseline's venues are judged in the baseline's own city, not the grounded plan's.
+      const ownCity = brief.targetCity ?? base.draft.picks.find((p) => p.role === "city")?.name ?? ctx.city;
+      baselineReceipts = await tracer.step("audit", "Qloo audit of the baseline plan", async (s) => {
+        const c = await critique({ ...ctx, city: ownCity }, base.draft.picks);
+        s.detail = critiqueDetail(c.receipts, c.warnings);
+        return c.receipts;
+      });
+    }
 
     const grounded: PlanSide & { rounds: number } = { draft, receipts, rounds };
-    const baseline: PlanSide = { draft: base.draft, receipts: baselineReceipts };
+    // A failed baseline doesn't throw away a finished grounded plan; the comparison is marked unavailable.
+    const baseline: PlanSide = "err" in base ? { draft: emptyDraft(), receipts: [], unavailable: base.err.message } : { draft: base.draft, receipts: baselineReceipts };
     const health = qlooHealth(tracer.steps);
     const sources = [...new Set(tracer.steps.flatMap((s) => s.calls.map((c) => c.source)))];
     const result: RunResult = {
@@ -274,6 +299,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       version: RUN_SCHEMA_VERSION,
       brief,
       createdAt: (opts.now?.() ?? new Date()).toISOString(),
+      durationMs: Date.now() - startedAt,
       llm: { id: llm.id, label: llm.label, scripted: llm.scripted },
       sources,
       qloo: health,

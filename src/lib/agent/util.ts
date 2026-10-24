@@ -28,7 +28,8 @@ export function sameName(a: string, b: string): boolean {
 
 export function median(xs: number[]): number {
   if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
+  // `+ 0` turns -0 into +0, so the result can't depend on input order (the sort treats them as equal).
+  const s = xs.map((x) => x + 0).sort((a, b) => a - b);
   const m = Math.floor(s.length / 2);
   const hi = s[m] ?? 0;
   return s.length % 2 ? hi : ((s[m - 1] ?? hi) + hi) / 2;

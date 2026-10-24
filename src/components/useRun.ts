@@ -12,6 +12,10 @@ export function useRun() {
   const [result, setResult] = useState<RunResult>();
   const [error, setError] = useState<string>();
   const [running, setRunning] = useState(false);
+  /** The step in progress, shown in the trace while it runs. */
+  const [pending, setPending] = useState<string>();
+  /** True when the result is a finished run served from cache (its trace is a replay). */
+  const [cached, setCached] = useState(false);
   const abort = useRef<AbortController | null>(null);
 
   const run = useCallback(async (req: RunRequest) => {
@@ -19,6 +23,8 @@ export function useRun() {
     const ctrl = new AbortController();
     abort.current = ctrl;
     setSteps([]);
+    setPending(undefined);
+    setCached(false);
     setResult(undefined);
     setError(undefined);
     setRunning(true);
@@ -28,9 +34,13 @@ export function useRun() {
 
     const state = { finished: false };
     const apply = (ev: RunEvent) => {
-      if (ev.type === "step") setSteps((s) => [...s, ev.step]);
-      else if (ev.type === "result") {
+      if (ev.type === "start") setPending(ev.title);
+      else if (ev.type === "step") {
+        setPending(undefined);
+        setSteps((s) => [...s, ev.step]);
+      } else if (ev.type === "result") {
         state.finished = true;
+        setCached(ev.cached === true);
         setResult(ev.result);
       } else {
         state.finished = true;
@@ -56,7 +66,10 @@ export function useRun() {
     } catch (err) {
       if ((err as Error).name !== "AbortError") setError((err as Error).message);
     } finally {
-      if (abort.current === ctrl) setRunning(false);
+      if (abort.current === ctrl) {
+        setRunning(false);
+        setPending(undefined);
+      }
     }
   }, []);
 
@@ -76,5 +89,5 @@ export function useRun() {
     [run],
   );
 
-  return { steps, result, error, running, run, requery };
+  return { steps, pending, cached, result, error, running, run, requery };
 }

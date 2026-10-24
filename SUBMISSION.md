@@ -8,14 +8,14 @@
 
 ## Inspiration
 
-We run a small studio and use AI agents to market our own products. They kept picking cultural references our audience didn't care about: the famous artist instead of the one our listeners actually stream, a podcast whose audience is the opposite of ours, sometimes a collective that doesn't exist. LLM marketing agents hallucinate culture, and they sound confident doing it.
+We run a small studio and use AI agents to market our own products. They kept picking cultural references our audience didn't care about: the famous artist instead of the one our listeners actually stream, a podcast whose audience is the opposite of ours, sometimes a name that isn't in any catalogue at all. LLM marketing agents hallucinate culture, and they sound confident doing it.
 
 ## What it does
 
 Tastemaker plans a launch campaign for a creator or small brand (audience, launch city, collaborators, brand partners, hook references, podcast pitches, a venue, a presenter, hooks, a 30-second script and per-platform captions) and **uses Qloo as the critic inside the agent loop**:
 
 1. The model drafts the plan from Qloo's audience data.
-2. Every cultural entity it names is resolved in Qloo. If it doesn't exist, it's flagged as invented.
+2. Every cultural entity it names is resolved in Qloo, with a typed search and then an untyped one. A name Qloo can't find is flagged "not found in Qloo"; a real entity filed under the wrong type is flagged as a role mismatch.
 3. Every real pick is scored against the target audience with `filter.results.entities` and `feature.explainability`. Venues must be in the launch city; hook references must not be fading on `/v2/trending`.
 4. Failures are replaced with Qloo-preferred picks, the model revises, and the critic checks again.
 5. Every surviving pick carries a **receipt**: affinity, pass bar, which seed drove it, trend, and the exact Qloo call.
@@ -31,7 +31,7 @@ Tastemaker plans a launch campaign for a creator or small brand (audience, launc
 
 Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (any OpenAI-compatible or Anthropic model from env). Qloo surfaces used, each visible in the live agent trace:
 
-- `/search` and `/entities` (Spotify/IMDb external IDs) to resolve seeds and catch invented names
+- `/search` and `/entities` (Spotify/IMDb external IDs) to resolve seeds and catch names that aren't in Qloo
 - `/v2/insights` with `urn:demographics` (who over-indexes) and `urn:tag` (taste vocabulary for the copy)
 - `/v2/insights` across artist, brand, tv_show, movie, podcast and person: the cross-domain culture map
 - `urn:entity:locality` ranking and a `urn:heatmap` over the US folded into candidate cities: where to launch
@@ -45,7 +45,7 @@ Every request is validated against per-`filter.type` parameter allow-lists (Qloo
 
 ## Culture Miss Rate
 
-Across 30 briefs (music, DTC, sports), the same model with no Qloo access produced **[X]%** picks that were invented or below the audience's affinity bar; with the Qloo critic the shipped plans had **[Y]%**. Method, script and summary: `docs/benchmark.md`, `benchmark/summary.json`; blind LLM-judge preference in the same report. *(Fill only from a live run.)*
+Across 30 briefs (music, DTC, sports), the same model with no Qloo access produced **[X]%** picks that weren't in Qloo or fell below the audience's affinity bar; with the Qloo critic the shipped plans had **[Y]%**. Method, script and summary: `docs/benchmark.md`, `benchmark/summary.json`; blind LLM-judge preference in the same report. *(Fill only from a live run.)*
 
 ## Responsible taste
 

@@ -1,30 +1,24 @@
 "use client";
 
 import { useState } from "react";
+import { surfaceOf } from "@/lib/agent/surfaces";
 import type { TraceStep } from "@/lib/agent/types";
 
-function endpointOf(key: string) {
-  const [path, qs = ""] = key.split("?");
-  const p = new URLSearchParams(qs);
-  const type = p.get("filter.type");
-  return type ? `${path} · ${type}` : path;
+/** Every parameter of a call, with entity ids shown alongside their names where the run knows them. */
+function params(key: string, names: ReadonlyMap<string, string>): string[] {
+  const qs = new URLSearchParams(key.split("?")[1] ?? "");
+  return [...qs.entries()].map(([k, v]) => {
+    const named = v
+      .split(",")
+      .map((id) => (names.has(id) ? `${id} (${names.get(id) ?? ""})` : id))
+      .join(",");
+    return `${k}=${named}`;
+  });
 }
 
-const KEY_PARAMS = [
-  "filter.type",
-  "query",
-  "signal.demographics.age",
-  "signal.demographics.gender",
-  "filter.results.entities",
-  "feature.explainability",
-  "filter.location.query",
-  "output.heatmap.boundary",
-  "external.spotify.ids",
-];
-
-function Step({ s, index }: { s: TraceStep; index: number }) {
+function Step({ s, index, names }: { s: TraceStep; index: number; names: ReadonlyMap<string, string> }) {
   const [open, setOpen] = useState(false);
-  const endpoints = [...new Set(s.calls.map((c) => endpointOf(c.key)))];
+  const surfaces = [...new Set(s.calls.map((c) => surfaceOf(c.key)))];
   return (
     <li className="relative pl-6">
       <span
@@ -42,57 +36,85 @@ function Step({ s, index }: { s: TraceStep; index: number }) {
         </div>
         <p className="mt-0.5 text-meta leading-snug text-muted">{s.status === "error" ? `Skipped: ${s.detail}` : s.detail}</p>
         <div className="mt-1 flex flex-wrap gap-1">
-          {endpoints.map((e) => (
+          {surfaces.map((e) => (
             <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 font-mono text-label text-violet">
               {e}
             </span>
           ))}
           {s.model && <span className="rounded bg-panel-2 px-1.5 py-0.5 font-mono text-label text-accent">LLM · {s.model}</span>}
-          {s.calls.length > 0 && <span className="px-1 py-0.5 text-label text-muted">{s.calls.length} call{s.calls.length > 1 ? "s" : ""}</span>}
+          {s.calls.length > 0 && (
+            <span className="px-1 py-0.5 text-label text-muted">
+              {s.calls.length} call{s.calls.length > 1 ? "s" : ""} · {open ? "hide" : "show"} parameters
+            </span>
+          )}
         </div>
       </button>
       {open && s.calls.length > 0 && (
         <ul className="mt-2 space-y-1.5">
-          {s.calls.map((c, i) => {
-            const qs = new URLSearchParams(c.key.split("?")[1] ?? "");
-            const shown = KEY_PARAMS.filter((k) => qs.has(k)).map((k) => `${k}=${qs.get(k)}`);
-            return (
-              <li key={i} className="rounded border border-line bg-bg/50 p-1.5 font-mono text-label leading-relaxed text-muted">
-                <span className="text-ink">GET {c.path}</span> · {c.source}
-                {c.cached ? " · cached" : ""} · {c.latencyMs} ms
-                {c.fallbackReason ? <span className="text-fade"> · fallback: {c.fallbackReason}</span> : null}
-                {shown.length > 0 && <div className="break-all">{shown.join(" ")}</div>}
-              </li>
-            );
-          })}
+          {s.calls.map((c, i) => (
+            <li key={i} className="rounded border border-line bg-bg/50 p-1.5 font-mono text-label leading-relaxed text-muted">
+              <span className="text-ink">GET {c.path}</span> · {c.source}
+              {c.cached ? " · cached" : ""} · {c.latencyMs} ms
+              {c.fallbackReason ? <span className="text-fade"> · fallback: {c.fallbackReason}</span> : null}
+              <div className="break-all">{params(c.key, names).join(" & ")}</div>
+            </li>
+          ))}
         </ul>
       )}
     </li>
   );
 }
 
-export function Trace({ steps, running }: { steps: TraceStep[]; running: boolean }) {
+export function Trace({
+  steps,
+  running,
+  pending,
+  replayedAt,
+  names = new Map<string, string>(),
+}: {
+  steps: TraceStep[];
+  running: boolean;
+  /** Title of the step in progress. */
+  pending?: string;
+  /** When the run was served from cache: when it originally ran. */
+  replayedAt?: string;
+  names?: ReadonlyMap<string, string>;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
   const calls = steps.reduce((n, s) => n + s.calls.length, 0);
-  const surfaces = new Set(steps.flatMap((s) => s.calls.map((c) => endpointOf(c.key))));
+  const surfaces = new Set(steps.flatMap((s) => s.calls.map((c) => surfaceOf(c.key))));
   return (
     <section aria-label="Agent trace" className="rounded-2xl border border-line bg-panel p-4">
-      <header className="mb-3 flex items-baseline justify-between">
+      <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Agent trace</h2>
         <span className="font-mono text-label text-muted">
-          {calls} Qloo calls · {surfaces.size} surfaces
+          {calls} Qloo calls · {surfaces.size} Qloo surfaces
         </span>
+        <button type="button" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} className="text-label text-violet hover:underline">
+          {collapsed ? "Show steps" : "Hide steps"}
+        </button>
       </header>
-      <ol className="space-y-3 border-l border-line/0">
-        {steps.map((s, i) => (
-          <Step key={s.id} s={s} index={i} />
-        ))}
-        {running && (
-          <li className="relative pl-6 text-meta text-muted">
-            <span className="absolute left-0 top-1 h-4 w-4 animate-pulse rounded-full bg-accent/40" aria-hidden />
-            Working…
-          </li>
-        )}
-      </ol>
+      {replayedAt && (
+        <p className="mb-2 rounded bg-panel-2 px-2 py-1 text-caption text-muted">
+          Replay of a finished run from {new Date(replayedAt).toUTCString().slice(5, 22)} UTC, served from cache: timings and sources are from that run.
+        </p>
+      )}
+      <p className="sr-only" aria-live="polite">
+        {running ? `Working: ${pending ?? "starting"}` : steps.length ? `Finished ${steps.length} steps` : ""}
+      </p>
+      {!collapsed && (
+        <ol className="space-y-3">
+          {steps.map((s, i) => (
+            <Step key={s.id} s={s} index={i} names={names} />
+          ))}
+          {running && (
+            <li className="relative pl-6 text-meta text-muted">
+              <span className="absolute left-0 top-1 h-4 w-4 animate-pulse rounded-full bg-accent/40" aria-hidden />
+              {pending ? `${pending}…` : "Starting…"}
+            </li>
+          )}
+        </ol>
+      )}
     </section>
   );
 }

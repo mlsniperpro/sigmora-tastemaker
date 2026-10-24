@@ -23,7 +23,7 @@ import { ReplayChat } from "../src/lib/llm/chat";
 import { qlooFromEnv } from "../src/lib/qloo/client";
 
 const JUDGE_FIXTURES = "fixtures/judge/recorded.json";
-const zero = { picks: 0, hallucinations: 0, misses: 0, fading: 0, cultureMissRate: 0 };
+const zero = { picks: 0, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: 0 };
 
 const llm = llmFromEnv();
 const liveJudge = judgeChatFromEnv();
@@ -42,6 +42,8 @@ for (const input of BRIEFS) {
   try {
     // A fresh client per brief: the per-run Qloo call budget applies to each run, not to the whole benchmark.
     const r = await runTastemaker(brief, { qloo: qlooFromEnv(), llm });
+    // Without a baseline there is nothing to compare: the brief counts as failed, not as a 0% baseline.
+    if (r.baseline.unavailable) throw new Error(`baseline draft failed: ${r.baseline.unavailable}`);
     runs.push(r);
     rows.push({ subject: brief.subject, family: brief.family, grounded: r.metrics.grounded, baseline: r.metrics.baseline, sources: r.sources, fallbacks: r.qloo.fallbackCalls, qlooCalls: r.qloo.calls });
     if (judge) {

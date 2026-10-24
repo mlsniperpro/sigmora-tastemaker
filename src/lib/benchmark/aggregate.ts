@@ -16,6 +16,8 @@ export interface BenchRow {
 
 export interface Totals {
   picks: number;
+  /** Picks Qloo couldn't score; excluded from every rate's denominator. */
+  unscored: number;
   hallucinations: number;
   misses: number;
   fading: number;
@@ -28,10 +30,11 @@ const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
 export function totals(ms: readonly Metrics[]): Totals {
   const t = ms.reduce(
-    (a, m) => ({ picks: a.picks + m.picks, hallucinations: a.hallucinations + m.hallucinations, misses: a.misses + m.misses, fading: a.fading + m.fading }),
-    { picks: 0, hallucinations: 0, misses: 0, fading: 0 },
+    (a, m) => ({ picks: a.picks + m.picks, unscored: a.unscored + m.unscored, hallucinations: a.hallucinations + m.hallucinations, misses: a.misses + m.misses, fading: a.fading + m.fading }),
+    { picks: 0, unscored: 0, hallucinations: 0, misses: 0, fading: 0 },
   );
-  const rate = (n: number) => (t.picks ? r3(n / t.picks) : 0);
+  const judged = t.picks - t.unscored;
+  const rate = (n: number) => (judged ? r3(n / judged) : 0);
   return { ...t, hallucinationRate: rate(t.hallucinations), cultureMissRate: rate(t.hallucinations + t.misses), fadingRate: rate(t.fading) };
 }
 
@@ -93,14 +96,15 @@ export function summarize(
 }
 
 export const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
-const row = (name: string, t: Totals) => `| ${name} | ${t.picks} | ${pct(t.hallucinationRate)} | ${pct(t.cultureMissRate)} | ${pct(t.fadingRate)} |`;
+const row = (name: string, t: Totals) => `| ${name} | ${t.picks} | ${t.unscored} | ${pct(t.hallucinationRate)} | ${pct(t.cultureMissRate)} | ${pct(t.fadingRate)} |`;
 
 const METHOD = (briefs: number) => `## Method
 
 - ${briefs} briefs (benchmark/briefs.ts): 10 music releases, 10 DTC city launches, 10 sports-club fan markets.
 - For each brief the **same model** drafts two plans: one with Qloo grounding and the Qloo critic loop, one with no Qloo access.
 - Every cultural entity each plan names is resolved with Qloo \`/search\` and scored with \`/v2/insights\` + \`filter.results.entities\` + \`feature.explainability\` against the brief's audience signal, with no trend bias or diversification on scoring calls.
-- **Hallucination rate:** named entities that do not resolve to any Qloo entity.
+- **Not-found ("hallucination") rate:** named entities with no match in a typed or an untyped Qloo \`/search\`. Real entities outside Qloo's catalogue land here too, so this is an upper bound on invention. A real entity Qloo files under another type counts as a miss for its role.
+- **Unscored:** picks Qloo returned no affinity for (or whose role had no candidate pool); they are excluded from every rate's denominator and shown in the Unscored column.
 - **Culture Miss Rate:** hallucinations plus resolved picks scoring below the pass bar (max(0.25, 0.7 × the median plain affinity of the candidates Qloo returned for that role: up to 10, brand and venue lists diversified by subtype, trend-biased lists re-scored without the bias); launch city: outside the top 3 ranked metros; venues: not in the launch city).
 - **Fading-reference rate:** hook references that clear the bar but have /v2/trending velocity below −0.3.
 - The grounded plan is scored after the critic loop (up to 2 revise rounds), so it measures the shipped plan. The pass bar is the one the critic uses, so this measures what the product ships, not an independent judgment of taste — which is what the judge below is for.
@@ -147,16 +151,16 @@ ${METHOD(s.briefs)}
 
 ## Results (${s.completed}/${s.briefs} briefs)
 
-| Plan | Picks | Hallucination rate | Culture Miss Rate | Fading-reference rate |
-|---|---|---|---|---|
+| Plan | Picks | Unscored | Not-found rate | Culture Miss Rate | Fading-reference rate |
+|---|---|---|---|---|---|
 ${row("Without Qloo", s.baseline)}
 ${row("Tastemaker (with Qloo)", s.grounded)}
 ${failureList(s)}
 
 ### By family
 
-| Family / plan | Picks | Hallucination rate | Culture Miss Rate | Fading-reference rate |
-|---|---|---|---|---|
+| Family / plan | Picks | Unscored | Not-found rate | Culture Miss Rate | Fading-reference rate |
+|---|---|---|---|---|---|
 ${FAMILIES.flatMap((f) => [row(`${f}: without Qloo`, s.byFamily[f].baseline), row(`${f}: with Qloo`, s.byFamily[f].grounded)]).join("\n")}
 ${judge}`;
 }

@@ -33,6 +33,23 @@ class CityNamingLLM extends DeterministicLLM {
     return { ...d, picks: [...d.picks, { name: input.brief.targetCity ?? "Atlanta", type: "locality", role: "city", rationale: "" }] };
   }
 }
+/** A model that launches in the #2 metro (Houston) with a Houston venue. */
+class SecondCityLLM extends DeterministicLLM {
+  override async draft(input: DraftInput): Promise<Draft> {
+    const d = await super.draft(input);
+    const picks = d.picks.map((p) =>
+      p.role === "city" ? { ...p, name: "Houston" } : p.role === "venue" ? { ...p, name: "House of Blues Houston", type: "place" as const } : p,
+    );
+    return { ...d, picks };
+  }
+}
+/** A model whose ungrounded (baseline) draft fails. */
+class BaselineFailsLLM extends DeterministicLLM {
+  override async draft(input: DraftInput): Promise<Draft> {
+    if (!input.grounding) throw new Error("LLM 529 overloaded");
+    return super.draft(input);
+  }
+}
 class FailingLLM extends DeterministicLLM {
   override async draft(): Promise<Draft> {
     throw new Error("LLM 401 on /v1/messages");
@@ -160,6 +177,38 @@ describe("agent loop: failure paths", () => {
     const other = await tasteCheck({ seeds: ["Glossier"], ages: ["25_to_29"], city: "Atlanta", picks: [{ name: "Madison Square Garden", type: "place", role: "venue" }] }, { qloo: qloo() });
     expect(other.receipts[0]?.verdict).toBe("miss");
     expect(other.receipts[0]?.note).toMatch(/Not in Atlanta/);
+  });
+
+  it("taste_check ranks city picks when no market is fixed, instead of failing them all", async () => {
+    const r = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Boise", type: "locality", role: "city" }] }, { qloo: qloo() });
+    expect(r.receipts.find((x) => x.name === "Washington")?.verdict).toBe("pass");
+    expect(r.receipts.find((x) => x.name === "Washington")?.affinity).toBeTypeOf("number");
+  });
+
+  it("judges venues in the city the plan chose, not the top-ranked one", async () => {
+    const r = await runTastemaker(must(PRESETS[0]).brief, { qloo: qloo(), llm: new SecondCityLLM() });
+    expect(r.cities[0]?.name).toBe("Washington");
+    expect(r.grounded.receipts.find((x) => x.role === "city")).toMatchObject({ name: "Houston", verdict: "pass" });
+    const venue = must(r.grounded.receipts.find((x) => x.role === "venue"));
+    expect(venue.note).not.toMatch(/Not in/);
+    expect(r.trace.some((s) => s.id === "venues-houston")).toBe(true);
+  });
+
+  it("judges the baseline's venue in the baseline's own city", async () => {
+    const r = await runTastemaker(must(PRESETS[0]).brief, deps());
+    // The scripted baseline launches in New York at Madison Square Garden; the grounded plan picks Washington.
+    expect(r.baseline.receipts.find((x) => x.role === "city")?.name).toBe("New York");
+    const venue = must(r.baseline.receipts.find((x) => x.role === "venue"));
+    expect(venue.name).toBe("Madison Square Garden");
+    expect(venue.note).not.toMatch(/Not in/);
+  });
+
+  it("keeps a finished grounded plan when the baseline draft fails, and marks the comparison unavailable", async () => {
+    const r = await runTastemaker(must(PRESETS[0]).brief, { qloo: qloo(), llm: new BaselineFailsLLM() });
+    expect(r.grounded.receipts.length).toBeGreaterThan(0);
+    expect(r.baseline.unavailable).toMatch(/529/);
+    expect(r.baseline.receipts).toEqual([]);
+    expect(r.trace.find((s) => s.id === "baseline")?.status).toBe("error");
   });
 
   it("keeps going when optional surfaces fail, marks those steps, and reports it", async () => {

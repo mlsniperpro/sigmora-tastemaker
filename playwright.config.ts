@@ -31,6 +31,7 @@ export default defineConfig({
       name: "phone-390",
       use: { ...devices["Desktop Chrome"], viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: false, hasTouch: true },
     },
+    { name: "desktop-1440", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
   ],
   webServer: {
     command: `pnpm exec next dev --port ${PORT} --hostname 127.0.0.1`,
