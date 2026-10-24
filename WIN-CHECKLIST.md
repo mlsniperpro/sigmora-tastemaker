@@ -50,7 +50,7 @@ Updated every loop round. Evidence commands are the ones in **Evidence** below, 
 | Pack with receipt chips | ✅ | `CampaignPack.tsx` |
 | Without Qloo toggle | ✅ | e2e |
 | Ship bar | ✅ | e2e (sandbox) |
-| Permalinks | 🟡 | `?preset=` / `?b=`; cached replays are labelled (e2e). Run-id permalinks kept past judging open (R2) |
+| Permalinks | ✅ | `?run=<id>` after every run, kept 45 days; replays labelled (e2e) |
 | 390 px, no horizontal scroll | ✅ | e2e `noHorizontalScroll` |
 | No placeholder numbers | ✅ | Scoreboard blanks simulated/scripted runs (`placeholderReason`); MCP does the same; report shows no numbers until a valid run |
 
@@ -74,8 +74,8 @@ Updated every loop round. Evidence commands are the ones in **Evidence** below, 
 
 | # | Finding | Status | Fix / evidence |
 |---|---|---|---|
-| 1 | Cold hero run slow, steps sequential | ⬜ | R2: recorded preset runs + parallel independent steps |
-| 2 | Demo not resilient under rate limits | ⬜ | R2: serve the last good run when the budget or a required step fails |
+| 1 | Cold hero run slow, steps sequential | ✅ ⏳ | Presets serve a recorded live run instantly, labelled, with "Re-run live" (`recordedRuns`, `/api/run`; `recorded.test.ts`); independent steps run in parallel with per-step call attribution (`AsyncLocalStorage` in `trace.ts`; `agent.test.ts` "credits every Qloo call"). `pnpm bench:latency 1200`: 25.4 s → 20.6 s against the previous commit. Recording the runs needs the keys (`pnpm runs:record`) |
+| 2 | Demo not resilient under rate limits | ✅ ⏳ | A refused or failed live run falls back to the preset's recording, with the reason shown (`recorded.test.ts`); same keys dependency |
 | 3 | Looks like a fixed pipeline | ⬜ | R3: model chooses among critic-approved options via tools; decisions in the trace |
 | 4 | Names in copy but not in `picks` go unchecked | ⬜ | R3 |
 | 5 | Venues checked against the wrong city | ✅ | `followPlanCity` in `run.ts`; baseline audited in its own city; `agent.test.ts` |
@@ -91,15 +91,15 @@ Updated every loop round. Evidence commands are the ones in **Evidence** below, 
 | 15 | Trace hides params | ✅ | All params with entity names; e2e |
 | 16 | Surface count padded | ✅ | `surfaceOf`; `surfaces.test.ts` |
 | 17 | Trace not live, not collapsible | ✅ | `start` events, running step, collapse, aria-live |
-| 18 | Permalinks re-run; Ship needs KV across instances | ⬜ | R2 |
+| 18 | Permalinks re-run; Ship needs KV across instances | ✅ ⏳ | `?run=<id>` opens the stored run (kept 45 days), recordings included (`GET /api/run`; e2e "a run permalink opens that exact run, in a fresh browser"); KV marked required in BLOCKED.md |
 | 19 | Brief bar fields missing | ⬜ | R3 |
 | 20 | DTC preset has no map | ⬜ | R3 |
 | 21 | Ship sends captions only; ships with misses | ⬜ | R3 |
 | 22 | Baseline failure kills the run | ✅ | `unavailable` baseline; `agent.test.ts`; benchmark counts it as failed |
 | 23 | Empty pool ⇒ made-up 0.5 bar; MCP city picks always fail | ✅ | No bar ⇒ `unscored`; `taste_check` ranks cities; tests |
 | 24 | MCP prints placeholder numbers | ✅ | `placeholderReason` in `mcp.ts` |
-| 25 | Serverless lifecycle, no single-flight | ⬜ | R2 |
-| 26 | Empty server HTML, no OG image | ⬜ | R2 |
+| 25 | Serverless lifecycle, no single-flight | ✅ | `after()` keeps the function alive until the run is stored; identical concurrent cold requests share one run and its events (`recorded.test.ts` "single-flight") |
+| 26 | Empty server HTML, no OG image | ✅ | Server-rendered title block (`Intro.tsx`, `page.tsx` fallback); `src/app/opengraph-image.png` from `pnpm screenshots` |
 | 27 | Tiny text on mobile | ⬜ | R3 |
 | 28 | Highlighting case-sensitive, no word boundaries | ✅ | Unicode word-boundary, case-insensitive regex in `CampaignPack.tsx` |
 | 29 | No aria-live; presets locked during a run | 🟡 | aria-live added; preset lock open (R3) |

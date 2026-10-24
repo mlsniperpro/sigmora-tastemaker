@@ -32,7 +32,11 @@ export type Brief = z.infer<typeof Brief>;
 export type BriefInput = z.input<typeof Brief>;
 
 /** A run is requested by preset id or by a full brief (shared by the server and the browser). */
-export const RunRequest = z.union([z.object({ preset: z.string().max(40) }).strict(), z.object({ brief: Brief }).strict()]);
+export const RunRequest = z.union([
+  // `fresh`: run the preset live even when a recorded run exists ("Re-run live").
+  z.object({ preset: z.string().max(40), fresh: z.boolean().optional() }).strict(),
+  z.object({ brief: Brief }).strict(),
+]);
 export type RunRequest = z.input<typeof RunRequest>;
 
 export const ROLES = ["collab", "sponsor", "reference", "podcast", "venue", "presenter", "city"] as const;

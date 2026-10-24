@@ -109,7 +109,9 @@ With no keys, Qloo answers come from an **offline simulator** (placeholder numbe
 Scripts:
 - `pnpm fixtures:record` records live Qloo responses for every preset.
 - `pnpm benchmark` runs the 30-brief Culture Miss Rate benchmark plus the blind pairwise LLM judge, and writes [docs/benchmark.md](docs/benchmark.md). It shows numbers only for a valid live measurement; raw runs go to the gitignored `benchmark/runs/`.
-- `pnpm screenshots <url>` retakes `docs/screenshots/`.
+- `pnpm runs:record` records one finished live run per preset (needs the keys). The demo serves them instantly, and as a fallback when a live run is refused or fails.
+- `pnpm bench:latency [ms] [repoRoot]` times a cold hero run against a stub host with a given per-call delay and the production throttle.
+- `pnpm screenshots <url>` retakes `docs/screenshots/` and the link-preview image.
 - `pnpm video <url>` records the captioned judge-path walkthrough.
 
 Playwright's Chromium: `pnpm exec playwright install chromium`, or point `PLAYWRIGHT_CHROMIUM_PATH` at an existing one.

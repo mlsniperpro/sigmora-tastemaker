@@ -123,12 +123,19 @@ export interface RunResult {
   trace: TraceStep[];
 }
 
+/**
+ * Where a result that wasn't computed for this request came from:
+ * "cache" = the same brief ran recently; "recording" = a recorded live run of the preset
+ * (served instantly, or because a live run was refused or failed: `reason`).
+ */
+export type Served = { from: "cache" } | { from: "recording"; reason?: string };
+
 export type RunEvent =
   /** A step began; the trace shows it as running until its "step" event arrives. */
   | { type: "start"; id: string; title: string }
   | { type: "step"; step: TraceStep }
-  /** `cached`: served from a run finished earlier (its trace is a replay of that run). */
-  | { type: "result"; result: RunResult; cached?: boolean }
+  /** `served`: the result is an earlier run (its trace is a replay of that run), and why it was served. */
+  | { type: "result"; result: RunResult; served?: Served }
   | { type: "error"; message: string };
 
 export type { Pick };

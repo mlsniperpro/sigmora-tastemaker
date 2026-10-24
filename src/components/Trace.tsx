@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { surfaceOf } from "@/lib/agent/surfaces";
-import type { TraceStep } from "@/lib/agent/types";
+import type { Served, TraceStep } from "@/lib/agent/types";
 
 /** Every parameter of a call, with entity ids shown alongside their names where the run knows them. */
 function params(key: string, names: ReadonlyMap<string, string>): string[] {
@@ -69,15 +69,18 @@ export function Trace({
   steps,
   running,
   pending,
-  replayedAt,
+  served,
+  onRerun,
   names = new Map<string, string>(),
 }: {
   steps: TraceStep[];
   running: boolean;
   /** Title of the step in progress. */
   pending?: string;
-  /** When the run was served from cache: when it originally ran. */
-  replayedAt?: string;
+  /** When the run is an earlier one: where it came from and when it originally ran. */
+  served?: Served & { at: string };
+  /** Offered on a recorded run: run the preset live now. */
+  onRerun?: () => void;
   names?: ReadonlyMap<string, string>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -94,9 +97,19 @@ export function Trace({
           {collapsed ? "Show steps" : "Hide steps"}
         </button>
       </header>
-      {replayedAt && (
+      {served && (
         <p className="mb-2 rounded bg-panel-2 px-2 py-1 text-caption text-muted">
-          Replay of a finished run from {new Date(replayedAt).toUTCString().slice(5, 22)} UTC, served from cache: timings and sources are from that run.
+          Replay of a finished run from {new Date(served.at).toUTCString().slice(5, 22)} UTC,{" "}
+          {served.from === "recording" ? "a recorded live run of this preset" : "served from cache"}
+          {served.from === "recording" && served.reason ? ` because ${served.reason}` : ""}: timings and sources are from that run.
+          {onRerun && (
+            <>
+              {" "}
+              <button type="button" onClick={onRerun} className="text-violet underline">
+                Re-run live
+              </button>
+            </>
+          )}
         </p>
       )}
       <p className="sr-only" aria-live="polite">

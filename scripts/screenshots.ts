@@ -7,7 +7,7 @@
  * simulated or scripted runs, so offline screenshots carry no placeholder
  * rates. Retake against the live deployment once the keys are set.
  */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium, type Page } from "@playwright/test";
 
 const base = process.argv[2] ?? "http://localhost:3000";
@@ -35,7 +35,20 @@ try {
   await phone.goto(`${base}/?preset=indie-release`);
   await ready(phone);
   await phone.screenshot({ path: `${out}/mobile.png` });
-  console.log(`Wrote ${out}/{desktop,tastemap,pack-without,mobile}.png from ${base}`);
+  // The link-preview card (src/app/opengraph-image.png): words only, so it never shows a placeholder number.
+  const card = await browser.newPage({ viewport: { width: 1200, height: 630 } });
+  await card.setContent(`<!doctype html><html><body style="margin:0;width:1200px;height:630px;background:#0b0b10;color:#ecebf4;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;display:flex;flex-direction:column;justify-content:center;padding:0 88px;box-sizing:border-box">
+    <div style="color:#b9f227;letter-spacing:.2em;font-weight:700;font-size:26px">TASTEMAKER BY SIGMORA</div>
+    <div style="font-size:84px;font-weight:700;line-height:1.05;margin-top:22px">Don't guess the culture.<br>Query it.</div>
+    <div style="font-size:30px;color:#9a99ad;margin-top:30px;max-width:960px;line-height:1.35">A marketing agent with Qloo as the critic in its loop: every cultural pick is scored against the audience, weak and invented picks are replaced, and every survivor carries a receipt.</div>
+    <div style="display:flex;gap:14px;margin-top:40px;font-size:24px">
+      <span style="border:2px solid #3ddc97;color:#3ddc97;border-radius:999px;padding:8px 20px">● Qloo-verified</span>
+      <span style="border:2px solid #ff6b6b;color:#ff6b6b;border-radius:999px;padding:8px 20px;text-decoration:line-through">Low affinity</span>
+      <span style="border:2px solid #ff4fa3;color:#ff4fa3;border-radius:999px;padding:8px 20px">Not found in Qloo</span>
+    </div></body></html>`);
+  await card.screenshot({ path: "src/app/opengraph-image.png" });
+  writeFileSync("src/app/opengraph-image.alt.txt", "Tastemaker by Sigmora: don't guess the culture, query it. A marketing agent with Qloo as the critic in its loop.\n");
+  console.log(`Wrote ${out}/{desktop,tastemap,pack-without,mobile}.png from ${base}, and src/app/opengraph-image.png`);
 } finally {
   await browser.close();
 }

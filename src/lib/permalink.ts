@@ -36,3 +36,9 @@ export function measureFromUrl(params: { get(name: string): string | null }): st
   const r = CampaignId.safeParse(params.get("measure"));
   return r.success ? r.data : undefined;
 }
+
+/** `?run=<id>`: open a finished run exactly as it was. */
+export function runIdFromUrl(params: { get(name: string): string | null }): string | undefined {
+  const id = params.get("run");
+  return id && /^[a-z0-9]{1,40}$/.test(id) ? id : undefined;
+}

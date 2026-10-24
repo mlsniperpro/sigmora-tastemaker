@@ -16,7 +16,9 @@
     "video": "tsx scripts/record-video.ts",
     "test:e2e": "playwright test",
     "screenshots": "tsx scripts/screenshots.ts",
-    "test:deep": "FC_NUM_RUNS=20000 vitest run --testTimeout=0"
+    "test:deep": "FC_NUM_RUNS=20000 vitest run --testTimeout=0",
+    "runs:record": "tsx scripts/record-runs.ts",
+    "bench:latency": "tsx scripts/latency.ts"
   },
   "dependencies": {
     "next": "16.4.3",

@@ -8,7 +8,7 @@ import { Brief, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
 import { RunRequest } from "./agent/brief";
 import { placeholderReason } from "./agent/evidence";
-import { cachedRun, costsMoney, getOrRun, resolveRunRequest } from "./agent/runCache";
+import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
 import type { GuardResult } from "./guard";
@@ -111,8 +111,13 @@ async function planCampaignTool(args: unknown, gate: Gate) {
   const request = resolveRunRequest(args ?? {});
   if (!request.ok) throw new ToolError(request.status === 400 ? `Invalid arguments: ${request.error}` : request.error);
   const lookup = await cachedRun(request.brief);
-  if (!lookup.result && costsMoney(lookup.deps)) await admitOrThrow(gate);
-  const { result: r } = await getOrRun(lookup);
+  const recording = request.presetId ? recordedRuns().get(request.presetId) : undefined;
+  let r;
+  if (!lookup.result && recording && !request.fresh) r = recording;
+  else {
+    if (!lookup.result && costsMoney(lookup.deps)) await admitOrThrow(gate);
+    r = (await getOrRun(lookup, undefined, recording)).result;
+  }
   const text = [
     `${r.brief.subject} — ${r.brief.product}. Qloo data: ${r.sources.join(", ")}. Model: ${r.llm.label}.`,
     placeholderReason(r) ?? `Culture Miss Rate: without Qloo ${Math.round(r.metrics.baseline.cultureMissRate * 100)}%, with Qloo ${Math.round(r.metrics.grounded.cultureMissRate * 100)}%.`,

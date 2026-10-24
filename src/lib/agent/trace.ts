@@ -1,25 +1,27 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { QlooCallMeta } from "../qloo/client";
 import type { RunEvent, TraceStep } from "./types";
 
 /**
  * Records the agent's steps and attributes every Qloo call to the step that
- * made it. Steps run one at a time; work that overlaps them (the baseline
- * draft) is timed separately and recorded with `record`.
+ * made it. Steps may run concurrently: each runs in its own async context, so
+ * a call is credited to the step whose code made it. Work outside any step
+ * (the baseline draft) is timed separately and recorded with `record`.
  */
 export class Tracer {
   readonly steps: TraceStep[] = [];
-  private current?: TraceStep;
+  private readonly current = new AsyncLocalStorage<TraceStep>();
   constructor(private readonly emit?: (e: RunEvent) => void) {}
 
   readonly onCall = (m: QlooCallMeta) => {
-    this.current?.calls.push(m);
+    this.current.getStore()?.calls.push(m);
   };
 
   async step<T>(id: string, title: string, fn: (s: TraceStep) => Promise<T>, opts: { model?: string } = {}): Promise<T> {
     const s = this.open(id, title, opts.model);
     const t0 = Date.now();
     try {
-      return await fn(s);
+      return await this.current.run(s, () => fn(s));
     } catch (err) {
       s.status = "error";
       s.detail = err instanceof Error ? err.message : String(err);
@@ -44,14 +46,12 @@ export class Tracer {
 
   private open(id: string, title: string, model?: string): TraceStep {
     const s: TraceStep = { id, title, detail: "", status: "done", ms: 0, calls: [], model };
-    this.current = s;
     this.emit?.({ type: "start", id, title });
     return s;
   }
 
   private close(s: TraceStep, ms: number) {
     s.ms = ms;
-    if (this.current === s) this.current = undefined;
     this.steps.push(s);
     this.emit?.({ type: "step", step: s });
   }

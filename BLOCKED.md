@@ -4,10 +4,14 @@ Everything below is already built behind a stub, fixture or sandbox, so each ite
 
 ## Checklist of owner inputs
 
-- [ ] **`QLOO_API_KEY`** (the hackathon key). Set it as a server-side env var on the deployment, then run `QLOO_API_KEY=… pnpm fixtures:record` once. That records every preset into `fixtures/qloo/recorded.json`, so presets keep working even if the key is rate-limited during judging. Commit the fixture file.
+- [ ] **`QLOO_API_KEY`** (the hackathon key). Set it as a server-side env var on the deployment, then, with the LLM keys set too, run:
+  1. `pnpm fixtures:record`. It records every Qloo response the presets use into `fixtures/qloo/recorded.json`, so a failed live call can fall back to a recorded live answer.
+  2. `pnpm runs:record`. It records one finished live run per preset into `fixtures/runs/recorded.json`. The demo serves these instantly, labelled "a recorded live run", and offers "Re-run live". It also serves them when a live run is refused (budget or rate limit) or fails, so the preset buttons keep working during judging whatever the key does. The script refuses simulated or scripted runs.
+
+  Commit both files.
 - [ ] **`LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`** (and `LLM_BASE_URL` for OpenAI-compatible hosts). Without them, drafts come from the scripted model, which is labeled in the UI.
 - [ ] **Vercel project.** Connect `mlsniperpro/sigmora-tastemaker`, set the env vars above (see `.env.example`), and deploy by `git push`. Point `tastemaker.sigmora.org` at it.
-- [ ] **`KV_REST_API_URL`, `KV_REST_API_TOKEN`** (Upstash or Vercel KV). These turn the response cache and rate-limit and budget counters into shared state across instances. Without them, the limits apply per instance.
+- [ ] **`KV_REST_API_URL`, `KV_REST_API_TOKEN`** (Upstash or Vercel KV). **Required for the hosted demo.** Run permalinks (`?run=<id>`, kept 45 days), Ship and measure all look runs up by id, and serverless instances don't share memory. KV also makes the response cache and the rate-limit and budget counters shared across instances. Without it, a permalink or Ship can fail on another instance, and the limits apply per instance.
 - [ ] **Sigmora `/v1`.** Set `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL` and `SIGMORA_API_TOKEN` once Sigmora exposes the endpoint below. The public demo stays on the labeled sandbox until then.
 - [ ] **Benchmark run.** With the Qloo and LLM keys set (and ideally `JUDGE_PROVIDER`, `JUDGE_MODEL`, `JUDGE_API_KEY` for a judge from a different vendor than the generator), and `QLOO_DAILY_CALL_CAP` above the request count stated in `docs/benchmark.md`, run `pnpm benchmark`. Commit `docs/benchmark.md`, `benchmark/summary.json` (written only for a valid measurement) and `fixtures/judge/recorded.json`. Raw runs stay in the gitignored `benchmark/runs/`. Until then the report says "No measurement yet" and shows no numbers.
 - [ ] **Video.** Run `pnpm video https://<deployment>` against the live deployment (needs Playwright + Chromium), then add a voice-over.

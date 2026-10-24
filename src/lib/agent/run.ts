@@ -115,8 +115,12 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       });
     }
 
+    // ---- profile, culture map, cities, positioning: independent of each other, so in parallel ----
+    // (the Qloo throttle still caps the request rate; this keeps it busy instead of waiting on each step)
     const audience: RunResult["audience"] = { age: [], gender: [], tags: [] };
-    await tracer.optional("demographics", "Who over-indexes (urn:demographics)", async (s) => {
+    const positioning: RunResult["positioning"] = [];
+    const where: { heatmap: RunResult["heatmap"]; rankedBy: RunResult["citiesRankedBy"] } = { heatmap: [], rankedBy: "none" };
+    const demographics = tracer.optional("demographics", "Who over-indexes (urn:demographics)", async (s) => {
       const r = await qloo.insights("urn:demographics", { "signal.interests.entities": ctx.seedIds });
       const q = r.data.results.demographics?.[0]?.query;
       audience.age = AGE_BUCKETS.flatMap((bucket) => {
@@ -127,53 +131,38 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       const top = [...audience.age].sort((a, b) => b.value - a.value)[0];
       s.detail = top ? `Strongest age over-index: ${top.bucket.replace(/_/g, " ")} (${top.value > 0 ? "+" : ""}${top.value.toFixed(2)})` : "No demographic signal";
     });
-
-    await tracer.optional("tags", "Taste vocabulary (urn:tag)", async (s) => {
+    const tags = tracer.optional("tags", "Taste vocabulary (urn:tag)", async (s) => {
       const r = await qloo.insights("urn:tag", { ...signalFor(ctx), take: 10 });
       audience.tags = (r.data.results.tags ?? []).map((t) => ({ name: t.name, affinity: t.query?.affinity ?? 0 }));
       s.detail = audience.tags.slice(0, 5).map((t) => t.name).join(", ") || "No tags returned";
     });
-
-    // ---- culture map ---------------------------------------------------------
-    await tracer.step("culture", "Cross-domain culture map (/v2/insights)", async (s) => {
+    const culture = tracer.step("culture", "Cross-domain culture map (/v2/insights)", async (s) => {
       const lists = await loadCulture(ctx);
       s.detail = lists.map(([t, l]) => `${t}: ${l[0]?.name ?? "—"}`).join(" · ");
     });
-
-    // ---- where to launch -----------------------------------------------------
-    let heatmap: RunResult["heatmap"] = [];
-    let citiesRankedBy: RunResult["citiesRankedBy"] = "none";
-    if (!brief.targetCity && brief.candidateCities.length) {
-      await tracer.optional("cities", "Where to launch (urn:entity:locality + urn:heatmap)", async (s) => {
-        const r = await rankCities(ctx, brief.candidateCities);
-        ctx.candidates.city = r.cities;
-        heatmap = r.heatmap;
-        citiesRankedBy = r.rankedBy;
-        const top = r.cities.slice(0, 3).map((c) => `${c.name} ${c.affinity.toFixed(2)}`).join(" › ");
-        s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}`;
-      });
-    }
-    ctx.city = brief.targetCity ?? ctx.candidates.city?.[0]?.name;
-    if (ctx.city) {
+    const cityAndVenues = (async () => {
+      if (!brief.targetCity && brief.candidateCities.length) {
+        await tracer.optional("cities", "Where to launch (urn:entity:locality + urn:heatmap)", async (s) => {
+          const r = await rankCities(ctx, brief.candidateCities);
+          ctx.candidates.city = r.cities;
+          where.heatmap = r.heatmap;
+          where.rankedBy = r.rankedBy;
+          const top = r.cities.slice(0, 3).map((c) => `${c.name} ${c.affinity.toFixed(2)}`).join(" › ");
+          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}`;
+        });
+      }
+      ctx.city = brief.targetCity ?? ctx.candidates.city?.[0]?.name;
       const city = ctx.city;
-      await tracer.optional("venues", `Venues in ${city} (urn:entity:place + filter.location)`, async (s) => {
-        await loadVenues(ctx, city);
-        s.detail = (ctx.candidates.venue ?? []).slice(0, 3).map((v) => v.name).join(", ") || "No venues returned";
-      });
-    }
-
-    // ---- timing & positioning ------------------------------------------------
-    await tracer.optional("trending", "Rising vs. fading (/v2/trending)", async (s) => {
-      const items = Object.values(ctx.candidates).flatMap((list) => list.map((c) => ({ entityId: c.entityId, type: c.type })));
-      const failures = await loadTrends(ctx, items);
-      if (failures.length && !ctx.trends.size) throw new Error(failures.join("; "));
-      const fading = (ctx.candidates.reference ?? []).filter((c) => isFading(ctx, c.entityId));
-      s.detail = `${ctx.trends.size} trend readings; fading references: ${fading.map((f) => f.name).join(", ") || "none"}${failures.length ? ` · failed: ${failures.join("; ")}` : ""}`;
-    });
-
-    const positioning: RunResult["positioning"] = [];
-    if (brief.compareTo) {
+      if (city) {
+        await tracer.optional("venues", `Venues in ${city} (urn:entity:place + filter.location)`, async (s) => {
+          await loadVenues(ctx, city);
+          s.detail = (ctx.candidates.venue ?? []).slice(0, 3).map((v) => v.name).join(", ") || "No venues returned";
+        });
+      }
+    })();
+    const compare = (async () => {
       const other = brief.compareTo;
+      if (!other) return;
       await tracer.optional("compare", `Positioning vs. ${other} (/v2/analysis/compare)`, async (s) => {
         const { hit } = await resolveByName(qloo, other, { take: 3, acceptTop: true });
         if (!hit) throw new Error(`"${other}" did not resolve`);
@@ -185,7 +174,20 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
         }
         s.detail = positioning.filter((p) => p.delta > 0).slice(0, 3).map((p) => `+${p.name}`).join(", ") || "no gap found";
       });
-    }
+    })();
+    // allSettled first so a failed required step (culture) doesn't leave the others running unobserved.
+    const settled = await Promise.allSettled([demographics, tags, culture, cityAndVenues, compare]);
+    for (const r of settled) if (r.status === "rejected") throw r.reason;
+    const { heatmap, rankedBy: citiesRankedBy } = where;
+
+    // ---- timing: needs every candidate pool -----------------------------------
+    await tracer.optional("trending", "Rising vs. fading (/v2/trending)", async (s) => {
+      const items = Object.values(ctx.candidates).flatMap((list) => list.map((c) => ({ entityId: c.entityId, type: c.type })));
+      const failures = await loadTrends(ctx, items);
+      if (failures.length && !ctx.trends.size) throw new Error(failures.join("; "));
+      const fading = (ctx.candidates.reference ?? []).filter((c) => isFading(ctx, c.entityId));
+      s.detail = `${ctx.trends.size} trend readings; fading references: ${fading.map((f) => f.name).join(", ") || "none"}${failures.length ? ` · failed: ${failures.join("; ")}` : ""}`;
+    });
 
     // ---- generate → critic → revise -----------------------------------------
     const grounding = groundingFor(ctx, audience, positioning);

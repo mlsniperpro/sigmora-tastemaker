@@ -4,7 +4,7 @@ import { POST as run } from "@/app/api/run/route";
 import { POST as ship } from "@/app/api/ship/route";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
-import { DEGRADED_TTL, RESULT_TTL, cachedRun, getOrRun, isHealthy, runById, runKey } from "@/lib/agent/runCache";
+import { DEGRADED_TTL, KEEP_TTL, cachedRun, getOrRun, isHealthy, runById, runKey } from "@/lib/agent/runCache";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { SandboxPublisher, SigmoraPublisher, publisherFromEnv, type ShipReceipt } from "@/lib/publisher";
@@ -78,7 +78,7 @@ describe("result cache health", () => {
     const deps = { qloo: new DownCompare({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM(), cache: spy };
     const first = await getOrRun(await cachedRun(brief, deps));
     expect(isHealthy(first.result)).toBe(false);
-    expect(ttls).toEqual([RESULT_TTL, DEGRADED_TTL]);
+    expect(ttls).toEqual([KEEP_TTL, DEGRADED_TTL]);
     expect(await runById(first.result.id, cache)).toBeDefined();
   });
 
@@ -90,7 +90,7 @@ describe("result cache health", () => {
     const llm = new DeterministicLLM();
     const qloo = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
     await cache.set(runKey(brief, llm.id, qloo.primarySource), { id: "abc" }, 60);
-    expect((await getOrRun(await cachedRun(brief, { qloo, llm, cache }))).cached).toBe(false);
+    expect((await getOrRun(await cachedRun(brief, { qloo, llm, cache }))).served).toBeUndefined();
   });
 });
 

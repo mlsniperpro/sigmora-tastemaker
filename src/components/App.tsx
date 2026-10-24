@@ -5,8 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { PRESETS } from "@/lib/agent/presets";
 import type { RunResult } from "@/lib/agent/types";
 import { entityNames } from "@/lib/agent/evidence";
-import { measureFromUrl, requestFromUrl } from "@/lib/permalink";
+import { measureFromUrl, requestFromUrl, runIdFromUrl } from "@/lib/permalink";
 import { BriefForm } from "./BriefForm";
+import { Intro } from "./Intro";
 import { CampaignPack } from "./CampaignPack";
 import { Scoreboard } from "./Scoreboard";
 import { ShipBar } from "./ShipBar";
@@ -29,33 +30,25 @@ function RoiLine({ result }: { result: RunResult }) {
 
 export function App() {
   const params = useSearchParams();
-  const { steps, pending, cached, result, error, running, run, requery } = useRun();
+  const { steps, pending, served, result, error, running, run, open, requery } = useRun();
   const [mode, setMode] = useState<"qloo" | "without">("qloo");
   // The URL decides what runs on first load; read it once, at mount.
-  const [initial] = useState(() => ({ measure: measureFromUrl(params), request: requestFromUrl(params) }));
-  const [activePreset, setActivePreset] = useState(!initial.measure && "preset" in initial.request ? initial.request.preset : undefined);
+  const [initial] = useState(() => ({ measure: measureFromUrl(params), runId: runIdFromUrl(params), request: requestFromUrl(params) }));
+  const [activePreset, setActivePreset] = useState(!initial.measure && !initial.runId && "preset" in initial.request ? initial.request.preset : undefined);
   const [showCustom, setShowCustom] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
-    void (initial.measure ? requery(initial.measure) : run(initial.request));
-  }, [initial, run, requery]);
+    void (initial.measure ? requery(initial.measure) : initial.runId ? open(initial.runId) : run(initial.request));
+  }, [initial, run, open, requery]);
 
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
 
   return (
     <main className="mx-auto w-full max-w-[1400px] space-y-4 px-4 py-5 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-caption font-semibold uppercase tracking-[0.2em] text-accent">Tastemaker by Sigmora</p>
-          <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">Don&apos;t guess the culture. Query it.</h1>
-          <p className="mt-1 max-w-2xl text-body leading-snug text-muted">
-            A marketing agent that plans your launch and checks every cultural pick against Qloo before it ships. The model proposes, Qloo scores,
-            weak picks get cut, and every survivor carries a receipt.
-          </p>
-          {result && <RoiLine result={result} />}
-        </div>
+        <Intro>{result && <RoiLine result={result} />}</Intro>
         <div role="group" aria-label="Plan view" className="flex rounded-full border border-line bg-panel p-1 text-meta">
           <button type="button" aria-pressed={mode === "qloo"} onClick={() => setMode("qloo")} className={`rounded-full px-3 py-1.5 ${mode === "qloo" ? "bg-accent font-semibold text-accent-ink" : "text-muted"}`}>
             With Qloo
@@ -122,7 +115,14 @@ export function App() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="order-3 min-w-0 lg:sticky lg:top-4 lg:order-1 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">
-          <Trace steps={steps} running={running} pending={pending} replayedAt={cached ? result?.createdAt : undefined} names={result ? entityNames(result) : undefined} />
+          <Trace
+            steps={steps}
+            running={running}
+            pending={pending}
+            served={served && result ? { ...served, at: result.createdAt } : undefined}
+            onRerun={activePreset && served?.from === "recording" ? () => void run({ preset: activePreset, fresh: true }) : undefined}
+            names={result ? entityNames(result) : undefined}
+          />
         </div>
         <div className="order-2 min-w-0">{result ? <TasteMap result={result} /> : <Placeholder running={running} label="Taste Map" />}</div>
         <div className="order-1 min-w-0 lg:order-3">{side ? <CampaignPack side={side} mode={mode} /> : <Placeholder running={running} label="Campaign pack" />}</div>

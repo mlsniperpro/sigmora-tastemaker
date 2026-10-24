@@ -13,15 +13,20 @@ import { formatZodIssues } from "../zod";
 import { Brief, RunRequest } from "./brief";
 import { presetById } from "./presets";
 import { runTastemaker } from "./run";
-import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult } from "./types";
+import recorded from "../../../fixtures/runs/recorded.json";
+import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult, type Served } from "./types";
 import { hashId } from "./util";
 
+/** How long the brief → latest-run pointer serves a healthy run, before a fresh run replaces it. */
 export const RESULT_TTL = 60 * 60 * 24;
+/** Degraded runs (a fallback or a failed step) are re-run sooner. */
 export const DEGRADED_TTL = 60 * 10;
-/** A shipped campaign is measured days after it posts, so its run is kept that long. */
+/** A run's own result stays readable by id (permalinks, Ship) through judging, with a margin. */
+export const KEEP_TTL = 60 * 60 * 24 * 45;
+/** A shipped campaign is measured days after it posts, so shipping renews its run for this long. */
 export const SHIPPED_TTL = 60 * 60 * 24 * 30;
 
-export type ResolvedRequest = { ok: true; brief: Brief; preset: boolean } | { ok: false; status: 400 | 404; error: string };
+export type ResolvedRequest = { ok: true; brief: Brief; presetId?: string; fresh: boolean } | { ok: false; status: 400 | 404; error: string };
 
 /** Validates a run request and turns it into a brief, with field-level errors for a bad brief. */
 export function resolveRunRequest(raw: unknown): ResolvedRequest {
@@ -31,9 +36,9 @@ export function resolveRunRequest(raw: unknown): ResolvedRequest {
     const briefErr = typeof raw === "object" && raw !== null && "brief" in raw ? Brief.safeParse(raw.brief).error : undefined;
     return { ok: false, status: 400, error: formatZodIssues(briefErr ?? parsed.error, { root: "body" }) };
   }
-  if ("brief" in parsed.data) return { ok: true, brief: parsed.data.brief, preset: false };
+  if ("brief" in parsed.data) return { ok: true, brief: parsed.data.brief, fresh: false };
   const preset = presetById(parsed.data.preset);
-  return preset ? { ok: true, brief: Brief.parse(preset.brief), preset: true } : { ok: false, status: 404, error: "Unknown preset" };
+  return preset ? { ok: true, brief: Brief.parse(preset.brief), presetId: preset.id, fresh: parsed.data.fresh === true } : { ok: false, status: 404, error: "Unknown preset" };
 }
 
 /** Structural check on cached values (they come from our own store, but KV is still external input). */
@@ -72,9 +77,17 @@ export function runKey(brief: Brief, llmId: string, primarySource: string) {
 /** Cache key for one run's full result. */
 const resultKey = (id: string) => `result:v${RUN_SCHEMA_VERSION}:${id}`;
 
-/** A previously computed run by id (for Ship): the server never trusts client-sent plan text. */
-export async function runById(id: string, cache: CacheStore = defaultCache()): Promise<RunResult | undefined> {
-  return asRun(await cache.get(resultKey(id)));
+/** Recorded live runs, one per preset (`pnpm runs:record` writes them). Only current-schema runs count. */
+export function recordedRuns(store: Record<string, unknown> = recorded): Map<string, RunResult> {
+  return new Map(Object.entries(store).flatMap(([preset, v]) => {
+    const run = asRun(v);
+    return run ? [[preset, run] as const] : [];
+  }));
+}
+
+/** A previously computed run by id (permalinks, Ship): the server never trusts client-sent plan text. */
+export async function runById(id: string, cache: CacheStore = defaultCache(), recordings: ReadonlyMap<string, RunResult> = recordedRuns()): Promise<RunResult | undefined> {
+  return asRun(await cache.get(resultKey(id))) ?? [...recordings.values()].find((r) => r.id === id);
 }
 
 /** Keeps a run that was shipped for real until its campaign can be measured. */
@@ -99,15 +112,60 @@ export async function cachedRun(brief: Brief, deps: Partial<RunDeps> = {}): Prom
 /** True when an uncached run would spend paid API calls (live Qloo or a real model). */
 export const costsMoney = (deps: RunDeps) => deps.qloo.primarySource === "live" || !deps.llm.scripted;
 
-/** Serves a cached result, or runs and stores it. */
-export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void): Promise<{ result: RunResult; cached: boolean }> {
+/** Replays a finished run as events: its trace, then the result, labelled with where it came from. */
+export function replay(result: RunResult, served: Served, emit?: (e: RunEvent) => void): RunResult {
+  for (const step of result.trace) emit?.({ type: "step", step });
+  emit?.({ type: "result", result, served });
+  return result;
+}
+
+interface InFlight {
+  done: Promise<RunResult>;
+  events: RunEvent[];
+  listeners: Set<(e: RunEvent) => void>;
+}
+/** Runs in progress on this instance, by brief key: a second request for the same cold brief joins the first. */
+const inFlight = new Map<string, InFlight>();
+
+/**
+ * Serves a cached result, or runs and stores it. Identical concurrent requests
+ * share one run (they get its events so far, then the rest live). When the run
+ * fails and a `fallback` recording exists, that is served instead, with the reason.
+ */
+export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void, fallback?: RunResult): Promise<{ result: RunResult; served?: Served }> {
   const { brief, key, result: hit, deps } = lookup;
-  if (hit) {
-    for (const step of hit.trace) emit?.({ type: "step", step });
-    emit?.({ type: "result", result: hit, cached: true });
-    return { result: hit, cached: true };
+  if (hit) return { result: replay(hit, { from: "cache" }, emit), served: { from: "cache" } };
+
+  let flight = inFlight.get(key);
+  if (!flight) {
+    const events: RunEvent[] = [];
+    const listeners = new Set<(e: RunEvent) => void>();
+    const fanOut = (e: RunEvent) => {
+      events.push(e);
+      for (const l of listeners) l(e);
+    };
+    const done = runTastemaker(brief, { qloo: deps.qloo, llm: deps.llm, emit: fanOut }).then(async (result) => {
+      await Promise.all([deps.cache.set(resultKey(result.id), result, KEEP_TTL), deps.cache.set(key, { id: result.id }, isHealthy(result) ? RESULT_TTL : DEGRADED_TTL)]);
+      return result;
+    });
+    flight = { done, events, listeners };
+    inFlight.set(key, flight);
+    void done.then(
+      () => inFlight.delete(key),
+      () => inFlight.delete(key),
+    );
   }
-  const result = await runTastemaker(brief, { qloo: deps.qloo, llm: deps.llm, emit });
-  await Promise.all([deps.cache.set(resultKey(result.id), result, RESULT_TTL), deps.cache.set(key, { id: result.id }, isHealthy(result) ? RESULT_TTL : DEGRADED_TTL)]);
-  return { result, cached: false };
+  if (emit) {
+    for (const e of flight.events) emit(e);
+    flight.listeners.add(emit);
+  }
+  try {
+    return { result: await flight.done };
+  } catch (err) {
+    if (!fallback) throw err;
+    const reason = `the live run failed (${err instanceof Error ? err.message : String(err)})`;
+    return { result: replay(fallback, { from: "recording", reason }, emit), served: { from: "recording", reason } };
+  } finally {
+    if (emit) flight.listeners.delete(emit);
+  }
 }

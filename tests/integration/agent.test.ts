@@ -179,6 +179,23 @@ describe("agent loop: failure paths", () => {
     expect(other.receipts[0]?.note).toMatch(/Not in Atlanta/);
   });
 
+  it("credits every Qloo call to the step that made it, with steps running in parallel", async () => {
+    /** Live-mode client whose stubbed network answers after a random delay, so parallel steps interleave. */
+    const fetchImpl = async (url: URL) => {
+      await new Promise((r) => setTimeout(r, Math.random() * 15));
+      const { simulate } = await import("@/lib/qloo/sim/simulator");
+      return Response.json(simulate(url.pathname as never, Object.fromEntries(url.searchParams)));
+    };
+    const live = new QlooClient({ apiKey: "k", cache: new MemoryCache(), fixtures: {}, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const r = await runTastemaker(must(PRESETS[0]).brief, { qloo: live, llm: new DeterministicLLM() });
+    const types = (id: string) => new Set(must(r.trace.find((s) => s.id === id), id).calls.map((c) => new URLSearchParams(c.key.split("?")[1]).get("filter.type") ?? c.path));
+    expect(types("demographics")).toEqual(new Set(["urn:demographics"]));
+    expect(types("tags")).toEqual(new Set(["urn:tag"]));
+    expect([...types("cities")].every((t) => ["/search", "urn:entity:locality", "urn:heatmap"].includes(t))).toBe(true);
+    expect([...types("culture")].some((t) => t === "urn:demographics" || t === "urn:tag")).toBe(false);
+    expect(r.trace.reduce((n, s) => n + s.calls.length, 0)).toBe(r.qloo.calls);
+  });
+
   it("taste_check ranks city picks when no market is fixed, instead of failing them all", async () => {
     const r = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Boise", type: "locality", role: "city" }] }, { qloo: qloo() });
     expect(r.receipts.find((x) => x.name === "Washington")?.verdict).toBe("pass");

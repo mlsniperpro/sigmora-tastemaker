@@ -14,7 +14,9 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
 
   await page.goto("/");
   await finished(page);
-  await expect(page).toHaveURL(/\?preset=indie-release$/);
+  // Once finished, the address bar is a permalink to this exact run.
+  await expect(page).toHaveURL(/\?run=[a-z0-9]+$/);
+  const heroUrl = page.url();
 
   // Where the numbers came from is said plainly, and placeholder numbers are blanked.
   await expect(page.getByRole("note")).toContainText(/Simulated Qloo data|Replayed Qloo responses/);
@@ -52,8 +54,9 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
 
   // Another preset runs and becomes the permalink.
   await page.getByRole("button", { name: "Sports club: new fan market" }).click();
-  await expect(page).toHaveURL(/\?preset=sports-club$/);
   await finished(page);
+  await expect(page).toHaveURL(/\?run=[a-z0-9]+$/);
+  expect(page.url()).not.toBe(heroUrl);
   await noHorizontalScroll(page);
 
   // Ship goes to the labeled sandbox: a real schedule, nothing posted.
@@ -65,14 +68,26 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   expect(errors).toEqual([]);
 });
 
-test("a permalink reloads the same run", async ({ page }) => {
+test("a run permalink opens that exact run, in a fresh browser", async ({ page, browser }) => {
   await page.goto("/?preset=dtc-city");
   await finished(page);
+  await expect(page).toHaveURL(/\?run=[a-z0-9]+$/);
+  const permalink = page.url();
   const first = (await page.getByRole("region", { name: "Campaign pack" }).textContent()) ?? "";
   expect(first).not.toBe("");
-  await page.reload();
-  await finished(page);
-  // The second load is the cached run, and the trace says so.
-  await expect(page.getByRole("region", { name: "Agent trace" })).toContainText("Replay of a finished run");
-  await expect(page.getByRole("region", { name: "Campaign pack" })).toHaveText(first);
+
+  const other = await browser.newPage();
+  await other.goto(permalink);
+  await finished(other);
+  await expect(other).toHaveURL(permalink);
+  // It's the stored run, and the trace says so.
+  await expect(other.getByRole("region", { name: "Agent trace" })).toContainText("Replay of a finished run");
+  await expect(other.getByRole("region", { name: "Campaign pack" })).toHaveText(first);
+  await other.close();
+});
+
+test("an unknown run permalink explains itself and offers the presets", async ({ page }) => {
+  await page.goto("/?run=doesnotexist1");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("expired or never existed");
+  await expect(page.getByRole("button", { name: "Indie artist: single launch" })).toBeEnabled();
 });
