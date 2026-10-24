@@ -23,6 +23,8 @@ export const ShipRequest = z.object({
   runId: z.string().regex(/^[a-z0-9]{1,40}$/),
   /** ISO date the first post goes out; defaults to tomorrow. */
   startDate: z.iso.datetime().optional(),
+  /** Ship even though some picks still failed the critic (the caller has shown them to the user). */
+  acceptFlagged: z.boolean().optional(),
 });
 export type ShipRequest = z.infer<typeof ShipRequest>;
 
@@ -31,6 +33,10 @@ export interface ShipPlan {
   subject: string;
   posts: { platform: string; text: string }[];
   verifiedPicks: string[];
+  /** The rest of the pack, for the production step: positioning, hooks, the 30-second script, the music and visual brief. */
+  assets: { positioning: string; hooks: string[]; script: string; musicBrief: string };
+  /** Picks that still failed the critic, shipped only because the user accepted them. */
+  flaggedPicks: string[];
   startDate?: string;
 }
 
@@ -115,7 +121,8 @@ export class SigmoraPublisher implements PublisherProvider {
       body: JSON.stringify({
         source: "tastemaker",
         name: `${plan.subject} — Tastemaker ${plan.runId}`,
-        metadata: { tastemakerRunId: plan.runId, verifiedPicks: plan.verifiedPicks },
+        metadata: { tastemakerRunId: plan.runId, verifiedPicks: plan.verifiedPicks, flaggedPicks: plan.flaggedPicks },
+        assets: plan.assets,
         posts: plan.posts.map((p, i) => ({ platform: p.platform, text: p.text, scheduledFor: slots[i]?.scheduledFor })),
       }),
     });

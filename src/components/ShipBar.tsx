@@ -9,18 +9,25 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<ShipReceipt>();
   const [error, setError] = useState<string>();
+  /** Picks the critic still flags; Ship asks before sending them. */
+  const [flagged, setFlagged] = useState<{ name: string; verdict: string; note: string }[]>();
 
-  async function ship() {
+  async function ship(acceptFlagged = false) {
     setBusy(true);
     setError(undefined);
     try {
       const res = await fetch("/api/ship", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: result.id }),
+        body: JSON.stringify({ runId: result.id, acceptFlagged }),
       });
-      const body = (await res.json().catch(() => ({}))) as Partial<ShipReceipt> & { error?: string };
+      const body = (await res.json().catch(() => ({}))) as Partial<ShipReceipt> & { error?: string; flagged?: { name: string; verdict: string; note: string }[] };
+      if (res.status === 409 && body.flagged) {
+        setFlagged(body.flagged);
+        return;
+      }
       if (!res.ok) throw new Error(body.error ?? `Ship failed (${res.status})`);
+      setFlagged(undefined);
       setReceipt(body as ShipReceipt);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -35,7 +42,8 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-ink">Ship it</h2>
           <p className="text-meta text-muted">
-            Hand the verified pack to Sigmora: {result.grounded.draft.captions.length} posts, one a day. The public demo uses a labeled sandbox publisher.
+            Hand the pack to Sigmora: {result.grounded.draft.captions.length} posts, one a day, plus the hooks, script and music brief for production. The
+            public demo uses a labeled sandbox publisher.
           </p>
         </div>
         <button type="button" onClick={() => void ship()} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-body font-semibold text-accent-ink disabled:opacity-60">
@@ -43,6 +51,23 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
         </button>
       </div>
       {error && <p className="mt-2 text-meta text-miss">{error}</p>}
+      {flagged && (
+        <div role="alertdialog" aria-label="Flagged picks" className="mt-3 space-y-1.5 rounded-lg border border-fade/40 bg-fade/10 p-2.5 text-meta text-fade">
+          <p>
+            <strong>{flagged.length} pick{flagged.length > 1 ? "s" : ""} still failed the Qloo critic.</strong> Ship anyway, or pick another preset or brief.
+          </p>
+          <ul className="list-disc pl-5">
+            {flagged.map((f) => (
+              <li key={f.name}>
+                {f.name}: {f.note}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => void ship(true)} disabled={busy} className="rounded-lg border border-fade/60 px-3 py-1 text-fade">
+            Ship anyway
+          </button>
+        </div>
+      )}
       {receipt && (
         <div className="mt-3 space-y-1.5">
           <p className="text-meta text-fade">{receipt.note}</p>

@@ -4,13 +4,14 @@ import { POST as run } from "@/app/api/run/route";
 import { POST as ship } from "@/app/api/ship/route";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
-import { DEGRADED_TTL, KEEP_TTL, cachedRun, getOrRun, isHealthy, runById, runKey } from "@/lib/agent/runCache";
+import { runTastemaker } from "@/lib/agent/run";
+import { DEGRADED_TTL, KEEP_TTL, keepShippedRun, cachedRun, getOrRun, isHealthy, runById, runKey } from "@/lib/agent/runCache";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { SandboxPublisher, SigmoraPublisher, publisherFromEnv, type ShipReceipt } from "@/lib/publisher";
-import { MemoryCache } from "@/lib/qloo/cache";
+import { MemoryCache, defaultCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
-import { must } from "../must";
+import { must, sentJson } from "../must";
 
 const post = (body: unknown) =>
   new Request("http://x/api", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "1.2.3.4" }, body: typeof body === "string" ? body : JSON.stringify(body) });
@@ -112,6 +113,29 @@ describe("/api/ship", () => {
     expect(a.result.id).not.toBe(b.result.id);
   });
 
+  it("asks before shipping picks the critic still flags, then ships them labelled, with the whole pack", async () => {
+    const run = await runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM(), newId: () => "flaggedrun1" });
+    const first = must(run.grounded.receipts[0]);
+    const flaggedRun = { ...run, grounded: { ...run.grounded, receipts: [{ ...first, verdict: "miss" as const, note: "below the bar" }, ...run.grounded.receipts.slice(1)] } };
+    await keepShippedRun(flaggedRun, defaultCache());
+
+    const ask = await ship(post({ runId: "flaggedrun1" }));
+    expect(ask.status).toBe(409);
+    expect(((await ask.json()) as { flagged: { name: string }[] }).flagged.map((f) => f.name)).toEqual([first.name]);
+
+    const sent = vi.fn<typeof fetch>(async () => Response.json({ id: "c1", posts: [] }));
+    vi.stubEnv("SIGMORA_PUBLISH_MODE", "live");
+    vi.stubEnv("SIGMORA_API_URL", "https://sigmora.example");
+    vi.stubEnv("SIGMORA_API_TOKEN", "tok");
+    vi.stubGlobal("fetch", sent);
+    const ok = await ship(post({ runId: "flaggedrun1", acceptFlagged: true }));
+    expect(ok.status).toBe(200);
+    const body = sentJson(sent.mock.calls[0]?.[1]) as { metadata: { flaggedPicks: string[] }; assets: { hooks: string[]; script: string } };
+    expect(body.metadata.flaggedPicks).toEqual([first.name]);
+    expect(body.assets.hooks).toEqual(run.grounded.draft.hooks);
+    expect(body.assets.script).toBe(run.grounded.draft.script);
+  });
+
   it("404s an unknown run and 400s a malformed id", async () => {
     expect((await ship(post({ runId: "doesnotexist" }))).status).toBe(404);
     expect((await ship(post({ runId: "../etc/passwd" }))).status).toBe(400);
@@ -120,7 +144,14 @@ describe("/api/ship", () => {
 });
 
 describe("publisher", () => {
-  const plan = { runId: "r1", subject: "Nia Sol", posts: [{ platform: "TikTok", text: "a" }, { platform: "X", text: "b" }], verifiedPicks: ["Tems"] };
+  const plan = {
+    runId: "r1",
+    subject: "Nia Sol",
+    posts: [{ platform: "TikTok", text: "a" }, { platform: "X", text: "b" }],
+    verifiedPicks: ["Tems"],
+    flaggedPicks: [],
+    assets: { positioning: "p", hooks: ["h"], script: "s", musicBrief: "m" },
+  };
   const fastRetry = { retries: 2, baseMs: 1, maxMs: 2, sleep: async () => undefined };
 
   it("defaults to the labeled sandbox unless live mode is fully configured", () => {
