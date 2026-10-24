@@ -141,7 +141,18 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       s.detail = lists.map(([t, l]) => `${t}: ${l[0]?.name ?? "—"}`).join(" · ");
     });
     const cityAndVenues = (async () => {
-      if (!brief.targetCity && brief.candidateCities.length) {
+      const target = brief.targetCity;
+      if (target) {
+        // A fixed market: where inside it the audience is (neighbourhood-scale heatmap).
+        await tracer.optional("cities", `Where in ${target} (urn:heatmap + filter.location.query)`, async (s) => {
+          const r = await qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location.query": target });
+          where.heatmap = (r.data.results.heatmap ?? []).flatMap((c) =>
+            typeof c.query.affinity === "number" ? [{ lat: c.location.latitude, lon: c.location.longitude, affinity: c.query.affinity }] : [],
+          );
+          where.rankedBy = "in-city";
+          s.detail = `${where.heatmap.length} heatmap cells inside ${target}`;
+        });
+      } else if (brief.candidateCities.length) {
         await tracer.optional("cities", "Where to launch (urn:entity:locality + urn:heatmap)", async (s) => {
           const r = await rankCities(ctx, brief.candidateCities);
           ctx.candidates.city = r.cities;

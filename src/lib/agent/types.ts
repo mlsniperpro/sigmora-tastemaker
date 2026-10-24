@@ -114,7 +114,8 @@ export interface RunResult {
   cities: CityScore[];
   heatmap: HeatCell[];
   /** Which signal ranked the metros. */
-  citiesRankedBy: "locality" | "heatmap" | "none";
+  /** "in-city": the brief fixes the market, and the heatmap shows where inside it the audience is. */
+  citiesRankedBy: "locality" | "heatmap" | "in-city" | "none";
   positioning: { name: string; a: number; b: number; delta: number }[];
   compareTo?: string;
   grounded: PlanSide & { rounds: number };

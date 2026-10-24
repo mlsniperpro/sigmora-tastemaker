@@ -41,6 +41,9 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   await expect(trace).toContainText("filter.results.entities=");
   await expect(page.getByRole("region", { name: "Taste Map" })).toBeVisible();
   await noHorizontalScroll(page);
+  // Chart labels stay legible at phone width (rendered glyph boxes, not the declared size).
+  const smallest = await page.getByRole("region", { name: "Taste Map" }).evaluate((el) => Math.min(...[...el.querySelectorAll("svg text")].map((t) => t.getBoundingClientRect().height)));
+  expect(smallest).toBeGreaterThanOrEqual(9);
 
   // The same model without Qloo, audited by Qloo.
   const view = page.getByRole("group", { name: "Plan view" });

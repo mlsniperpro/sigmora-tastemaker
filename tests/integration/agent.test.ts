@@ -213,6 +213,15 @@ describe("agent loop: failure paths", () => {
     expect(r.receipts.find((x) => x.name === "Washington")?.affinity).toBeTypeOf("number");
   });
 
+  it("maps where inside a fixed market the audience is (DTC preset)", async () => {
+    const r = await runTastemaker(must(PRESETS[1]).brief, deps());
+    expect(r.citiesRankedBy).toBe("in-city");
+    expect(r.heatmap.length).toBeGreaterThan(10);
+    const call = must(r.trace.find((s) => s.id === "cities")).calls[0];
+    expect(call?.key).toMatch(/filter\.location\.query=Atlanta/);
+    expect(call?.key).toMatch(/filter\.type=urn%3Aheatmap|filter\.type=urn:heatmap/);
+  });
+
   it("judges venues in the city the plan chose, not the top-ranked one", async () => {
     const r = await runTastemaker(must(PRESETS[0]).brief, { qloo: qloo(), llm: new SecondCityLLM() });
     expect(r.cities[0]?.name).toBe("Washington");

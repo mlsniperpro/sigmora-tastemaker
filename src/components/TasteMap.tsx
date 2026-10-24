@@ -65,8 +65,8 @@ function CityMap({ result }: { result: RunResult }) {
   if (!cells.length) return null;
   const caption = (
     <p className="mt-1 text-label text-muted">
-      {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; brighter = higher affinity.` : "Metro affinity."} Numbered: top metros
-      {result.cities[0] ? `, ${result.cities[0].name} first` : ""} (ranked by {result.citiesRankedBy}).
+      {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; brighter = higher affinity.` : "Metro affinity."}
+      {result.cities[0] ? ` Numbered: top metros, ${result.cities[0].name} first (ranked by ${result.citiesRankedBy}).` : ""}
     </p>
   );
   if (tiles) {
@@ -97,7 +97,7 @@ function SvgCityMap({ result, cells, located }: { result: RunResult; cells: read
         {located.slice(0, 4).map((c, i) => (
           <g key={c.name}>
             <circle cx={px(c.lon)} cy={py(c.lat)} r={i === 0 ? 5 : 3} className={i === 0 ? "fill-accent stroke-bg" : "fill-ink stroke-bg"} strokeWidth={1.5} />
-            <text x={px(c.lon) + 7} y={py(c.lat) - 6} className="fill-ink" style={{ fontSize: 9 }}>
+            <text x={px(c.lon) + 7} y={py(c.lat) - 6} className="fill-ink" style={{ fontSize: 12 }}>
               {c.name}
             </text>
           </g>
@@ -180,7 +180,7 @@ function AffinityWeb({ result }: { result: RunResult }) {
           </circle>
           <text x={xPick + 9} y={yPick(i)} dominantBaseline="middle" className="fill-ink" style={{ fontSize: 11 }}>
             {p.name.length > 16 ? `${p.name.slice(0, 15)}…` : p.name}
-            <tspan className="fill-muted" style={{ fontSize: 9 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
+            <tspan className="fill-muted" style={{ fontSize: 10.5 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
           </text>
         </g>
       ))}
@@ -223,11 +223,13 @@ export function TasteMap({ result }: { result: RunResult }) {
 
       {(result.heatmap.length > 0 || result.cities.length > 0) && (
         <Panel
-          title="Where to launch"
+          title={result.citiesRankedBy === "in-city" ? `Where in ${result.brief.targetCity ?? "the city"}` : "Where to launch"}
           sub={
-            result.citiesRankedBy === "heatmap"
-              ? "Candidate metros ranked by the urn:heatmap cells around them (locality ranking came back empty)"
-              : "Candidate metros ranked by audience affinity (urn:entity:locality + filter.results.entities)"
+            result.citiesRankedBy === "in-city"
+              ? `Neighbourhood-scale audience affinity inside the brief's market (urn:heatmap + filter.location.query=${result.brief.targetCity ?? ""})`
+              : result.citiesRankedBy === "heatmap"
+                ? "Candidate metros ranked by the urn:heatmap cells around them (locality ranking came back empty)"
+                : "Candidate metros ranked by audience affinity (urn:entity:locality + filter.results.entities)"
           }
         >
           <CityMap result={result} />

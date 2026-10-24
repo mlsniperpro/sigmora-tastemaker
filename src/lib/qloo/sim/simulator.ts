@@ -225,6 +225,22 @@ function heatmap(params: QlooParams) {
   // A city's scene is what's being compared, so the age term is left out.
   const ageless = { ...a, age: undefined, fem: undefined };
   const box = typeof params["filter.location"] === "string" ? wktBBox(params["filter.location"]) : undefined;
+  const inCity = typeof params["filter.location.query"] === "string" ? CATALOG.find((e) => e.type === "locality" && e.name === params["filter.location.query"]) : undefined;
+  if (inCity?.lat !== undefined && inCity.lon !== undefined) {
+    // One city: a neighbourhood-scale grid of cells around its centre.
+    const { lat, lon } = inCity;
+    const base = affinity(ageless, inCity);
+    const grid = [-2, -1, 0, 1, 2].flatMap((i) => [-2, -1, 0, 1, 2].map((j) => ({ i, j })));
+    return {
+      success: true,
+      results: {
+        heatmap: grid.map(({ i, j }, k) => ({
+          location: { latitude: r3(lat + i * 0.04), longitude: r3(lon + j * 0.05), geohash: `simc${k}` },
+          query: { affinity: r3(Math.max(0, Math.min(1, base + (hash01(`${inCity.id}:n${k}`) - 0.5) * 0.3 - (Math.abs(i) + Math.abs(j)) * 0.03))), popularity: inCity.pop },
+        })),
+      },
+    };
+  }
   // Like the live host: unnamed geohash-sized cells, several per metro; `take` is ignored.
   const cells = CATALOG.filter((e) => e.type === "locality").flatMap((l) => {
     const { lat, lon } = l;
