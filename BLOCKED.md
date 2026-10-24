@@ -50,7 +50,7 @@ Each call below is built from Qloo's docs plus notes from other entrants who ran
 | # | Call | Check | Code |
 |---|---|---|---|
 | 1 | `/search?query=…` (no `types`) and `…&types=urn:entity:<type>` | Hits carry `entity_id`, `name`, `types`; `sameName` rejects fuzzy hits for invented names | `context.ts` `resolveSeeds`, `critic.ts` `resolvePick` |
-| 2 | `/entities?external.spotify.ids=…` / `external.imdb.ids` | Param names and shape | `context.ts` `resolveLinks` |
+| 2 | `/entities?external.spotify.ids=…` / `external.imdb.ids` | Param names and shape, and that the hero preset's link (`687cZJR45JO7jhk1LHIbgq`, Tems) resolves to Tems; if it doesn't, replace it in `presets.ts` with the id the record script prints. The name seeds still cover the run if it fails | `context.ts` `resolveLinks`, `presets.ts` |
 | 3 | `/v2/tags?filter.query=…&feature.semantic_search=true` | `results.tags[]` with `tag_id`/`id`; the IDs work as `signal.interests.tags` | vibe step, `run.ts` |
 | 4 | `urn:demographics` | `results.demographics[0].query.age/gender`; age keys match `AGE_BUCKETS` | demographics step |
 | 5 | `signal.demographics.age` values | We send `35_and_younger` / `36_to_55` / `55_and_older`. If they come back empty, switch `signalAges` to the fine buckets | `context.ts` `signalAges` |

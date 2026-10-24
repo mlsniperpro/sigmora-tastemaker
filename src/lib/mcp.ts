@@ -4,7 +4,7 @@
  * MCP a tool server needs: initialize, ping, tools/list, tools/call.
  */
 import { z } from "zod";
-import { Brief, PICK_TYPES, ROLES } from "./agent/brief";
+import { BriefFields, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
 import { RunRequest } from "./agent/brief";
 import { placeholderReason } from "./agent/evidence";
@@ -18,9 +18,10 @@ import { formatZodIssues } from "./zod";
 export const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /** Audience fields reuse the Brief's own rules, so the limits can't drift. */
-const TasteCheckArgs = Brief.pick({ seeds: true, ages: true, gender: true })
+const TasteCheckArgs = BriefFields.pick({ ages: true, gender: true })
   .extend({
-    city: Brief.shape.targetCity.describe("Launch city: a city pick must match it, and venue picks must be in it"),
+    seeds: BriefFields.shape.seeds.min(1),
+    city: BriefFields.shape.targetCity.describe("Launch city: a city pick must match it, and venue picks must be in it"),
     picks: z
       .array(z.object({ name: z.string().min(1).max(100), type: z.enum(PICK_TYPES), role: z.enum(ROLES) }))
       .min(1)

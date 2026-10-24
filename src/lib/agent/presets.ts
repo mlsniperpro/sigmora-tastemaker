@@ -34,6 +34,8 @@ export const PRESETS: readonly [Preset, ...Preset[]] = [
       subject: "Nia Sol",
       product: "debut single “Harmattan Love”",
       seeds: ["Tems", "Rema", "Asake"],
+      // Seeds from a catalogue id too (/entities?external.spotify.ids); the names cover it if the id doesn't resolve.
+      seedLinks: ["https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq"],
       vibe: "warm late-night Afro-fusion with alté edges",
       ages: ["25_to_29", "30_to_34"],
       goal: "Launch my single to 25–34-year-olds and pick the first city to play outside my home town.",

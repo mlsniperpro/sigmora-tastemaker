@@ -4,7 +4,8 @@ import { AGE_BUCKETS } from "../qloo/types";
 export const Family = z.enum(["music", "dtc", "sports"]);
 export type Family = z.infer<typeof Family>;
 
-export const Brief = z.object({
+/** The brief's fields, without the cross-field rule (for reuse by other schemas). */
+export const BriefFields = z.object({
   /** Preset id, when the brief came from a preset. */
   preset: z.string().max(40).optional(),
   family: Family,
@@ -12,8 +13,8 @@ export const Brief = z.object({
   subject: z.string().min(1).max(80),
   /** What is launching. */
   product: z.string().min(1).max(120),
-  /** Comparable names the audience already loves ("sounds like", "competes with"). */
-  seeds: z.array(z.string().min(1).max(80)).min(1).max(5),
+  /** Comparable names the audience already loves ("sounds like", "competes with"). A link alone is enough. */
+  seeds: z.array(z.string().min(1).max(80)).max(5),
   /** Optional Spotify / IMDb links to seed from catalog IDs. */
   seedLinks: z.array(z.url().max(200)).max(3).default([]),
   /** Free-text description of the sound or feel; mapped to Qloo tags. */
@@ -27,6 +28,11 @@ export const Brief = z.object({
   targetCity: z.string().max(40).optional(),
   /** A comparable whose audience we position against (analysis/compare). */
   compareTo: z.string().max(80).optional(),
+});
+
+export const Brief = BriefFields.refine((b) => b.seeds.length + b.seedLinks.length > 0, {
+  message: "Give at least one name the audience loves, or a Spotify/IMDb link",
+  path: ["seeds"],
 });
 export type Brief = z.infer<typeof Brief>;
 export type BriefInput = z.input<typeof Brief>;

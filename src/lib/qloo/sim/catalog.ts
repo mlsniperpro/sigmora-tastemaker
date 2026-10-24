@@ -59,6 +59,8 @@ export interface SimEntity {
   lat?: number;
   lon?: number;
   priceLevel?: number;
+  /** External catalogue ids, for /entities?external.<kind>.ids lookups. */
+  external?: { spotify?: string; imdb?: string };
 }
 
 type Row = [name: string, v: Vec, pop: number, age: number, fem: number, trend: number, extra?: Partial<SimEntity>];
@@ -85,7 +87,7 @@ function rows(type: SimType, list: Row[]): SimEntity[] {
 }
 
 const ARTISTS = rows("artist", [
-  ["Tems", { afro: 0.85, rnb: 0.85, alt: 0.3 }, 0.7, 0.3, 0.35, 0.3],
+  ["Tems", { afro: 0.85, rnb: 0.85, alt: 0.3 }, 0.7, 0.3, 0.35, 0.3, { external: { spotify: "687cZJR45JO7jhk1LHIbgq" } }],
   ["Rema", { afro: 0.95, pop: 0.45, rnb: 0.3 }, 0.78, 0.22, 0.1, 0.2],
   ["Asake", { afro: 0.95, hiphop: 0.25, street: 0.2 }, 0.66, 0.25, -0.05, 0.25],
   ["Burna Boy", { afro: 0.95, hiphop: 0.35, rnb: 0.3 }, 0.85, 0.35, -0.1, 0.05],

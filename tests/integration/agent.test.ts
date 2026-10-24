@@ -147,11 +147,22 @@ describe("agent loop (zero credentials)", () => {
 
 describe("agent loop: failure paths", () => {
   it("rejects a brief whose seeds don't resolve, with a typed error", async () => {
-    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: ["Zzqx Nonexistent"] }, deps())).rejects.toMatchObject({ name: "NoSeedError" });
+    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: ["Zzqx Nonexistent"], seedLinks: [] }, deps())).rejects.toMatchObject({ name: "NoSeedError" });
   });
 
-  it("rejects an invalid brief before any call", async () => {
-    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: [] }, deps())).rejects.toThrow();
+  it("rejects an invalid brief before any call: no seed name and no link", async () => {
+    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: [], seedLinks: [] }, deps())).rejects.toThrow(/at least one name/);
+  });
+
+  it("seeds from a Spotify link alone, through /entities", async () => {
+    const r = await runTastemaker({ ...PRESETS[0].brief, seeds: [] }, deps());
+    expect(r.seeds.map((s) => s.name)).toEqual(["Tems"]);
+    expect(r.trace.find((s) => s.id === "resolve")?.calls.some((c) => c.path === "/entities")).toBe(true);
+  });
+
+  it("doesn't double-count a seed given as both a link and a name", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, deps());
+    expect(r.seeds.map((s) => s.name)).toEqual(["Tems", "Rema", "Asake"]);
   });
 
   it("keeps verified swaps even when the model reverts them, and never offers the same swap twice", async () => {

@@ -34,7 +34,7 @@ export function BriefForm({ onRun, busy }: { onRun: (b: BriefInput) => void; bus
       </label>
       <label className="text-caption text-muted sm:col-span-2">
         Your audience already loves (comma-separated)
-        <input required className="mt-0.5 w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-body text-ink" value={seeds} onChange={(e) => setSeeds(e.target.value)} placeholder="Tems, Rema, Asake" />
+        <input required={!link.trim()} className="mt-0.5 w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-body text-ink" value={seeds} onChange={(e) => setSeeds(e.target.value)} placeholder="Tems, Rema, Asake" />
       </label>
       <label className="text-caption text-muted sm:col-span-2">
         The vibe, in your words (optional; mapped to Qloo taste tags)

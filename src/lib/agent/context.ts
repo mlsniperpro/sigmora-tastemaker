@@ -207,7 +207,14 @@ export async function resolveSeeds(qloo: QlooClient, seeds: Pick<Brief, "seeds" 
       return [{ name, entityId: hit?.entity_id, type: hit ? entityTypesOf(hit)[0] : undefined, matched: hit?.name }];
     }),
   ]);
-  const all = groups.flat();
+  // A link and a name can resolve to the same entity: keep the first (links come first).
+  const seen = new Set<string>();
+  const all = groups.flat().filter((x) => {
+    if (!x.entityId) return true;
+    if (seen.has(x.entityId)) return false;
+    seen.add(x.entityId);
+    return true;
+  });
   if (!all.some((x) => x.entityId)) throw new NoSeedError();
   return all;
 }

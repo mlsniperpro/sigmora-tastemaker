@@ -91,3 +91,20 @@ test("an unknown run permalink explains itself and offers the presets", async ({
   await expect(page.getByRole("main").getByRole("alert")).toContainText("expired or never existed");
   await expect(page.getByRole("button", { name: "Indie artist: single launch" })).toBeEnabled();
 });
+
+test("the city map draws real tiles, and falls back to the SVG map when the tile host is down", async ({ page }) => {
+  // A minimal style served locally keeps the tile path deterministic (no network in the test).
+  await page.route("https://tiles.openfreemap.org/**", (r) =>
+    r.fulfill({ json: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b0b10" } }] } }),
+  );
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  await expect(page.getByTestId("tile-map")).toHaveAttribute("data-ready", "true");
+
+  const down = await page.context().newPage();
+  await down.route("https://tiles.openfreemap.org/**", (r) => r.abort());
+  await down.goto("/?preset=indie-release");
+  await finished(down);
+  await expect(down.getByRole("img", { name: "Audience demand across the US" })).toBeVisible();
+  await down.close();
+});

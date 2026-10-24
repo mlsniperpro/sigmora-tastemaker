@@ -37,10 +37,10 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
         const points = [...cells.map((c) => [c.lon, c.lat] as [number, number]), ...cities.map((c) => [c.lon, c.lat] as [number, number])];
         const bounds = points.reduce((b, p) => b.extend(p), new LngLatBounds(points[0], points[0]));
         map = new Map({ container: el, style: TILE_STYLE, bounds, fitBoundsOptions: { padding: 28 }, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
-        map.on("error", (e) => {
+        map.on("error", (e: { error?: unknown }) => {
           // A failed style or tile request before the map is drawn means no basemap: fall back.
           if (!map?.loaded()) fail();
-          console.warn(`[map] ${e.error.message}`);
+          console.warn(`[map] ${e.error instanceof Error ? e.error.message : String(e.error)}`);
         });
         map.on("load", () => {
           if (!map) return;
@@ -58,8 +58,9 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
             source: "heat",
             paint: {
               "heatmap-weight": ["get", "w"],
-              "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 2, 14, 6, 34],
-              "heatmap-opacity": 0.85,
+              "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 2, 22, 6, 48],
+              "heatmap-intensity": 1.6,
+              "heatmap-opacity": 0.9,
               "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(143,123,255,0)", 0.3, "rgba(143,123,255,0.45)", 0.7, "#8f7bff", 1, "#b9f227"],
             },
           });

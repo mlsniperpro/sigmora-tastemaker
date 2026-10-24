@@ -294,7 +294,11 @@ function search(params: QlooParams) {
 
 function entities(params: QlooParams) {
   const ids = list(params.entity_ids);
-  return { results: ids.map((id) => byId.get(id)).filter((e): e is SimEntity => !!e).map((e) => entityJson(e)) };
+  const spotify = new Set(list(params["external.spotify.ids"]));
+  const imdb = new Set(list(params["external.imdb.ids"]));
+  const external = CATALOG.filter((e) => (e.external?.spotify && spotify.has(e.external.spotify)) || (e.external?.imdb && imdb.has(e.external.imdb)));
+  const found = [...ids.map((id) => byId.get(id)).filter((e): e is SimEntity => !!e), ...external];
+  return { results: found.map((e) => entityJson(e)) };
 }
 
 function tags(params: QlooParams) {
