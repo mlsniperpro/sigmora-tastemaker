@@ -1,6 +1,9 @@
 "use client";
 
-import type { Receipt, RunResult } from "@/lib/agent/types";
+import { useCallback, useMemo, useState } from "react";
+import type { HeatCell, RunResult } from "@/lib/agent/types";
+import { CityTileMap, type MapCity } from "./CityTileMap";
+import { affinityWeb } from "@/lib/agent/web";
 
 const pct = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
 
@@ -53,10 +56,31 @@ const H = 190;
 const px = (lon: number) => ((lon + 125) / 59) * W;
 const py = (lat: number) => ((50 - lat) / 26) * H;
 
+/** Tiles unless they're switched off (NEXT_PUBLIC_MAP_TILES=off) or fail to load; then the SVG map below. */
 function CityMap({ result }: { result: RunResult }) {
-  const located = result.cities.filter((c): c is typeof c & { lat: number; lon: number } => c.lat !== undefined && c.lon !== undefined);
-  const cells = result.heatmap.length ? result.heatmap : located.map((c) => ({ lat: c.lat, lon: c.lon, affinity: c.affinity }));
+  const located = useMemo(() => result.cities.filter((c): c is typeof c & { lat: number; lon: number } => c.lat !== undefined && c.lon !== undefined), [result.cities]);
+  const cells = useMemo(() => (result.heatmap.length ? result.heatmap : located.map((c) => ({ lat: c.lat, lon: c.lon, affinity: c.affinity }))), [result.heatmap, located]);
+  const [tiles, setTiles] = useState(process.env.NEXT_PUBLIC_MAP_TILES !== "off");
+  const noTiles = useCallback(() => setTiles(false), []);
   if (!cells.length) return null;
+  const caption = (
+    <p className="mt-1 text-label text-muted">
+      {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; brighter = higher affinity.` : "Metro affinity."} Numbered: top metros
+      {result.cities[0] ? `, ${result.cities[0].name} first` : ""} (ranked by {result.citiesRankedBy}).
+    </p>
+  );
+  if (tiles) {
+    return (
+      <div>
+        <CityTileMap cells={cells} cities={located} onFail={noTiles} />
+        {caption}
+      </div>
+    );
+  }
+  return <SvgCityMap result={result} cells={cells} located={located} />;
+}
+
+function SvgCityMap({ result, cells, located }: { result: RunResult; cells: readonly HeatCell[]; located: readonly MapCity[] }) {
   const max = Math.max(...cells.map((p) => p.affinity), 0.01);
   const winner = result.cities[0];
   // Draw weakest first so the strongest cells sit on top.
@@ -105,7 +129,6 @@ function Rank({ rows }: { rows: { name: string; affinity: number }[] }) {
   );
 }
 
-const TYPE_ORDER = ["artist", "brand", "tv_show", "movie", "podcast", "person", "place", "locality"];
 const TYPE_LABEL: Record<string, string> = {
   artist: "artist",
   brand: "brand",
@@ -117,44 +140,50 @@ const TYPE_LABEL: Record<string, string> = {
   locality: "city",
 };
 
-/** Audience at the centre, each verified pick on a ring, edge weight = affinity. */
-function AffinityWeb({ receipts }: { receipts: Receipt[] }) {
-  const picks = receipts
-    .filter((r) => r.affinity !== undefined)
-    .sort((a, b) => TYPE_ORDER.indexOf(a.type) - TYPE_ORDER.indexOf(b.type));
-  if (!picks.length) return null;
-  const S = 300;
-  const c = S / 2;
-  const R = 92;
-  const PAD = 70;
+/** Inputs (left) → picks (right); an edge where Qloo's explainability says that input drove that pick. */
+function AffinityWeb({ result }: { result: RunResult }) {
+  const web = affinityWeb(result);
+  if (!web.picks.length || !web.inputs.length) return null;
+  const W = 320;
+  const ROW = 24;
+  const H = Math.max(web.picks.length, web.inputs.length) * ROW + 8;
+  const xIn = 92;
+  const xPick = 176;
+  const yPick = (i: number) => 14 + i * ROW;
+  const yIn = (i: number) => 14 + ((web.picks.length - 1) * ROW * (i + 0.5)) / web.inputs.length;
+  const max = Math.max(...web.edges.map((e) => e.weight), 0.01);
   return (
-    <svg viewBox={`${-PAD} 0 ${S + PAD * 2} ${S}`} className="mx-auto h-auto w-full max-w-[420px]" role="img" aria-label="Cross-domain affinity web">
-      {picks.map((p, i) => {
-        const a = (i / picks.length) * Math.PI * 2 - Math.PI / 2;
-        const x = c + Math.cos(a) * R;
-        const y = c + Math.sin(a) * R;
-        const lx = c + Math.cos(a) * (R + 16);
-        const ly = c + Math.sin(a) * (R + 16);
-        const anchor = Math.abs(Math.cos(a)) < 0.2 ? "middle" : Math.cos(a) > 0 ? "start" : "end";
-        return (
-          <g key={`${p.role}-${p.name}`}>
-            <line x1={c} y1={c} x2={x} y2={y} className="stroke-violet" strokeOpacity={0.25 + (p.affinity ?? 0) * 0.6} strokeWidth={1 + (p.affinity ?? 0) * 3} />
-            <circle cx={x} cy={y} r={5} className={p.verdict === "pass" ? "fill-pass" : "fill-miss"}>
-              <title>{`${p.name} (${TYPE_LABEL[p.type] ?? p.type}): affinity ${p.affinity?.toFixed(2)}`}</title>
-            </circle>
-            <text x={lx} y={ly} textAnchor={anchor} dominantBaseline="middle" className="fill-ink" style={{ fontSize: 9 }}>
-              {p.name.length > 18 ? `${p.name.slice(0, 17)}…` : p.name}
-            </text>
-            <text x={lx} y={ly + 10} textAnchor={anchor} dominantBaseline="middle" className="fill-muted" style={{ fontSize: 8 }}>
-              {TYPE_LABEL[p.type] ?? p.type}
-            </text>
-          </g>
-        );
-      })}
-      <circle cx={c} cy={c} r={22} className="fill-accent" />
-      <text x={c} y={c} textAnchor="middle" dominantBaseline="middle" className="fill-accent-ink font-semibold" style={{ fontSize: 9 }}>
-        audience
-      </text>
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Cross-domain affinity web: which seed drove which pick">
+      {web.edges.map((e, i) => (
+        <path
+          key={i}
+          d={`M ${xIn} ${yIn(e.input)} C ${(xIn + xPick) / 2} ${yIn(e.input)}, ${(xIn + xPick) / 2} ${yPick(e.pick)}, ${xPick} ${yPick(e.pick)}`}
+          className="fill-none stroke-violet"
+          strokeOpacity={0.2 + (e.weight / max) * 0.7}
+          strokeWidth={0.75 + (e.weight / max) * 3}
+        >
+          <title>{`${web.inputs[e.input] ?? ""} → ${web.picks[e.pick]?.name ?? ""}: explainability ${e.weight.toFixed(2)}`}</title>
+        </path>
+      ))}
+      {web.inputs.map((n, i) => (
+        <g key={n}>
+          <circle cx={xIn} cy={yIn(i)} r={5} className="fill-accent" />
+          <text x={xIn - 9} y={yIn(i)} textAnchor="end" dominantBaseline="middle" className="fill-ink" style={{ fontSize: 11 }}>
+            {n.length > 13 ? `${n.slice(0, 12)}…` : n}
+          </text>
+        </g>
+      ))}
+      {web.picks.map((p, i) => (
+        <g key={`${p.role}-${p.name}`}>
+          <circle cx={xPick} cy={yPick(i)} r={4.5} className={p.verdict === "pass" ? "fill-pass" : p.verdict === "fading" ? "fill-fade" : "fill-miss"}>
+            <title>{`${p.name} (${TYPE_LABEL[p.type] ?? p.type}): affinity ${p.affinity?.toFixed(2) ?? "—"}`}</title>
+          </circle>
+          <text x={xPick + 9} y={yPick(i)} dominantBaseline="middle" className="fill-ink" style={{ fontSize: 11 }}>
+            {p.name.length > 16 ? `${p.name.slice(0, 15)}…` : p.name}
+            <tspan className="fill-muted" style={{ fontSize: 9 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
+          </text>
+        </g>
+      ))}
     </svg>
   );
 }
@@ -206,8 +235,8 @@ export function TasteMap({ result }: { result: RunResult }) {
         </Panel>
       )}
 
-      <Panel title="Cross-domain affinity web" sub="The final plan's Qloo-scored picks around the audience; edge weight = affinity">
-        <AffinityWeb receipts={result.grounded.receipts} />
+      <Panel title="Cross-domain affinity web" sub="Which of your seeds drove each pick, across domains (Qloo explainability); line weight = contribution">
+        <AffinityWeb result={result} />
       </Panel>
 
       {gap.length > 0 && (

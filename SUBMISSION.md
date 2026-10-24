@@ -49,7 +49,7 @@ Across 30 briefs (music, DTC, sports), the same model with no Qloo access produc
 
 ## Responsible taste
 
-Aggregate-only: inputs are public catalog entities, tags and demographic buckets, never a person's data. Results are audience-level affinity. Every number links to the Qloo call behind it.
+Aggregate-only: inputs are public catalog entities, tags and demographic buckets, never a person's data. Results are audience-level affinity. Every receipt names the Qloo calls behind its number, every Taste Map panel names its endpoint, and the trace shows every call's parameters.
 
 ## New-work disclosure
 

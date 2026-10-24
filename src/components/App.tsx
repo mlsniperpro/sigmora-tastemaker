@@ -66,7 +66,7 @@ export function App() {
             <button
               key={p.id}
               type="button"
-              disabled={running}
+              // Switching mid-run is allowed: the request in flight is cancelled.
               onClick={() => {
                 setActivePreset(p.id);
                 void run({ preset: p.id });
@@ -143,8 +143,8 @@ export function App() {
       <footer className="grid gap-3 border-t border-line pt-4 text-caption leading-relaxed text-muted sm:grid-cols-2">
         <p>
           <strong className="text-ink">Responsible taste.</strong> Inputs are public catalog entities, tags and demographic buckets — never a
-          person&apos;s data. Results are audience-level affinity, never &ldquo;this user likes X&rdquo;. Every number links to the Qloo call that
-          produced it, and replayed or simulated results are labeled.
+          person&apos;s data. Results are audience-level affinity, never &ldquo;this user likes X&rdquo;. Every receipt names the Qloo calls behind
+          its number, every Taste Map panel names its endpoint, the trace shows every call&apos;s parameters, and replayed or simulated results are labeled.
         </p>
         <p>
           Built for the Qloo Agentic Hackathon. Open source (MIT) on{" "}
