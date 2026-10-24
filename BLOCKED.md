@@ -1,47 +1,47 @@
-# BLOCKED: live calls still to verify
+# BLOCKED: inputs only the owner can provide
 
-Status on 2026-10-24: **no Qloo key is available to the build session** (the hackathon host is not reachable from it, and `QLOO_API_KEY` is not a secret there yet). Everything below is built against Qloo's documented response shapes and runs end to end on the offline simulator. Nothing here has been checked against a live response.
+Everything below is already built behind a stub, fixture or sandbox, so each item takes effect as soon as its input arrives. Status as of 2026-10-24: none of these inputs exist in the build session. The Qloo hackathon host is also blocked by the session's network policy, so no call has been verified against live Qloo yet.
 
-## Unblock in one command
+## Checklist of owner inputs
 
-```bash
-QLOO_API_KEY=… pnpm fixtures:record   # records every preset into fixtures/qloo/recorded.json and runs the probes
-pnpm test && pnpm demo indie-release  # the demo now answers from replay, labeled "replayed"
+- [ ] **`QLOO_API_KEY`** (the hackathon key). Set it as a server-side env var on the deployment, then run `QLOO_API_KEY=… pnpm fixtures:record` once. That records every preset into `fixtures/qloo/recorded.json`, so presets keep working even if the key is rate-limited during judging. Commit the fixture file.
+- [ ] **`LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`** (and `LLM_BASE_URL` for OpenAI-compatible hosts). Without them, drafts come from the scripted model, which is labeled in the UI.
+- [ ] **Vercel project.** Connect `mlsniperpro/sigmora-tastemaker`, set the env vars above (see `.env.example`), and deploy by `git push`. Point `tastemaker.sigmora.org` at it.
+- [ ] **`KV_REST_API_URL`, `KV_REST_API_TOKEN`** (Upstash or Vercel KV). These turn the response cache and rate-limit and budget counters into shared state across instances. Without them, the limits apply per instance.
+- [ ] **Sigmora `/v1`.** Set `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL` and `SIGMORA_API_TOKEN` once Sigmora exposes the endpoint below. The public demo stays on the labeled sandbox until then.
+- [ ] **Benchmark run.** With the Qloo and LLM keys set and `QLOO_DAILY_CALL_CAP` above the request count stated in `docs/benchmark.md`, run `pnpm benchmark` and commit `docs/benchmark.md` and `benchmark/results.json`. Until then the report is a labeled DRY RUN and must not be quoted.
+- [ ] **Video.** Run `pnpm video https://<deployment>` against the live deployment (needs Playwright + Chromium), then add a voice-over.
+- [ ] **Spotify probe.** Set `PROBE_SPOTIFY_ID` to a real artist ID when running `pnpm fixtures:record`. That verifies the `/entities` external-ID lookup.
+
+## The Sigmora `/v1` contract this repo calls
+
+`POST {SIGMORA_API_URL}/v1/campaigns` with headers `Authorization: Bearer <token>` and `Idempotency-Key: tastemaker-<runId>`, and this body:
+
+```json
+{ "source": "tastemaker", "name": "…", "metadata": { "tastemakerRunId": "…", "verifiedPicks": ["…"] },
+  "posts": [{ "platform": "TikTok", "text": "…", "scheduledFor": "2026-10-25T17:00:00.000Z" }] }
 ```
 
-Then set `QLOO_API_KEY` on the hosted deployment (server-side env only) so custom briefs go live; presets keep working from fixtures if the key is rate-limited.
+Expected reply: `{ "id": "<campaign id>", "posts": [{ "id": "<post id>" }] }`. Sigmora implements this endpoint, or `SigmoraPublisher` in `src/lib/publisher/index.ts` gets adapted to whatever `/v1` actually exposes.
 
-## Calls to verify (in the order the agent makes them)
+## Live calls to verify when the key lands (`pnpm fixtures:record` prints a line per preset)
 
-| # | Call | What to check | Where in code |
+Each call below is built from Qloo's docs plus notes from other entrants who ran on the hackathon host. The record script and the trace show any call that fails or comes back empty. Every failure also shows in the UI's source banner (no silent fallbacks).
+
+| # | Call | Check | Code |
 |---|---|---|---|
-| 1 | `GET /search?query=Tems&take=5` (no `types`) | Seeds of any type resolve; result has `entity_id`, `name`, `subtype` or `types` | `run.ts` resolve step |
-| 2 | `GET /search?query=…&types=urn:entity:<type>` | `types` is the right param name and accepts a URN; fuzzy matches for invented names are rejected by `sameName` | `client.ts` `search`, `util.ts` |
-| 3 | `GET /entities?external.spotify.ids=…` | Param name and response shape for Spotify/IMDb external-ID lookup (`external.imdb.ids`) | `run.ts` `resolveLinks` |
-| 4 | `GET /v2/insights?filter.type=urn:demographics&signal.interests.entities=…` | Response is `results.demographics[0].query.age/gender` with signed values; age bucket keys match `AGE_BUCKETS` | `types.ts`, demographics step |
-| 5 | `GET /v2/insights?filter.type=urn:tag&…` | Response is `results.tags[]` with `name` and `query.affinity` | tags step |
-| 6 | `signal.demographics.age` values | We send coarse buckets (`35_and_younger`, `36_to_55`, `55_and_older`) mapped from the brief's fine buckets. Confirm accepted values (the playbook suggests `25_to_29,30_to_34` may also work) | `run.ts` `signalAges` |
-| 7 | `GET /v2/insights?filter.type=urn:entity:<artist|brand|tv_show|movie|podcast|person>` with signals | Non-empty for the hero preset; `query.affinity` present | culture step |
-| 8 | `GET /v2/insights?filter.type=urn:entity:locality&filter.results.entities=<locality ids>` | Locality is a valid insights type and `filter.results.entities` restricts to the candidate metros; `location.lat/lon` present | cities step |
-| 9 | `GET /v2/insights?filter.type=urn:heatmap&output.heatmap.boundary=urn:entity:locality` **without** a location filter | Whether a national heatmap works, or a `filter.location*` is required; response shape `results.heatmap[].location.{latitude,longitude}` + `query.affinity` | heatmap step |
-| 10 | `GET /v2/insights?filter.type=urn:entity:place&filter.location.query=Washington` | `filter.location.query` accepts a city name; venues come back | venues step, critic venue check |
-| 11 | `GET /v2/trending?filter.type=…&signal.interests.entities=…` | Whether trending accepts specific entity IDs at all (it may only list what's trending per type); field name for velocity (`population_rank_velocity`) | trending step, critic |
-| 12 | `GET /v2/analysis/compare?a.signal.interests.entities=…&b.signal.interests.entities=…` | Param names and the response shape (`results.tags[].query.a/b/delta` is assumed) | compare step |
-| 13 | `filter.results.entities` + `feature.explainability=true` | **The critic.** Returned entities keep `query.affinity`; explainability lives at `query.explainability["signal.interests.entities"][]` with `entity_id` + `score` | `run.ts` `critique` |
-| 14 | `bias.trends`, `diversify.by` | Not used yet; validate before turning on | `params.ts` |
-| 15 | `video_game` vs `videogame` | Which spelling the hackathon host accepts | `params.ts` |
-| 16 | `GET /v2/tags?filter.query=…&feature.semantic_search=true` | Free-text brief → tag IDs (client method exists, not wired into the loop yet) | `client.ts` `tags` |
-| 17 | Param allow-lists | Every list in `params.ts` against [available-parameters-by-entity-type](https://docs.qloo.com/reference/available-parameters-by-entity-type) | `params.ts` |
-
-## Probes (run by `pnpm fixtures:record`)
-
-- Nairobi coverage: `/search?query=Nairobi&types=urn:entity:locality`, places with `filter.location.query=Nairobi`. Pass → add a Nairobi preset (P2).
-- Spotify seeding: set `PROBE_SPOTIFY_ID` to a real artist ID.
-- Tag semantic search for "afrobeats".
-
-## Other blockers
-
-- **Hosting.** The build session cannot create the Vercel project. Owner steps: connect the repo in Vercel, set env vars from `.env.example` (at least `QLOO_API_KEY` once recorded; optional `LLM_*`, `KV_REST_API_*`), deploy by `git push`. Point `tastemaker.sigmora.org` at it.
-- **Sigmora `/v1` contract.** `SigmoraPublisher` posts to `POST /v1/campaigns` with `{ source, name, metadata, posts: [{platform, text, scheduledFor}] }` and expects `{ id, posts: [{ id }] }`. This shape is a proposal; confirm or adapt it against the real `/v1` before turning on `SIGMORA_PUBLISH_MODE=live`.
-- **Benchmark numbers.** `docs/benchmark.md` is a labeled DRY RUN until it is re-run with a live key and a real LLM (`pnpm benchmark`). Do not quote it until then.
-- **Mixed replay + simulator.** If a custom brief hits a request that was not recorded while the key is unavailable, that call falls back to the simulator, whose entity IDs don't match Qloo's. Each call is labeled with its source; on the hosted demo set the key so custom briefs go live.
+| 1 | `/search?query=…` (no `types`) and `…&types=urn:entity:<type>` | Hits carry `entity_id`, `name`, `types`; `sameName` rejects fuzzy hits for invented names | `context.ts` `resolveSeeds`, `critic.ts` `resolvePick` |
+| 2 | `/entities?external.spotify.ids=…` / `external.imdb.ids` | Param names and shape | `context.ts` `resolveLinks` |
+| 3 | `/v2/tags?filter.query=…&feature.semantic_search=true` | `results.tags[]` with `tag_id`/`id`; the IDs work as `signal.interests.tags` | vibe step, `run.ts` |
+| 4 | `urn:demographics` | `results.demographics[0].query.age/gender`; age keys match `AGE_BUCKETS` | demographics step |
+| 5 | `signal.demographics.age` values | We send `35_and_younger` / `36_to_55` / `55_and_older`. If they come back empty, switch `signalAges` to the fine buckets | `context.ts` `signalAges` |
+| 6 | `urn:tag` insights | `results.tags[]` with `query.affinity` | tags step |
+| 7 | Six cross-domain types | Non-empty for the hero preset. Person queries are sent without demographic signals (reported to replace the audience there) | `context.ts` `loadCulture`, `signalFor` |
+| 8 | `urn:entity:locality` + `filter.results.entities` | Ranks candidate metros. If it's empty, the run falls back to the folded heatmap (the trace says "ranked by heatmap") | `cities.ts` |
+| 9 | `urn:heatmap` + `filter.location=POLYGON(…)` (US box) | Cells with `location.latitude/longitude` and `query.affinity`. `output.heatmap.boundary` is deliberately not sent (reported 500/400 on this host); cells are folded into cities within 60 km | `cities.ts` |
+| 10 | `urn:entity:place` + `filter.location.query=<city>` | Venues come back, and the venue-in-city check works with `filter.results.entities` | `context.ts` `loadVenues`, `critic.ts` |
+| 11 | `/v2/trending?filter.type=…&signal.interests.entities=…` | Whether trending accepts specific IDs, and the velocity field name (`population_rank_velocity`). Failures show on the step and as "trend check failed" on the critic | `context.ts` `loadTrends` |
+| 12 | `/v2/analysis/compare?a.signal.interests.entities=…&b.signal.interests.entities=…` | Response `results.tags[].query.a/b/delta` (assumed) | compare step |
+| 13 | **The critic:** `filter.results.entities` + `feature.explainability=true` | Affinity is kept; explainability sits at `query.explainability["signal.interests.entities"][]` | `critic.ts` `scoreByType` |
+| 14 | Param allow-lists | Each list in `params.ts` against [available-parameters-by-entity-type](https://docs.qloo.com/reference/available-parameters-by-entity-type) | `params.ts` |
+| 15 | Nairobi coverage (probe) | `/search?query=Nairobi&types=urn:entity:locality`, places in Nairobi. Pass means a Nairobi preset can be added (P2) | `scripts/record-fixtures.ts` |

@@ -33,6 +33,7 @@ export const PRESETS: Preset[] = [
       subject: "Nia Sol",
       product: "debut single “Harmattan Love”",
       seeds: ["Tems", "Rema", "Asake"],
+      vibe: "warm late-night Afro-fusion with alté edges",
       ages: ["25_to_29", "30_to_34"],
       goal: "Launch my single to 25–34-year-olds and pick the first city to play outside my home town.",
       candidateCities: US_METROS,

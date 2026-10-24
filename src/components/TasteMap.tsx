@@ -54,36 +54,35 @@ const px = (lon: number) => ((lon + 125) / 59) * W;
 const py = (lat: number) => ((50 - lat) / 26) * H;
 
 function CityMap({ result }: { result: RunResult }) {
-  const pts = result.heatmap.length ? result.heatmap : result.cities.filter((c) => c.lat !== undefined).map((c) => ({ name: c.name, lat: c.lat!, lon: c.lon!, affinity: c.affinity }));
-  if (!pts.length) return null;
-  const max = Math.max(...pts.map((p) => p.affinity), 0.01);
-  const winner = result.cities[0]?.name;
-  const ranked = [...pts].sort((a, b) => b.affinity - a.affinity);
+  const located = result.cities.filter((c): c is typeof c & { lat: number; lon: number } => c.lat !== undefined && c.lon !== undefined);
+  const cells = result.heatmap.length ? result.heatmap : located.map((c) => ({ lat: c.lat, lon: c.lon, affinity: c.affinity }));
+  if (!cells.length) return null;
+  const max = Math.max(...cells.map((p) => p.affinity), 0.01);
+  const winner = result.cities[0];
+  // Draw weakest first so the strongest cells sit on top.
+  const ordered = [...cells].sort((a, b) => a.affinity - b.affinity);
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Audience demand by metro">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Audience demand across the US">
         <polygon points={US.map(([lo, la]) => `${px(lo)},${py(la)}`).join(" ")} className="fill-panel stroke-line" strokeWidth={1} />
-        {ranked
-          .slice()
-          .reverse()
-          .map((p) => {
-            const r = 3 + (p.affinity / max) * 11;
-            const top = p.name === winner;
-            return (
-              <g key={`${p.name}-${p.lat}`}>
-                <circle cx={px(p.lon)} cy={py(p.lat)} r={r} className={top ? "fill-accent/80 stroke-bg" : "fill-violet/45 stroke-bg"} strokeWidth={2}>
-                  <title>{`${p.name ?? "cell"}: affinity ${p.affinity.toFixed(2)}`}</title>
-                </circle>
-              </g>
-            );
-          })}
-        {ranked.slice(0, 4).map((p) => (
-          <text key={`l-${p.name}`} x={px(p.lon) + 6} y={py(p.lat) - 6} className="fill-ink text-[9px]" style={{ fontSize: 9 }}>
-            {p.name}
-          </text>
+        {ordered.map((p, i) => (
+          <circle key={i} cx={px(p.lon)} cy={py(p.lat)} r={2 + (p.affinity / max) * 7} className="fill-violet/40 stroke-bg" strokeWidth={1}>
+            <title>{`affinity ${p.affinity.toFixed(2)}`}</title>
+          </circle>
+        ))}
+        {located.slice(0, 4).map((c, i) => (
+          <g key={c.name}>
+            <circle cx={px(c.lon)} cy={py(c.lat)} r={i === 0 ? 5 : 3} className={i === 0 ? "fill-accent stroke-bg" : "fill-ink stroke-bg"} strokeWidth={1.5} />
+            <text x={px(c.lon) + 7} y={py(c.lat) - 6} className="fill-ink" style={{ fontSize: 9 }}>
+              {c.name}
+            </text>
+          </g>
         ))}
       </svg>
-      <p className="mt-1 text-[10px] text-muted">Bubble size = affinity (urn:heatmap, locality boundary). Outline is stylized.</p>
+      <p className="mt-1 text-[10px] text-muted">
+        {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; size = affinity.` : "Metro affinity."} Labels: top metros
+        {winner ? `, ${winner.name} first` : ""} (ranked by {result.citiesRankedBy}). Outline is stylized.
+      </p>
     </div>
   );
 }

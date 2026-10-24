@@ -43,3 +43,10 @@ export function hashId(s: string): string {
   }
   return ((h1 >>> 0).toString(36) + (h2 >>> 0).toString(36)).slice(0, 12);
 }
+
+/** A fresh, URL-safe id for one run (16 hex chars from the platform CSPRNG). */
+export function newRunId(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}

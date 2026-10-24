@@ -34,14 +34,14 @@ Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (a
 - `/search` and `/entities` (Spotify/IMDb external IDs) to resolve seeds and catch invented names
 - `/v2/insights` with `urn:demographics` (who over-indexes) and `urn:tag` (taste vocabulary for the copy)
 - `/v2/insights` across artist, brand, tv_show, movie, podcast and person: the cross-domain culture map
-- `urn:entity:locality` ranking and `urn:heatmap` with a locality boundary: where to launch
+- `urn:entity:locality` ranking and a `urn:heatmap` over the US folded into candidate cities: where to launch
 - `urn:entity:place` with `filter.location.query`: venues, and the venue-in-city check
 - `filter.results.entities` + `feature.explainability`: the critic
 - `/v2/trending`: rising vs. fading references
 - `/v2/analysis/compare`: the positioning gap vs. a comparable's audience
 - `signal.demographics.*` on every call
 
-Every request is validated against per-`filter.type` parameter allow-lists (Qloo silently drops unknown params), cached by normalized request, recordable as fixtures, and labeled live / replayed in the UI.
+Every request is validated against per-`filter.type` parameter allow-lists (Qloo silently drops unknown params), throttled, retried with backoff, budgeted, cached by normalized request, recordable as fixtures, and labeled live / replayed in the UI.
 
 ## Culture Miss Rate
 

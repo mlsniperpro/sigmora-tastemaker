@@ -59,15 +59,25 @@ export interface LLMProvider {
   /** True when outputs come from a scripted stand-in rather than a model. */
   scripted: boolean;
   draft(input: DraftInput): Promise<Draft>;
+  /** Polish the copy of a draft whose picks the critic already swapped (the caller keeps the pick list). */
   revise(draft: Draft, replacements: Replacement[], input: DraftInput): Promise<Draft>;
 }
 
-/** Swap names in every text field and in the pick list. Used by all providers as the safe fallback. */
-export function applyReplacements(draft: Draft, replacements: Replacement[]): Draft {
-  // Longest names first so "Black Panther" can't clobber "Black Panther: Wakanda Forever".
-  const ordered = [...replacements].sort((a, b) => b.from.length - a.from.length);
-  const swap = (s: string) => ordered.reduce((acc, r) => acc.split(r.from).join(r.to), s);
-  const replacedFrom = new Map(replacements.map((r) => [`${r.role}:${r.from}`, r]));
+/**
+ * Swap names in every text field and in the pick list, in one pass: whole
+ * names only, case-insensitive, longest first, never cascading (A→B, B→C
+ * leaves "B" from the first swap alone). Code owns the picks; this is the
+ * deterministic half of every revise.
+ */
+export function applyReplacements(draft: Draft, replacements: readonly Replacement[]): Draft {
+  if (!replacements.length) return draft;
+  const to = new Map(replacements.map((r) => [r.from.toLowerCase(), r.to]));
+  const names = [...new Set([...draft.picks.map((p) => p.name), ...replacements.map((r) => r.from)])].sort((a, b) => b.length - a.length);
+  const alternatives = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  // Whole names only: replacing "Rema" must not touch "Remarkable".
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "giu");
+  const swap = (s: string) => s.replace(re, (m) => to.get(m.toLowerCase()) ?? m);
+  const byPick = new Map(replacements.map((r) => [`${r.role}:${r.from.toLowerCase()}`, r]));
   return {
     positioning: swap(draft.positioning),
     hooks: draft.hooks.map(swap),
@@ -75,7 +85,7 @@ export function applyReplacements(draft: Draft, replacements: Replacement[]): Dr
     captions: draft.captions.map((c) => ({ ...c, text: swap(c.text) })),
     musicBrief: swap(draft.musicBrief),
     picks: draft.picks.map((p) => {
-      const r = replacedFrom.get(`${p.role}:${p.name}`);
+      const r = byPick.get(`${p.role}:${p.name.toLowerCase()}`);
       return r ? { ...p, name: r.to, type: r.type, rationale: r.reason } : p;
     }),
   };

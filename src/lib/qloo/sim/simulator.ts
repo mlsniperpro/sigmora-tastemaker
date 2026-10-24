@@ -202,27 +202,41 @@ function tagInsights(params: QlooParams) {
   return { success: true, results: { tags } };
 }
 
+/** Bounding box of a WKT POLYGON (lon lat pairs), or undefined. */
+export function wktBBox(wkt: string): { minLon: number; maxLon: number; minLat: number; maxLat: number } | undefined {
+  const m = wkt.match(/^POLYGON\s*\(\((.+)\)\)$/i);
+  if (!m) return undefined;
+  const pts = m[1].split(",").map((p) => p.trim().split(/\s+/).map(Number));
+  if (pts.some((p) => p.length !== 2 || p.some((n) => !Number.isFinite(n)))) return undefined;
+  const lons = pts.map((p) => p[0]);
+  const lats = pts.map((p) => p[1]);
+  return { minLon: Math.min(...lons), maxLon: Math.max(...lons), minLat: Math.min(...lats), maxLat: Math.max(...lats) };
+}
+
+const CELL_OFFSETS: [number, number][] = [[0, 0], [0.25, 0.1], [-0.2, 0.2], [0.15, -0.25], [-0.3, -0.1], [0.05, 0.35]];
+
 function heatmap(params: QlooParams) {
   const a = audienceFrom(params);
-  // Locality heatmap ignores the age term: a city's scene is what's being compared.
+  // A city's scene is what's being compared, so the age term is left out.
   const ageless = { ...a, age: undefined, fem: undefined };
-  const take = Number(params.take ?? 50);
-  let pool = CATALOG.filter((e) => e.type === "locality");
-  const q = params["filter.location.query"];
-  if (q) {
-    const wanted = String(q).split("|").map((s) => s.trim());
-    pool = pool.filter((l) => wanted.some((w) => matchesName(l, w)));
-  }
-  const rows = pool
-    .map((l) => ({ l, aff: affinity(ageless, l) }))
-    .sort((x, y) => y.aff - x.aff)
-    .slice(0, take);
+  const box = typeof params["filter.location"] === "string" ? wktBBox(params["filter.location"]) : undefined;
+  // Like the live host: unnamed geohash-sized cells, several per metro; `take` is ignored.
+  const cells = CATALOG.filter((e) => e.type === "locality").flatMap((l) => {
+    const base = affinity(ageless, l);
+    return CELL_OFFSETS.map(([dLat, dLon], i) => ({
+      lat: r3(l.lat! + dLat),
+      lon: r3(l.lon! + dLon),
+      affinity: r3(Math.max(0, Math.min(1, base + (hash01(`${l.id}:${i}`) - 0.5) * 0.08))),
+      pop: l.pop,
+    }));
+  });
+  const inBox = box ? cells.filter((c) => c.lon >= box.minLon && c.lon <= box.maxLon && c.lat >= box.minLat && c.lat <= box.maxLat) : cells;
   return {
     success: true,
     results: {
-      heatmap: rows.map(({ l, aff }, i) => ({
-        location: { latitude: l.lat!, longitude: l.lon!, name: l.name, entity_id: l.id, geohash: `sim${i}` },
-        query: { affinity: aff, affinity_rank: r3(1 - i / Math.max(1, rows.length)), popularity: l.pop },
+      heatmap: inBox.map((c, i) => ({
+        location: { latitude: c.lat, longitude: c.lon, geohash: `sim${i}` },
+        query: { affinity: c.affinity, popularity: c.pop },
       })),
     },
   };

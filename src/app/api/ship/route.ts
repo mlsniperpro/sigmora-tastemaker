@@ -1,23 +1,34 @@
-import { z } from "zod";
-import { checkGuard, clientIp } from "@/lib/guard";
+import { runById } from "@/lib/agent/runCache";
+import { admit, guardResponse } from "@/lib/guard";
 import { ShipRequest, publisherFromEnv } from "@/lib/publisher";
+import { formatZodIssues } from "@/lib/zod";
 
 export async function POST(req: Request) {
-  let body: ShipRequest;
+  let json: unknown;
   try {
-    body = ShipRequest.parse(await req.json());
-  } catch (err) {
-    const message = err instanceof z.ZodError ? err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") : "Invalid JSON";
-    return Response.json({ error: message }, { status: 400 });
+    json = await req.json();
+  } catch {
+    return Response.json({ error: "Body must be JSON" }, { status: 400 });
   }
+  const body = ShipRequest.safeParse(json);
+  if (!body.success) return Response.json({ error: formatZodIssues(body.error, { root: "body" }) }, { status: 400 });
+  const run = await runById(body.data.runId);
+  if (!run) return Response.json({ error: "Unknown or expired run. Run the plan again, then ship." }, { status: 404 });
+
   const publisher = publisherFromEnv();
-  if (publisher.id === "sigmora") {
-    const g = checkGuard(clientIp(req.headers));
-    if (!g.ok) return Response.json({ error: g.message }, { status: g.status });
-  }
+  const g = await admit(req, { costs: publisher.id === "sigmora" });
+  if (!g.ok) return guardResponse(g);
   try {
-    return Response.json(await publisher.ship(body));
+    const receipt = await publisher.ship({
+      runId: run.id,
+      subject: run.brief.subject,
+      posts: run.grounded.draft.captions,
+      verifiedPicks: run.grounded.receipts.filter((r) => r.verdict === "pass").map((r) => r.name),
+      startDate: body.data.startDate,
+    });
+    return Response.json(receipt);
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "Ship failed" }, { status: 502 });
+    console.error(`[ship] ${(err as Error).message}`);
+    return Response.json({ error: "The publisher didn't accept the campaign. Try again in a minute." }, { status: 502 });
   }
 }

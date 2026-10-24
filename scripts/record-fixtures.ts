@@ -14,6 +14,7 @@ import { runTastemaker } from "../src/lib/agent/run";
 import { DeterministicLLM } from "../src/lib/llm/deterministic";
 import { MemoryCache } from "../src/lib/qloo/cache";
 import { QlooClient } from "../src/lib/qloo/client";
+import { Throttle } from "../src/lib/qloo/throttle";
 
 const key = process.env.QLOO_API_KEY;
 if (!key) {
@@ -24,7 +25,8 @@ if (!key) {
 const file = join(process.cwd(), "fixtures/qloo/recorded.json");
 const existing = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
 const recorder: Record<string, unknown> = {};
-const qloo = new QlooClient({ apiKey: key, baseUrl: process.env.QLOO_BASE_URL, mode: "live", cache: new MemoryCache(5000), fixtures: {}, recorder });
+// The hackathon key allows ~5 requests/second; stay under it.
+const qloo = new QlooClient({ apiKey: key, baseUrl: process.env.QLOO_BASE_URL, mode: "live", cache: new MemoryCache(5000), fixtures: {}, recorder, throttle: new Throttle(4, 4) });
 
 let failures = 0;
 for (const p of PRESETS) {

@@ -5,31 +5,26 @@ import type { RunResult } from "@/lib/agent/types";
 import type { ShipReceipt } from "@/lib/publisher";
 
 export function ShipBar({ result }: { result: RunResult }) {
-  const [state, setState] = useState<"idle" | "busy" | "done" | "error">("idle");
+  const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<ShipReceipt>();
   const [error, setError] = useState<string>();
 
   async function ship() {
-    setState("busy");
+    setBusy(true);
     setError(undefined);
     try {
       const res = await fetch("/api/ship", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          runId: result.id,
-          subject: result.brief.subject,
-          posts: result.grounded.draft.captions,
-          verifiedPicks: result.grounded.receipts.filter((r) => r.verdict === "pass").map((r) => r.name),
-        }),
+        body: JSON.stringify({ runId: result.id }),
       });
-      const body = await res.json();
+      const body = (await res.json().catch(() => ({}))) as Partial<ShipReceipt> & { error?: string };
       if (!res.ok) throw new Error(body.error ?? `Ship failed (${res.status})`);
       setReceipt(body as ShipReceipt);
-      setState("done");
     } catch (err) {
       setError((err as Error).message);
-      setState("error");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -42,8 +37,8 @@ export function ShipBar({ result }: { result: RunResult }) {
             Hand the verified pack to Sigmora: {result.grounded.draft.captions.length} posts, one a day. The public demo uses a labeled sandbox publisher.
           </p>
         </div>
-        <button type="button" onClick={ship} disabled={state === "busy"} className="rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-accent-ink disabled:opacity-60">
-          {state === "busy" ? "Scheduling…" : "Schedule with Sigmora"}
+        <button type="button" onClick={ship} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-accent-ink disabled:opacity-60">
+          {busy ? "Scheduling…" : "Schedule with Sigmora"}
         </button>
       </div>
       {error && <p className="mt-2 text-[12px] text-miss">{error}</p>}

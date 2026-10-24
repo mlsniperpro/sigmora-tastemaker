@@ -1,25 +1,34 @@
 /**
- * Response cache for Qloo calls, keyed by the normalized request.
- *
- * Two layers: an in-process LRU (always on) and an optional Redis-over-REST
- * store (Upstash / Vercel KV compatible) when KV_REST_API_URL and
- * KV_REST_API_TOKEN are set. The REST store needs no SDK.
+ * Response cache for Qloo calls and finished runs. Two layers: an in-process
+ * LRU bounded by entries and by approximate size (always on) and, when KV is
+ * configured, Redis over REST so every instance shares it. The cache is an
+ * optimisation: a KV failure is logged and the request proceeds uncached.
  */
+import { KvRest, kvFromEnv } from "../kv";
 
 export interface CacheStore {
   get(key: string): Promise<unknown | undefined>;
   set(key: string, value: unknown, ttlSeconds: number): Promise<void>;
 }
 
+/** Approximate in-memory size of a JSON-able value (UTF-16 code units × 2). */
+const approxBytes = (value: unknown) => (JSON.stringify(value)?.length ?? 0) * 2;
+
 export class MemoryCache implements CacheStore {
-  private map = new Map<string, { value: unknown; expires: number }>();
-  constructor(private readonly max = 500) {}
+  private readonly map = new Map<string, { value: unknown; expires: number; bytes: number }>();
+  private bytes = 0;
+
+  constructor(
+    private readonly maxEntries = 500,
+    private readonly now: () => number = Date.now,
+    private readonly maxBytes = 64 * 1024 * 1024,
+  ) {}
 
   async get(key: string) {
     const hit = this.map.get(key);
     if (!hit) return undefined;
-    if (hit.expires < Date.now()) {
-      this.map.delete(key);
+    if (hit.expires < this.now()) {
+      this.remove(key);
       return undefined;
     }
     // refresh LRU position
@@ -29,48 +38,55 @@ export class MemoryCache implements CacheStore {
   }
 
   async set(key: string, value: unknown, ttlSeconds: number) {
-    this.map.set(key, { value, expires: Date.now() + ttlSeconds * 1000 });
-    while (this.map.size > this.max) {
+    const bytes = approxBytes(value);
+    if (bytes > this.maxBytes) return;
+    this.remove(key);
+    this.map.set(key, { value, expires: this.now() + ttlSeconds * 1000, bytes });
+    this.bytes += bytes;
+    while (this.map.size > this.maxEntries || this.bytes > this.maxBytes) {
       const oldest = this.map.keys().next().value;
       if (oldest === undefined) break;
-      this.map.delete(oldest);
+      this.remove(oldest);
     }
+  }
+
+  private remove(key: string) {
+    const e = this.map.get(key);
+    if (!e) return;
+    this.bytes -= e.bytes;
+    this.map.delete(key);
+  }
+
+  get size() {
+    return this.map.size;
+  }
+
+  get approxBytes() {
+    return this.bytes;
   }
 }
 
-export class RestKvCache implements CacheStore {
+export class KvCache implements CacheStore {
   constructor(
-    private readonly url: string,
-    private readonly token: string,
-    private readonly prefix = "tm:qloo:",
+    private readonly kv: KvRest,
+    private readonly prefix = "tm:cache:",
   ) {}
-
-  private async cmd(args: (string | number)[]): Promise<unknown> {
-    const res = await fetch(this.url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify(args),
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`KV ${res.status}`);
-    const body = (await res.json()) as { result?: unknown };
-    return body.result;
-  }
 
   async get(key: string) {
     try {
-      const raw = await this.cmd(["GET", this.prefix + key]);
-      return typeof raw === "string" ? JSON.parse(raw) : undefined;
-    } catch {
+      const raw = await this.kv.cmd(["GET", this.prefix + key]);
+      return typeof raw === "string" ? (JSON.parse(raw) as unknown) : undefined;
+    } catch (err) {
+      console.warn(`[cache] KV get failed: ${(err as Error).message}`);
       return undefined;
     }
   }
 
   async set(key: string, value: unknown, ttlSeconds: number) {
     try {
-      await this.cmd(["SET", this.prefix + key, JSON.stringify(value), "EX", ttlSeconds]);
-    } catch {
-      // cache is best-effort
+      await this.kv.cmd(["SET", this.prefix + key, JSON.stringify(value), "EX", ttlSeconds]);
+    } catch (err) {
+      console.warn(`[cache] KV set failed: ${(err as Error).message}`);
     }
   }
 }
@@ -95,11 +111,9 @@ export class LayeredCache implements CacheStore {
 
 let shared: CacheStore | undefined;
 export function defaultCache(): CacheStore {
-  if (shared) return shared;
-  const layers: CacheStore[] = [new MemoryCache()];
-  const url = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (url && token) layers.push(new RestKvCache(url, token));
-  shared = new LayeredCache(layers);
+  if (!shared) {
+    const kv = kvFromEnv();
+    shared = new LayeredCache(kv ? [new MemoryCache(), new KvCache(kv)] : [new MemoryCache()]);
+  }
   return shared;
 }

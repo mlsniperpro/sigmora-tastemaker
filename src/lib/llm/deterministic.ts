@@ -8,9 +8,8 @@
  * has something to catch. Every output is labeled "scripted" in the UI, and
  * the benchmark refuses to report numbers produced by this provider.
  */
-import type { Brief, PickType, Role } from "../agent/brief";
-import { ROLE_COUNTS } from "../agent/brief";
-import { applyReplacements, type Draft, type DraftInput, type LLMProvider, type Pick, type Replacement } from "./types";
+import { ROLE_SPEC, type Brief, type PickType, type Role } from "../agent/brief";
+import type { Draft, DraftInput, LLMProvider, Pick } from "./types";
 
 type Guess = [name: string, type: PickType, why: string];
 
@@ -78,12 +77,13 @@ const GUESSES: Record<Brief["family"], Partial<Record<Role, Guess[]>>> = {
 /** Which roles keep one ungrounded habit even when Qloo context is supplied. */
 const HABIT: Record<Brief["family"], Role> = { music: "sponsor", dtc: "presenter", sports: "podcast" };
 
-function chooseGrounded(input: DraftInput): Pick[] {
+/** Qloo's candidates first (when grounded), then the model's own guesses; one habit survives grounding. */
+function choose(input: DraftInput): Pick[] {
   const { brief, grounding } = input;
   const picks: Pick[] = [];
-  const roles = (Object.keys(ROLE_COUNTS) as Role[]).filter((r) => !(r === "city" && brief.targetCity));
+  const roles = (Object.keys(ROLE_SPEC) as Role[]).filter((r) => !(r === "city" && brief.targetCity));
   for (const role of roles) {
-    const n = ROLE_COUNTS[role];
+    const n = ROLE_SPEC[role].count;
     const guesses = GUESSES[brief.family][role] ?? [];
     const cands = grounding?.candidates[role] ?? [];
     const chosen: Pick[] = cands.slice(0, n).map((c) => ({
@@ -102,16 +102,6 @@ function chooseGrounded(input: DraftInput): Pick[] {
       if (!chosen.some((c) => c.name === g[0])) chosen.push({ name: g[0], type: g[1], role, rationale: g[2] });
     }
     picks.push(...chosen.slice(0, n));
-  }
-  return picks;
-}
-
-function chooseUngrounded(brief: Brief): Pick[] {
-  const picks: Pick[] = [];
-  for (const role of Object.keys(ROLE_COUNTS) as Role[]) {
-    if (role === "city" && brief.targetCity) continue;
-    const guesses = GUESSES[brief.family][role] ?? [];
-    picks.push(...guesses.slice(0, ROLE_COUNTS[role]).map(([name, type, why]) => ({ name, type, role, rationale: why })));
   }
   return picks;
 }
@@ -196,11 +186,12 @@ export class DeterministicLLM implements LLMProvider {
   scripted = true;
 
   async draft(input: DraftInput): Promise<Draft> {
-    const picks = input.grounding ? chooseGrounded(input) : chooseUngrounded(input.brief);
+    const picks = choose(input);
     return write(input.brief, picks, input.grounding);
   }
 
-  async revise(draft: Draft, replacements: Replacement[]): Promise<Draft> {
-    return applyReplacements(draft, replacements);
+  /** The swaps are already applied by the caller; the scripted model leaves the copy as is. */
+  async revise(draft: Draft): Promise<Draft> {
+    return draft;
   }
 }

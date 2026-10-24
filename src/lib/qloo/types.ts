@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Response shapes for the Qloo hackathon API, following the public docs
  * (https://docs.qloo.com/reference). Schemas are deliberately lenient
- * (`passthrough`, optional fields): the API adds fields over time and we only
+ * (`.loose()`, optional fields): the API adds fields over time and we only
  * depend on the ones listed. Anything we have not yet verified against a live
  * response is listed in BLOCKED.md.
  */
@@ -43,7 +43,7 @@ export const Explainability = z
           name: z.string().optional(),
           score: z.number(),
         })
-        .passthrough(),
+        .loose(),
     ),
   )
   .optional();
@@ -59,7 +59,7 @@ export const EntityQuery = z
     population_rank_velocity: z.number().optional(),
     trending_percentile: z.number().optional(),
   })
-  .passthrough();
+  .loose();
 
 export const Tag = z
   .object({
@@ -68,9 +68,9 @@ export const Tag = z
     name: z.string(),
     type: z.string().optional(),
     subtype: z.string().optional(),
-    query: z.object({ affinity: z.number().optional() }).passthrough().optional(),
+    query: z.object({ affinity: z.number().optional() }).loose().optional(),
   })
-  .passthrough();
+  .loose();
 export type Tag = z.infer<typeof Tag>;
 
 export const Entity = z
@@ -84,19 +84,19 @@ export const Entity = z
     properties: z.record(z.string(), z.unknown()).optional(),
     location: z
       .object({ lat: z.number().optional(), lon: z.number().optional() })
-      .passthrough()
+      .loose()
       .optional(),
     tags: z.array(Tag).optional(),
     external: z.record(z.string(), z.unknown()).optional(),
     query: EntityQuery.optional(),
   })
-  .passthrough();
+  .loose();
 export type Entity = z.infer<typeof Entity>;
 
 /** GET /search and GET /entities */
 export const SearchResponse = z
   .object({ results: z.array(Entity).default([]) })
-  .passthrough();
+  .loose();
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
 export const AGE_BUCKETS = [
@@ -117,9 +117,9 @@ export const DemographicsRow = z
         age: z.record(z.string(), z.number()).optional(),
         gender: z.record(z.string(), z.number()).optional(),
       })
-      .passthrough(),
+      .loose(),
   })
-  .passthrough();
+  .loose();
 
 export const HeatmapCell = z
   .object({
@@ -131,16 +131,16 @@ export const HeatmapCell = z
         name: z.string().optional(),
         entity_id: z.string().optional(),
       })
-      .passthrough(),
+      .loose(),
     query: z
       .object({
         affinity: z.number().optional(),
         affinity_rank: z.number().optional(),
         popularity: z.number().optional(),
       })
-      .passthrough(),
+      .loose(),
   })
-  .passthrough();
+  .loose();
 export type HeatmapCell = z.infer<typeof HeatmapCell>;
 
 /** GET /v2/insights (all filter.type values) and GET /v2/trending */
@@ -154,11 +154,11 @@ export const InsightsResponse = z
         demographics: z.array(DemographicsRow).optional(),
         heatmap: z.array(HeatmapCell).optional(),
       })
-      .passthrough()
+      .loose()
       .default({}),
     duration: z.number().optional(),
   })
-  .passthrough();
+  .loose();
 export type InsightsResponse = z.infer<typeof InsightsResponse>;
 
 /** GET /v2/analysis/compare */
@@ -176,19 +176,19 @@ export const CompareResponse = z
                 subtype: z.string().optional(),
                 query: z
                   .object({
-                    a: z.object({ affinity: z.number() }).passthrough().optional(),
-                    b: z.object({ affinity: z.number() }).passthrough().optional(),
+                    a: z.object({ affinity: z.number() }).loose().optional(),
+                    b: z.object({ affinity: z.number() }).loose().optional(),
                     delta: z.number().optional(),
                   })
-                  .passthrough()
+                  .loose()
                   .optional(),
               })
-              .passthrough(),
+              .loose(),
           )
           .optional(),
       })
-      .passthrough()
+      .loose()
       .default({}),
   })
-  .passthrough();
+  .loose();
 export type CompareResponse = z.infer<typeof CompareResponse>;

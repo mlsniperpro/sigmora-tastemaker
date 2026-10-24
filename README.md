@@ -51,18 +51,32 @@ The same model also drafts with no Qloo context; the critic audits that plan wit
 |---|---|
 | `GET /search` | Resolve seeds, candidate cities and every name the model writes; no match = invented entity |
 | `GET /entities` (`external.spotify.ids`, `external.imdb.ids`) | Seed from a pasted Spotify or IMDb link |
+| `GET /v2/tags` (`feature.semantic_search=true`) | Map the brief's free-text vibe to real tag IDs, sent as `signal.interests.tags` |
 | `/v2/insights` `urn:demographics` | Which age and gender buckets over-index |
 | `/v2/insights` `urn:tag` | The audience's taste vocabulary, fed into the copy |
 | `/v2/insights` artist · brand · tv_show · movie · podcast · person | Cross-domain culture map: collabs, partners, references, pitches, presenters |
 | `/v2/insights` `urn:entity:locality` + `filter.results.entities` | Rank candidate launch metros |
-| `/v2/insights` `urn:heatmap` + `output.heatmap.boundary=urn:entity:locality` | Demand map |
+| `/v2/insights` `urn:heatmap` + `filter.location` (US polygon) | Demand map; cells folded into each candidate city (fallback ranking) |
 | `/v2/insights` `urn:entity:place` + `filter.location.query` | Venues in the launch city; venue-in-city check |
 | `filter.results.entities` + `feature.explainability=true` | **The critic**: score the model's shortlist and attribute why |
 | `GET /v2/trending` | Rising vs. fading references |
 | `GET /v2/analysis/compare` | Positioning gap vs. a comparable's audience |
 | `signal.demographics.age/gender` | Every call is conditioned on the target audience |
 
-Every request is validated against a per-`filter.type` parameter allow-list before it leaves the server (Qloo silently drops unknown params), cached by normalized request, and labeled in the UI as **live**, **replayed** (recorded fixture) or **simulated**.
+Every request is validated against a per-`filter.type` parameter allow-list before it leaves the server (Qloo silently drops unknown params), throttled under the key's rate limit, retried with backoff on 429/5xx/timeouts, capped by a per-run and a daily call budget, cached by normalized request, and labeled in the UI as **live**, **replayed** (recorded fixture) or **simulated**. When a live call fails and an answer comes from a fallback, the trace and a banner say so and why.
+
+## Use it from any agent (MCP)
+
+Tastemaker is also an MCP server at `POST /api/mcp` (Streamable HTTP per the 2025-06-18 spec: stateless, one JSON-RPC message per POST, JSON responses). Two tools:
+
+- `taste_check`: give it an audience (`seeds`, `ages`, optional `gender` and `city`) and a list of picks (artists, brands, shows, films, podcasts, venues, creators, cities); get back a verdict per pick (pass, low affinity, invented, fading), the Qloo affinity, explainability, the calls behind it, and Qloo-preferred replacements. Input schemas are generated from the same zod schemas the server enforces.
+- `plan_campaign`: the full agent, for a preset or a brief.
+
+```bash
+curl -s localhost:3000/api/mcp -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"taste_check","arguments":{"seeds":["Tems","Rema"],"ages":["25_to_29"],"picks":[{"name":"Nickelback","type":"artist","role":"collab"}]}}}'
+```
+
+Any MCP client that speaks Streamable HTTP can add it as a remote server, so Claude, ChatGPT or your own agent can "taste-check this campaign" before it ships.
 
 ## Run it locally (zero credentials)
 
@@ -70,28 +84,32 @@ Every request is validated against a per-`filter.type` parameter allow-list befo
 pnpm install
 pnpm dev            # http://localhost:3000, runs fully offline
 pnpm demo           # the hero preset end to end in the terminal
-pnpm test           # unit + agent + API tests
+pnpm test           # unit (incl. property-based with fast-check), integration, and end-to-end (stubbed live + record/replay)
 ```
 
 With no keys, Qloo answers come from an **offline simulator** (placeholder numbers in Qloo's response shapes, labeled "simulated" everywhere) and drafts come from a **scripted model**. Add keys in `.env.local` (see [.env.example](.env.example)):
 
 | Variable | Effect |
 |---|---|
-| `QLOO_API_KEY` | Live Qloo (hackathon host). Falls back to recorded fixtures, then the simulator, with the reason shown in the trace |
+| `QLOO_API_KEY` | Live Qloo (hackathon host). A failed live call falls back to a recorded live response with the reason shown in the trace; it never mixes in simulator data |
 | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | Any OpenAI-compatible or Anthropic model; no vendor is pinned |
 | `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL`, `SIGMORA_API_TOKEN` | Ship to real channels through Sigmora `/v1` (sandbox otherwise) |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache for Qloo responses and runs |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache and rate-limit/budget counters (per instance otherwise) |
+| `QLOO_RUN_CALL_CAP`, `QLOO_DAILY_CALL_CAP`, `RATE_LIMIT_PER_MINUTE`, `RUN_DAILY_CAP` | Budgets and abuse limits; defaults in [.env.example](.env.example) |
 
-Scripts: `pnpm fixtures:record` records live Qloo responses for every preset; `pnpm benchmark` runs the 30-brief Culture Miss Rate benchmark and writes [docs/benchmark.md](docs/benchmark.md).
+Scripts: `pnpm fixtures:record` records live Qloo responses for every preset; `pnpm benchmark` runs the 30-brief Culture Miss Rate benchmark and writes [docs/benchmark.md](docs/benchmark.md); `pnpm video <url>` records the captioned judge-path walkthrough (needs Playwright + Chromium).
 
 ## Repo map
 
 ```
-src/lib/qloo/       typed client (live / replay / simulated), param validation, cache, simulator
-src/lib/llm/        LLM providers: scripted offline model, OpenAI-compatible, Anthropic
-src/lib/agent/      brief schema, presets, the agent loop and critic, result types
+src/lib/net.ts      typed HTTP errors, timeouts, bounded retries with backoff
+src/lib/config.ts   validated env (the only place secrets are read)
+src/lib/qloo/       typed client (live / replay / simulated), param validation, throttle, cache, simulator
+src/lib/llm/        LLM providers (scripted, OpenAI-compatible, Anthropic) and output coercion
+src/lib/agent/      brief, presets, run loop, context, critic, cities, run cache, taste check
 src/lib/publisher/  Ship: sandbox publisher and the Sigmora /v1 client
-src/app/api/        POST /api/run (NDJSON stream of trace steps + result), POST /api/ship
+src/lib/mcp.ts      MCP tools: taste_check, plan_campaign
+src/app/api/        POST /api/run (NDJSON stream of trace steps + result), POST /api/ship, POST /api/mcp
 src/components/     the one-page UI
 benchmark/, scripts/  benchmark briefs, benchmark runner, fixture recorder, terminal demo
 ```

@@ -1,67 +1,65 @@
 /**
- * Abuse and budget guard for the public demo: a per-IP token bucket and a
- * per-instance daily run cap. Preset runs are served from the result cache and
- * never reach this guard. State is per server instance (good enough to stop a
- * runaway client on serverless; a shared KV can replace it later).
+ * Abuse and budget guard for the public demo: fixed-window counters per IP
+ * per minute and for all uncached runs per UTC day. Counters live in KV when
+ * configured (shared by every instance; handlers stay stateless) and in a
+ * bounded in-process map otherwise. Cached results never reach the guard.
  */
-
-interface Bucket {
-  tokens: number;
-  updated: number;
-}
-
-const buckets = new Map<string, Bucket>();
-let day = "";
-let runsToday = 0;
+import { loadConfig } from "./config";
+import { defaultCounter, incrDaily, incrPerMinute, type Counter } from "./counter";
 
 export interface GuardConfig {
-  /** Burst size per IP. */
-  burst: number;
-  /** Tokens regained per minute. */
+  /** Uncached runs per IP per minute. */
   perMinute: number;
-  /** Uncached runs per UTC day, per instance. */
+  /** Uncached runs per UTC day, all users. */
   dailyCap: number;
 }
 
 export function guardConfig(env: Record<string, string | undefined> = process.env): GuardConfig {
-  return {
-    burst: Number(env.RATE_LIMIT_BURST ?? 5),
-    perMinute: Number(env.RATE_LIMIT_PER_MINUTE ?? 2),
-    dailyCap: Number(env.RUN_DAILY_CAP ?? 300),
-  };
+  const c = loadConfig(env);
+  return { perMinute: c.RATE_LIMIT_PER_MINUTE, dailyCap: c.RUN_DAILY_CAP };
 }
 
 export type GuardResult = { ok: true } | { ok: false; status: 429 | 503; message: string; retryAfter: number };
 
-export function checkGuard(ip: string, cfg: GuardConfig = guardConfig(), now = Date.now()): GuardResult {
-  const today = new Date(now).toISOString().slice(0, 10);
-  if (today !== day) {
-    day = today;
-    runsToday = 0;
+export interface GuardOptions {
+  /** Apply the per-IP limit (presets skip it so the one-click demo always works; they still count toward the daily cap). */
+  perIp?: boolean;
+  now?: number;
+}
+
+export async function checkGuard(ip: string, cfg: GuardConfig = guardConfig(), counter: Counter = defaultCounter(), opts: GuardOptions = {}): Promise<GuardResult> {
+  const now = opts.now ?? Date.now();
+  if (opts.perIp ?? true) {
+    if ((await incrPerMinute(counter, `rl:ip:${ip}`, now)) > cfg.perMinute) {
+      return {
+        ok: false,
+        status: 429,
+        message: "Too many new runs from your network. Wait a minute; presets and links you've already opened load from cache.",
+        retryAfter: 60 - Math.floor((now / 1000) % 60),
+      };
+    }
   }
-  if (runsToday >= cfg.dailyCap) {
-    return { ok: false, status: 503, message: "Today's free run budget is spent. Presets still work instantly; try a custom brief tomorrow.", retryAfter: 3600 };
+  if ((await incrDaily(counter, "rl:runs", now)) > cfg.dailyCap) {
+    return { ok: false, status: 503, message: "Today's budget for new runs is spent. Cached runs still load; try a new brief tomorrow.", retryAfter: 3600 };
   }
-  const b = buckets.get(ip) ?? { tokens: cfg.burst, updated: now };
-  b.tokens = Math.min(cfg.burst, b.tokens + ((now - b.updated) / 60000) * cfg.perMinute);
-  b.updated = now;
-  if (b.tokens < 1) {
-    buckets.set(ip, b);
-    return { ok: false, status: 429, message: "Too many runs from your network. Wait a minute or open a preset.", retryAfter: Math.ceil(((1 - b.tokens) / cfg.perMinute) * 60) };
-  }
-  b.tokens -= 1;
-  buckets.set(ip, b);
-  runsToday += 1;
-  if (buckets.size > 10000) buckets.clear();
   return { ok: true };
 }
 
-export function resetGuard() {
-  buckets.clear();
-  runsToday = 0;
-  day = "";
+/** The HTTP response for a refused request. */
+export function guardResponse(g: Extract<GuardResult, { ok: false }>): Response {
+  return Response.json({ error: g.message }, { status: g.status, headers: { "Retry-After": String(g.retryAfter) } });
 }
 
+/** Admits a request that is about to spend money; free requests always pass. */
+export async function admit(req: Request, opts: { costs: boolean; perIp?: boolean }): Promise<GuardResult> {
+  if (!opts.costs) return { ok: true };
+  return checkGuard(clientIp(req.headers), undefined, undefined, { perIp: opts.perIp });
+}
+
+/**
+ * The caller's IP as seen by the platform proxy. On Vercel the first
+ * x-forwarded-for entry is set by the edge and can't be spoofed by the client.
+ */
 export function clientIp(headers: Headers): string {
   return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || headers.get("x-real-ip") || "unknown";
 }

@@ -1,0 +1,215 @@
+/** The agent loop end to end over the offline Qloo client, plus its failure paths. */
+import { describe, expect, it } from "vitest";
+import { Brief } from "@/lib/agent/brief";
+import { PRESETS } from "@/lib/agent/presets";
+import { qlooHealth, runTastemaker } from "@/lib/agent/run";
+import { tasteCheck } from "@/lib/agent/tasteCheck";
+import type { RunEvent } from "@/lib/agent/types";
+import { DeterministicLLM } from "@/lib/llm/deterministic";
+import type { Draft, DraftInput } from "@/lib/llm/types";
+import { MemoryCache } from "@/lib/qloo/cache";
+import { QlooClient } from "@/lib/qloo/client";
+
+const qloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+const deps = () => ({ qloo: qloo(), llm: new DeterministicLLM() });
+
+/** A model that ignores revise instructions and resubmits its first draft, rejected picks and all. */
+class StubbornLLM extends DeterministicLLM {
+  override async revise(_draft: Draft, _reps?: unknown, input?: DraftInput): Promise<Draft> {
+    return this.draft(input!);
+  }
+}
+/** A model whose rewrite call always fails. */
+class BrokenReviseLLM extends DeterministicLLM {
+  override async revise(): Promise<Draft> {
+    throw new Error("LLM 503 on /chat/completions");
+  }
+}
+/** A model that names the brief's fixed market as a city pick (what real models do). */
+class CityNamingLLM extends DeterministicLLM {
+  override async draft(input: DraftInput): Promise<Draft> {
+    const d = await super.draft(input);
+    return { ...d, picks: [...d.picks, { name: input.brief.targetCity ?? "Atlanta", type: "locality", role: "city", rationale: "" }] };
+  }
+}
+class FailingLLM extends DeterministicLLM {
+  override async draft(): Promise<Draft> {
+    throw new Error("LLM 401 on /v1/messages");
+  }
+}
+/** Qloo whose compare and trending endpoints are down. */
+class PartialQloo extends QlooClient {
+  override compare(): never {
+    throw new Error("Qloo 500 on /v2/analysis/compare");
+  }
+  override trending(): never {
+    throw new Error("Qloo 500 on /v2/trending");
+  }
+}
+
+describe("agent loop (zero credentials)", () => {
+  for (const preset of PRESETS) {
+    it(`${preset.id}: grounded plan beats the baseline and every pick has a receipt`, async () => {
+      const r = await runTastemaker(preset.brief, deps());
+      expect(r.grounded.receipts.length).toBe(r.grounded.draft.picks.length);
+      expect(r.metrics.grounded.cultureMissRate).toBeLessThan(r.metrics.baseline.cultureMissRate);
+      expect(r.metrics.grounded.hallucinations).toBe(0);
+      for (const rec of r.grounded.receipts) {
+        expect(rec.calls.length).toBeGreaterThan(0);
+        expect(rec.affinity).toBeTypeOf("number");
+      }
+      expect(r.sources).toEqual(["simulated"]);
+      expect(r.qloo).toMatchObject({ simulated: r.qloo.calls, fallbacks: [] });
+      expect(r.trace.every((s) => s.status === "done")).toBe(true);
+    });
+  }
+
+  it("catches invented entities in the baseline", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, deps());
+    expect(r.baseline.receipts.filter((x) => x.verdict === "hallucination").map((x) => x.name)).toContain("Lagos Velvet Collective");
+  });
+
+  it("replaces a low-affinity pick and keeps the receipt chain", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, deps());
+    const replaced = r.grounded.receipts.find((x) => x.replaced);
+    expect(replaced?.replaced?.name).toBe("Coors Light");
+    expect(replaced?.verdict).toBe("pass");
+    expect(r.grounded.rounds).toBeGreaterThan(1);
+    const { picks, ...text } = r.grounded.draft;
+    expect(JSON.stringify(text)).not.toContain("Coors Light");
+    expect(picks.map((p) => p.name)).not.toContain("Coors Light");
+  });
+
+  it("uses every Qloo surface the trace promises", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, deps());
+    const keys = r.trace.flatMap((s) => s.calls.map((c) => c.key));
+    for (const needle of [
+      "/search?",
+      "filter.type=urn%3Ademographics",
+      "filter.type=urn%3Atag",
+      "filter.type=urn%3Aheatmap",
+      "filter.location=POLYGON",
+      "filter.type=urn%3Aentity%3Alocality",
+      "/v2/trending?",
+      "/v2/analysis/compare?",
+      "feature.explainability=true",
+      "filter.results.entities=",
+      "filter.location.query=",
+      "/v2/tags?",
+      "signal.interests.tags=",
+    ]) {
+      expect(keys.some((k) => k.includes(needle)), needle).toBe(true);
+    }
+    expect(keys.some((k) => k.includes("output.heatmap.boundary")), "boundary is broken on the live host").toBe(false);
+    expect(keys.filter((k) => k.includes("filter.type=urn%3Aentity%3Aperson")).every((k) => !k.includes("signal.demographics")), "no demographics on person").toBe(true);
+  });
+
+  it("streams one step event per trace step, then the result", async () => {
+    const events: RunEvent[] = [];
+    const r = await runTastemaker(PRESETS[2].brief, { ...deps(), emit: (e) => events.push(e) });
+    expect(events.filter((e) => e.type === "step")).toHaveLength(r.trace.length);
+    expect(events.at(-1)?.type).toBe("result");
+  });
+
+  it("is deterministic for the same brief, but every run gets its own id", async () => {
+    const a = await runTastemaker(PRESETS[1].brief, deps());
+    const b = await runTastemaker(PRESETS[1].brief, deps());
+    expect(a.grounded).toEqual(b.grounded);
+    expect(a.baseline).toEqual(b.baseline);
+    expect(a.id).not.toBe(b.id);
+    expect(a.id).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("skips the model rewrite once the time budget is spent, keeping the swaps", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, { ...deps(), reviseDeadlineMs: -1 });
+    expect(r.trace.find((s) => s.id === "revise-1")?.detail).toMatch(/time budget reached; copy not re-polished/);
+    expect(r.grounded.draft.picks.map((p) => p.name)).not.toContain("Coors Light");
+  });
+});
+
+describe("agent loop: failure paths", () => {
+  it("rejects a brief whose seeds don't resolve, with a typed error", async () => {
+    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: ["Zzqx Nonexistent"] }, deps())).rejects.toMatchObject({ name: "NoSeedError" });
+  });
+
+  it("rejects an invalid brief before any call", async () => {
+    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: [] }, deps())).rejects.toThrow();
+  });
+
+  it("keeps verified swaps even when the model reverts them, and never offers the same swap twice", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: qloo(), llm: new StubbornLLM() });
+    expect(r.grounded.draft.picks.map((p) => p.name)).not.toContain("Coors Light");
+    const d = r.grounded.draft;
+    expect(JSON.stringify([d.positioning, d.hooks, d.script, d.captions, d.musicBrief])).not.toMatch(/Coors Light/);
+    const swaps = r.trace.filter((s) => s.id.startsWith("revise-")).flatMap((s) => s.detail.split("; "));
+    expect(new Set(swaps).size).toBe(swaps.length);
+    expect(r.metrics.grounded.cultureMissRate).toBe(0);
+  });
+
+  it("keeps the swaps when the copy polish fails, and says so in the trace", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: qloo(), llm: new BrokenReviseLLM() });
+    const revise = r.trace.find((s) => s.id === "revise-1");
+    expect(revise?.detail).toMatch(/LLM polish failed \(LLM 503/);
+    expect(r.grounded.draft.picks.map((p) => p.name)).not.toContain("Coors Light");
+  });
+
+  it("passes a city pick that matches the brief's fixed market (and misses another)", async () => {
+    const r = await runTastemaker(PRESETS[1].brief, { qloo: qloo(), llm: new CityNamingLLM() });
+    expect(r.grounded.receipts.find((x) => x.role === "city")).toMatchObject({ name: "Atlanta", verdict: "pass" });
+    const other = await tasteCheck({ seeds: ["Glossier"], ages: ["25_to_29"], city: "Atlanta", picks: [{ name: "Madison Square Garden", type: "place", role: "venue" }] }, { qloo: qloo() });
+    expect(other.receipts[0]).toMatchObject({ verdict: "miss", note: expect.stringMatching(/Not in Atlanta/) });
+  });
+
+  it("keeps going when optional surfaces fail, marks those steps, and reports it", async () => {
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: new PartialQloo({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+    expect(r.trace.find((s) => s.id === "compare")).toMatchObject({ status: "error", detail: expect.stringMatching(/500/) });
+    expect(r.trace.find((s) => s.id === "trending")).toMatchObject({ status: "error" });
+    expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/trend check failed/);
+    expect(r.positioning).toEqual([]);
+    expect(r.grounded.receipts.length).toBeGreaterThan(0);
+  });
+
+  it("fails the run when the model can't draft at all (both plans need it)", async () => {
+    const events: RunEvent[] = [];
+    await expect(runTastemaker(PRESETS[0].brief, { qloo: qloo(), llm: new FailingLLM(), emit: (e) => events.push(e) })).rejects.toThrow(/401/);
+    expect(events.some((e) => e.type === "step" && e.step.id === "generate" && e.step.status === "error")).toBe(true);
+  });
+});
+
+describe("qlooHealth", () => {
+  it("counts sources and groups fallback reasons", () => {
+    const call = (source: "live" | "replay" | "simulated", cached = false, fallbackReason?: string) => ({ path: "/search" as const, params: {}, key: "k", source, cached, latencyMs: 1, fallbackReason });
+    const h = qlooHealth([
+      { id: "a", title: "", detail: "", status: "done", ms: 0, calls: [call("live"), call("live", true), call("simulated", false, "Qloo 429 on /search"), call("simulated", false, "Qloo 429 on /search")] },
+      { id: "b", title: "", detail: "", status: "done", ms: 0, calls: [call("replay")] },
+    ]);
+    expect(h).toEqual({ calls: 5, live: 1, cached: 1, replay: 1, simulated: 2, fallbackCalls: 2, fallbacks: [{ reason: "Qloo 429 on /search", count: 2 }] });
+  });
+});
+
+describe("tasteCheck", () => {
+  it("scores arbitrary picks and suggests replacements", async () => {
+    const r = await tasteCheck(
+      {
+        seeds: ["Tems", "Rema"],
+        ages: ["25_to_29"],
+        picks: [
+          { name: "Ayra Starr", type: "artist", role: "collab" },
+          { name: "Nickelback", type: "artist", role: "collab" },
+          { name: "Lagos Velvet Collective", type: "artist", role: "collab" },
+        ],
+      },
+      { qloo: qloo() },
+    );
+    expect(r.receipts.map((x) => x.verdict)).toEqual(["pass", "miss", "hallucination"]);
+    expect(r.suggestions.map((s) => s.from)).toEqual(["Nickelback", "Lagos Velvet Collective"]);
+    expect(r.sources).toEqual(["simulated"]);
+  });
+  it("validates its audience like a brief", async () => {
+    await expect(tasteCheck({ seeds: [], ages: ["25_to_29"], picks: [] }, { qloo: qloo() })).rejects.toThrow();
+  });
+});
+
+it("every preset is a valid brief", () => {
+  for (const p of PRESETS) expect(Brief.safeParse(p.brief).success).toBe(true);
+});

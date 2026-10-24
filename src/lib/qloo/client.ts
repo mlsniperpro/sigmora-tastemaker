@@ -1,8 +1,14 @@
 import type { z } from "zod";
 import recorded from "../../../fixtures/qloo/recorded.json";
+import { loadConfig } from "../config";
+import { defaultCounter, incrDaily, type Counter } from "../counter";
+import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
+import { formatZodIssues } from "../zod";
 import { defaultCache, type CacheStore } from "./cache";
+import { QlooBudgetError, QlooSchemaError } from "./errors";
 import { assertParams, requestKey, type QlooParams, type QlooPath } from "./params";
 import { simulate } from "./sim/simulator";
+import { Throttle } from "./throttle";
 import {
   CompareResponse,
   InsightsResponse,
@@ -22,9 +28,7 @@ export interface QlooCallMeta {
   source: QlooSource;
   cached: boolean;
   latencyMs: number;
-  /** Validation problems (only non-empty in production, where we don't throw). */
-  problems: string[];
-  /** Set when a live call failed and we fell back. */
+  /** Set when a live call failed and the answer came from a recorded live response instead. */
   fallbackReason?: string;
 }
 
@@ -39,16 +43,44 @@ export interface QlooClientOptions {
   baseUrl?: string;
   cache?: CacheStore;
   fixtures?: Record<string, unknown>;
-  /** Called after every call; the agent uses it to build the trace. */
-  onCall?: (meta: QlooCallMeta) => void;
   /** When set, live responses are written here (fixture recording). */
   recorder?: Record<string, unknown>;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  throttle?: Throttle;
+  retry?: RetryPolicy;
+  /** Max network calls this client may make (one client per run). */
+  runCallCap?: number;
+  /** Shared daily cap on network calls. */
+  daily?: { counter: Counter; cap: number };
 }
 
 const HACKATHON_HOST = "https://hackathon.api.qloo.com";
 const TTL = 60 * 60 * 24 * 7;
+const SERVICE = "Qloo";
+
+/** Parameters whose values are sets: sorted so the same set always makes the same request (and cache key). */
+const SET_PARAMS = ["filter.results.entities", "filter.exclude.entities"];
+
+/**
+ * Host quirks, applied to every request before it is keyed or sent.
+ * - Demographic signals are dropped on urn:entity:person: there they replace
+ *   the audience instead of narrowing it (reported by entrants on the live host).
+ */
+function normalize(params: QlooParams): QlooParams {
+  const out: QlooParams = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || (Array.isArray(v) && !v.length)) continue;
+    out[k] = Array.isArray(v) && SET_PARAMS.includes(k) ? [...v].sort() : v;
+  }
+  if (out["filter.type"] === "urn:entity:person") {
+    delete out["signal.demographics.age"];
+    delete out["signal.demographics.gender"];
+  }
+  return out;
+}
+
+let sharedThrottle: Throttle | undefined;
 
 export class QlooClient {
   readonly mode: QlooMode;
@@ -57,98 +89,125 @@ export class QlooClient {
   private readonly cache: CacheStore;
   private readonly fixtures: Record<string, unknown>;
   private readonly fetchImpl: typeof fetch;
-  onCall?: (meta: QlooCallMeta) => void;
+  private readonly observers = new Set<(m: QlooCallMeta) => void>();
+  /** Identical requests in flight share one network call. */
+  private readonly inFlight = new Map<string, Promise<{ raw: unknown; cached: boolean }>>();
+  private networkCalls = 0;
 
   constructor(private readonly opts: QlooClientOptions = {}) {
     this.apiKey = opts.apiKey;
     this.mode = opts.mode ?? "auto";
-    this.baseUrl = (opts.baseUrl ?? HACKATHON_HOST).replace(/\/$/, "");
+    this.baseUrl = opts.baseUrl ?? HACKATHON_HOST;
     this.cache = opts.cache ?? defaultCache();
     this.fixtures = opts.fixtures ?? (recorded as Record<string, unknown>);
     this.fetchImpl = opts.fetchImpl ?? fetch;
-    this.onCall = opts.onCall;
   }
 
-  /** Where the next call would be answered from, before fallbacks. */
+  /** Where calls are answered from, before any fallback. */
   get primarySource(): QlooSource {
     if (this.mode !== "replay" && this.apiKey) return "live";
     return Object.keys(this.fixtures).length ? "replay" : "simulated";
   }
 
-  async get<S extends z.ZodTypeAny>(path: QlooPath, params: QlooParams, schema: S): Promise<QlooCall<z.infer<S>>> {
-    const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && !(Array.isArray(v) && !v.length)));
-    const problems = assertParams(path, clean);
-    const key = requestKey(path, clean);
-    const started = Date.now();
-    let source: QlooSource = "simulated";
-    let raw: unknown;
-    let cached = false;
-    let fallbackReason: string | undefined;
-
-    const wantLive = this.mode !== "replay" && !!this.apiKey;
-    if (wantLive) {
-      const hit = await this.cache.get(key);
-      if (hit !== undefined) {
-        raw = hit;
-        source = "live";
-        cached = true;
-      } else {
-        try {
-          raw = await this.fetchLive(path, clean);
-          source = "live";
-          await this.cache.set(key, raw, TTL);
-          if (this.opts.recorder) this.opts.recorder[key] = raw;
-        } catch (err) {
-          if (this.mode === "live") throw err;
-          fallbackReason = err instanceof Error ? err.message : String(err);
-        }
-      }
-    }
-    if (raw === undefined && key in this.fixtures) {
-      raw = this.fixtures[key];
-      source = "replay";
-    }
-    if (raw === undefined) {
-      raw = simulate(path, clean);
-      source = "simulated";
-    }
-
-    const data = schema.parse(raw);
-    const meta: QlooCallMeta = { path, params: clean, key, source, cached, latencyMs: Date.now() - started, problems, fallbackReason };
-    this.onCall?.(meta);
-    return { data, meta };
+  /** Subscribe to every call's metadata (the agent builds its trace from this). Returns the unsubscribe. */
+  observe(fn: (m: QlooCallMeta) => void): () => void {
+    this.observers.add(fn);
+    return () => this.observers.delete(fn);
   }
 
-  private async fetchLive(path: QlooPath, params: QlooParams): Promise<unknown> {
-    const url = new URL(this.baseUrl + path);
+  /**
+   * Answer order. With a key: live, then a recorded fixture of a live
+   * response; if neither exists the live error is thrown (the trace shows it),
+   * never simulator data mixed into a live run. Without a key (or in replay
+   * mode): a recorded fixture, then the labeled simulator.
+   */
+  async get<S extends z.ZodTypeAny>(path: QlooPath, params: QlooParams, schema: S): Promise<QlooCall<z.infer<S>>> {
+    const clean = normalize(params);
+    const problems = assertParams(path, clean);
+    if (problems.length) console.warn(`[qloo] request to ${path} has unsupported params (Qloo drops them silently): ${problems.join("; ")}`);
+    const key = requestKey(path, clean);
+    const started = Date.now();
+    const done = (data: z.infer<S>, source: QlooSource, cached: boolean, fallbackReason?: string): QlooCall<z.infer<S>> => {
+      const meta: QlooCallMeta = { path, params: clean, key, source, cached, latencyMs: Date.now() - started, fallbackReason };
+      for (const fn of this.observers) fn(meta);
+      return { data, meta };
+    };
+    const hasFixture = key in this.fixtures;
+
+    if (this.primarySource === "live") {
+      try {
+        const live = await this.getLive(path, clean, key);
+        return done(this.parse(path, schema, live.raw), "live", live.cached);
+      } catch (err) {
+        if (this.mode === "live" || !hasFixture) throw err;
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`[qloo] live call failed, using the recorded response: ${reason}`);
+        return done(this.parse(path, schema, this.fixtures[key]), "replay", false, reason);
+      }
+    }
+    if (hasFixture) return done(this.parse(path, schema, this.fixtures[key]), "replay", false);
+    return done(this.parse(path, schema, simulate(path, clean)), "simulated", false);
+  }
+
+  private parse<S extends z.ZodTypeAny>(path: string, schema: S, raw: unknown): z.infer<S> {
+    const r = schema.safeParse(raw);
+    if (!r.success) throw new QlooSchemaError(path, formatZodIssues(r.error, { max: 3 }));
+    return r.data;
+  }
+
+  private getLive(path: QlooPath, params: QlooParams, key: string) {
+    const pending = this.inFlight.get(key);
+    if (pending) return pending;
+    const p = this.fetchLive(path, params, key).finally(() => this.inFlight.delete(key));
+    this.inFlight.set(key, p);
+    return p;
+  }
+
+  private async fetchLive(path: QlooPath, params: QlooParams, key: string): Promise<{ raw: unknown; cached: boolean }> {
+    const hit = await this.cache.get(key);
+    if (hit !== undefined) return { raw: hit, cached: true };
+    // Every network attempt, retries included, is paid for from the budget.
+    const raw = await withRetry(async () => {
+      await this.spendBudget();
+      return this.fetchOnce(path, params);
+    }, this.opts.retry ?? DEFAULT_RETRY);
+    await this.cache.set(key, raw, TTL);
+    if (this.opts.recorder) this.opts.recorder[key] = raw;
+    return { raw, cached: false };
+  }
+
+  private async spendBudget() {
+    const cap = this.opts.runCallCap;
+    // Reserve synchronously so parallel calls can't all pass the check.
+    if (cap !== undefined && this.networkCalls >= cap) throw new QlooBudgetError("run", cap);
+    this.networkCalls++;
+    const daily = this.opts.daily;
+    if (daily && (await incrDaily(daily.counter, "qloo-calls")) > daily.cap) throw new QlooBudgetError("day", daily.cap);
+  }
+
+  private async fetchOnce(path: QlooPath, params: QlooParams): Promise<unknown> {
+    const url = new URL(joinUrl(this.baseUrl, path));
     for (const [k, v] of Object.entries(params)) {
-      if (v === undefined) continue;
-      url.searchParams.set(k, Array.isArray(v) ? v.join(",") : String(v));
+      if (v !== undefined) url.searchParams.set(k, Array.isArray(v) ? v.join(",") : String(v));
     }
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.opts.timeoutMs ?? 12000);
-    try {
-      const res = await this.fetchImpl(url, {
-        method: "GET",
-        headers: { "X-Api-Key": this.apiKey!, Accept: "application/json" },
-        signal: ctrl.signal,
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error(`Qloo ${res.status} on ${path}`);
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+    const call = async () => {
+      const res = await fetchWithTimeout(
+        this.fetchImpl,
+        SERVICE,
+        url,
+        { method: "GET", headers: { "X-Api-Key": this.apiKey!, Accept: "application/json" }, cache: "no-store" },
+        this.opts.timeoutMs ?? 12000,
+      );
+      await ensureOk(res, SERVICE, url);
+      return (await res.json()) as unknown;
+    };
+    return this.opts.throttle ? this.opts.throttle.run(call) : call();
   }
 
   // ---- typed helpers -----------------------------------------------------
 
-  search(query: string, types?: EntityType[], take = 5) {
+  search(query: string, types?: readonly EntityType[], take = 5) {
     return this.get("/search", { query, types: types?.map(entityUrn), take }, SearchResponse);
-  }
-
-  entitiesById(ids: string[]) {
-    return this.get("/entities", { entity_ids: ids }, SearchResponse);
   }
 
   entitiesByExternal(kind: "spotify" | "imdb", ids: string[]) {
@@ -172,11 +231,18 @@ export class QlooClient {
   }
 }
 
+/** A fresh client per run (the run budget is per client), sharing the process throttle and daily counter. */
 export function qlooFromEnv(overrides: Partial<QlooClientOptions> = {}): QlooClient {
+  const env = loadConfig();
+  sharedThrottle ??= new Throttle(env.QLOO_RPS, env.QLOO_RPS);
   return new QlooClient({
-    apiKey: process.env.QLOO_API_KEY || undefined,
-    baseUrl: process.env.QLOO_BASE_URL || undefined,
-    mode: (process.env.QLOO_MODE as QlooMode | undefined) ?? "auto",
+    apiKey: env.QLOO_API_KEY,
+    baseUrl: env.QLOO_BASE_URL,
+    mode: env.QLOO_MODE,
+    timeoutMs: env.QLOO_TIMEOUT_MS,
+    throttle: sharedThrottle,
+    runCallCap: env.QLOO_RUN_CALL_CAP,
+    daily: { counter: defaultCounter(), cap: env.QLOO_DAILY_CALL_CAP },
     ...overrides,
   });
 }

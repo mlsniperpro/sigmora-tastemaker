@@ -34,7 +34,7 @@ export interface TraceStep {
   id: string;
   title: string;
   detail: string;
-  status: "done" | "error" | "skipped";
+  status: "done" | "error";
   ms: number;
   calls: QlooCallMeta[];
   /** For LLM steps. */
@@ -47,6 +47,25 @@ export interface CityScore {
   affinity: number;
   lat?: number;
   lon?: number;
+}
+
+export interface HeatCell {
+  lat: number;
+  lon: number;
+  affinity: number;
+}
+
+/** Where this run's Qloo answers came from, and every live failure that forced a fallback. */
+export interface QlooHealth {
+  calls: number;
+  live: number;
+  cached: number;
+  replay: number;
+  simulated: number;
+  /** Calls answered by a recorded response because live failed. */
+  fallbackCalls: number;
+  /** Distinct fallback reasons with counts; empty when nothing fell back. */
+  fallbacks: { reason: string; count: number }[];
 }
 
 export interface PlanSide {
@@ -63,13 +82,17 @@ export interface Metrics {
   cultureMissRate: number;
 }
 
+/** Bump when RunResult's shape changes; cache keys carry it, so an older deploy's entries are never served. */
+export const RUN_SCHEMA_VERSION = 2;
+
 export interface RunResult {
   id: string;
-  version: 1;
+  version: typeof RUN_SCHEMA_VERSION;
   brief: Brief;
   createdAt: string;
   llm: { id: string; label: string; scripted: boolean };
   sources: QlooSource[];
+  qloo: QlooHealth;
   seeds: { name: string; entityId?: string; type?: string }[];
   audience: {
     age: { bucket: string; value: number }[];
@@ -77,7 +100,9 @@ export interface RunResult {
     tags: { name: string; affinity: number }[];
   };
   cities: CityScore[];
-  heatmap: { name?: string; lat: number; lon: number; affinity: number }[];
+  heatmap: HeatCell[];
+  /** Which signal ranked the metros. */
+  citiesRankedBy: "locality" | "heatmap" | "none";
   positioning: { name: string; a: number; b: number; delta: number }[];
   compareTo?: string;
   grounded: PlanSide & { rounds: number };

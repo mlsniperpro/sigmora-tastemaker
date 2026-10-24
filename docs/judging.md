@@ -17,11 +17,12 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 | Trace step | Surface |
 |---|---|
 | Resolve the taste seed | `GET /search`, `GET /entities` (Spotify / IMDb external IDs) |
+| Map the brief's vibe to taste tags | `GET /v2/tags` with `feature.semantic_search=true` → `signal.interests.tags` on every later call |
 | Who over-indexes | `/v2/insights` `filter.type=urn:demographics` |
 | Taste vocabulary | `/v2/insights` `filter.type=urn:tag` |
 | Cross-domain culture map | `/v2/insights` × artist, brand, tv_show, movie, podcast, person, all with `signal.interests.entities` + `signal.demographics.*` |
-| Rank candidate metros | `/search` (localities) + `/v2/insights` `urn:entity:locality` with `filter.results.entities` |
-| Demand heatmap | `/v2/insights` `urn:heatmap` + `output.heatmap.boundary=urn:entity:locality` |
+| Where to launch (ranking) | `/search` (localities) + `/v2/insights` `urn:entity:locality` with `filter.results.entities` |
+| Where to launch (heatmap) | `/v2/insights` `urn:heatmap` + `filter.location` (US polygon); cells folded into candidate cities |
 | Venues in the city | `/v2/insights` `urn:entity:place` + `filter.location.query` |
 | Rising vs. fading | `GET /v2/trending` |
 | Positioning | `GET /v2/analysis/compare` |
@@ -31,6 +32,10 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 ## Engineering notes for the Qloo reviewer
 
 - `src/lib/qloo/params.ts`: per-`filter.type` parameter allow-lists; invalid requests throw outside production (Qloo drops unknown params silently).
-- `src/lib/qloo/client.ts`: hackathon host + `X-Api-Key`, server-side only; normalized-request cache (memory + optional Redis REST); record/replay fixtures; every call labeled `live` / `replay` / `simulated`, with the fallback reason when a live call fails.
-- `src/lib/agent/run.ts`: the loop and the critic. Name matching rejects fuzzy search hits for invented names (`sameName`).
+- `src/lib/qloo/client.ts`: hackathon host + `X-Api-Key`, server-side only; throttled under the key's rate limit; bounded retries with backoff; per-run and daily call budgets; normalized-request cache (memory + optional Redis REST); record/replay fixtures; every call labeled `live` / `replay` / `simulated`, with the fallback reason when a live call fails.
+- `src/lib/agent/run.ts` (the loop) and `src/lib/agent/critic.ts` (the critic). Name matching rejects fuzzy search hits for invented names (`sameName`); swaps the model ignores are enforced.
 - Data-source honesty: if the deployment has no key, a banner says the data is simulated, and no benchmark number is quoted (see `docs/evidence-status.md`).
+
+## Qloo as the grounding layer for any agent
+
+`POST /api/mcp` exposes the critic as an MCP tool (`taste_check`) and the whole agent as `plan_campaign`. See the README for a one-line `curl`.
