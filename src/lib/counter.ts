@@ -8,8 +8,8 @@ import { z } from "zod";
 import { KvRest, kvFromEnv } from "./kv";
 
 export interface Counter {
-  /** Increments `key` and returns the new count; the key expires after `ttlSeconds`. */
-  incr(key: string, ttlSeconds: number): Promise<number>;
+  /** Adds `by` (default 1; 0 reads) to `key` and returns the new count; the key expires after `ttlSeconds`. */
+  incr(key: string, ttlSeconds: number, by?: number): Promise<number>;
 }
 
 export class MemoryCounter implements Counter {
@@ -19,11 +19,11 @@ export class MemoryCounter implements Counter {
     private readonly now: () => number = Date.now,
   ) {}
 
-  incr(key: string, ttlSeconds: number) {
+  incr(key: string, ttlSeconds: number, by = 1) {
     const t = this.now();
     const cur = this.map.get(key);
     const entry = cur && cur.expires > t ? cur : { n: 0, expires: t + ttlSeconds * 1000 };
-    entry.n += 1;
+    entry.n += by;
     this.map.set(key, entry);
     if (this.map.size > this.max) {
       for (const [k, v] of this.map) if (v.expires <= t) this.map.delete(k);
@@ -46,11 +46,11 @@ const Count = z.coerce.number().int();
 export class KvCounter implements Counter {
   constructor(private readonly kv: KvRest) {}
 
-  async incr(key: string, ttlSeconds: number) {
-    // One round trip: create the window with its TTL if absent, then INCR (which keeps the TTL).
+  async incr(key: string, ttlSeconds: number, by = 1) {
+    // One round trip: create the window with its TTL if absent, then INCRBY (which keeps the TTL).
     const [, n] = await this.kv.pipeline([
       ["SET", key, "0", "EX", ttlSeconds, "NX"],
-      ["INCR", key],
+      ["INCRBY", key, by],
     ]);
     return Count.parse(n);
   }
@@ -63,12 +63,12 @@ export class ResilientCounter implements Counter {
     private readonly fallback: Counter = new MemoryCounter(),
   ) {}
 
-  async incr(key: string, ttlSeconds: number) {
+  async incr(key: string, ttlSeconds: number, by = 1) {
     try {
-      return await this.primary.incr(key, ttlSeconds);
+      return await this.primary.incr(key, ttlSeconds, by);
     } catch (err) {
       console.warn(`[counter] KV unavailable, counting in-process: ${(err as Error).message}`);
-      return this.fallback.incr(key, ttlSeconds);
+      return this.fallback.incr(key, ttlSeconds, by);
     }
   }
 }
@@ -78,6 +78,11 @@ const DAY_TTL = 60 * 60 * 26;
 /** Count one event in the current UTC day's window. */
 export function incrDaily(counter: Counter, name: string, now = Date.now()) {
   return counter.incr(`tm:${name}:${new Date(now).toISOString().slice(0, 10)}`, DAY_TTL);
+}
+
+/** Read the current UTC day's count without changing it. */
+export function readDaily(counter: Counter, name: string, now = Date.now()) {
+  return counter.incr(`tm:${name}:${new Date(now).toISOString().slice(0, 10)}`, DAY_TTL, 0);
 }
 
 /** Count one event in the current minute's window. */

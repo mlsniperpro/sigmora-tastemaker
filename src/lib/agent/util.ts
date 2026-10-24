@@ -35,6 +35,16 @@ export function sameName(a: string, b: string): boolean {
   return inter / Math.max(tx.size, ty.size) >= 0.75;
 }
 
+/**
+ * Is `short` a full title with a subtitle or qualifier dropped ("Wakanda Forever" in "Black Panther:
+ * Wakanda Forever")? Two or more whole words, in order. A single word ("Boy") never counts.
+ */
+export function isTitlePart(short: string, full: string): boolean {
+  const s = normName(short);
+  const f = normName(full);
+  return s.split(" ").length >= 2 && s !== f && ` ${f} `.includes(` ${s} `);
+}
+
 export function median(xs: number[]): number {
   if (!xs.length) return 0;
   // `+ 0` turns -0 into +0, so the result can't depend on input order (the sort treats them as equal).
@@ -42,17 +52,6 @@ export function median(xs: number[]): number {
   const m = Math.floor(s.length / 2);
   const hi = s[m] ?? 0;
   return s.length % 2 ? hi : ((s[m - 1] ?? hi) + hi) / 2;
-}
-
-/** Short, stable, non-cryptographic id (FNV-1a, 2 rounds). */
-export function hashId(s: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (let i = 0; i < s.length; i++) {
-    h1 = Math.imul(h1 ^ s.charCodeAt(i), 16777619);
-    h2 = Math.imul(h2 ^ s.charCodeAt(i), 2246822519);
-  }
-  return ((h1 >>> 0).toString(36) + (h2 >>> 0).toString(36)).slice(0, 12);
 }
 
 /** A fresh, URL-safe id for one run (16 hex chars from the platform CSPRNG). */

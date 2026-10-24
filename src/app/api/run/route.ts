@@ -3,7 +3,7 @@ import { cachedRun, costsMoney, getOrRun, recordedRuns, replay, resolveRunReques
 import type { RunEvent } from "@/lib/agent/types";
 import { admit, guardResponse } from "@/lib/guard";
 
-// A live run is throttled to the Qloo key's rate (~52 calls at 4/s for the hero preset) plus up to four model calls.
+// A live run is throttled to the Qloo key's rate (at most 73 calls at 4/s for the hero preset; `pnpm demo` prints the count) plus up to four model calls.
 export const maxDuration = 120;
 
 const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" };
@@ -62,13 +62,15 @@ export async function POST(req: Request) {
   const request = resolveRunRequest(json);
   if (!request.ok) return Response.json({ error: request.error }, { status: request.status });
 
-  const lookup = await cachedRun(request.brief);
+  const cached = await cachedRun(request.brief);
+  // "Re-run live" means live: a cached result for the preset doesn't answer it.
+  const lookup = request.fresh ? { ...cached, result: undefined } : cached;
   const recording = request.presetId ? recordedRuns().get(request.presetId) : undefined;
   if (!lookup.result && recording && !request.fresh) {
     return ndjson((send) => Promise.resolve(replay(recording, { from: "recording" }, send)), { "X-Run-Cache": "recording" });
   }
-  // Presets skip the per-IP limit so the one-click demo always works; they still count toward the daily cap.
-  const g = await admit(req, { costs: !lookup.result && costsMoney(lookup.deps), perIp: !request.presetId });
+  // Presets skip the per-IP limits so the one-click demo always works ("Re-run live" doesn't); they still count toward the daily cap.
+  const g = await admit(req, { costs: !lookup.result && costsMoney(lookup.deps), perIp: !request.presetId || request.fresh });
   if (!g.ok) {
     if (!recording) return guardResponse(g);
     const reason = `a live run was refused (${g.message})`;

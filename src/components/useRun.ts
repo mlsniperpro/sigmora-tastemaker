@@ -20,7 +20,8 @@ export function useRun() {
   const [error, setError] = useState<string>();
   const [running, setRunning] = useState(false);
   /** The step in progress, shown in the trace while it runs. */
-  const [pending, setPending] = useState<string>();
+  // Steps started but not finished, in start order (several run in parallel).
+  const [inFlight, setInFlight] = useState<{ id: string; title: string }[]>([]);
   /** Set when the result is an earlier run (its trace is a replay), with where it came from. */
   const [served, setServed] = useState<Served>();
   const abort = useRef<AbortController | null>(null);
@@ -31,7 +32,7 @@ export function useRun() {
     const ctrl = new AbortController();
     abort.current = ctrl;
     setSteps([]);
-    setPending(undefined);
+    setInFlight([]);
     setServed(undefined);
     setResult(undefined);
     setError(undefined);
@@ -41,7 +42,7 @@ export function useRun() {
   const end = useCallback((ctrl: AbortController) => {
     if (abort.current !== ctrl) return;
     setRunning(false);
-    setPending(undefined);
+    setInFlight([]);
   }, []);
   const show = useCallback((r: RunResult, from?: Served) => {
     setServed(from);
@@ -57,9 +58,9 @@ export function useRun() {
       setUrl("preset" in req ? `?preset=${encodeURIComponent(req.preset)}` : `?b=${encodeBrief(req.brief)}`);
       const state = { finished: false };
       const apply = (ev: RunEvent) => {
-        if (ev.type === "start") setPending(ev.title);
+        if (ev.type === "start") setInFlight((r) => [...r, { id: ev.id, title: ev.title }]);
         else if (ev.type === "step") {
-          setPending(undefined);
+          setInFlight((r) => r.filter((x) => x.id !== ev.step.id));
           setSteps((s) => [...s, ev.step]);
         } else if (ev.type === "result") {
           state.finished = true;
@@ -128,5 +129,6 @@ export function useRun() {
     [run],
   );
 
+  const pending = inFlight.map((r) => r.title);
   return { steps, pending, served, result, error, running, run, open, requery };
 }

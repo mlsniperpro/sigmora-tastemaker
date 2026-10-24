@@ -25,6 +25,41 @@ describe("candidateMentions", () => {
   });
 });
 
+describe("candidateMentions: regressions", () => {
+  const withX = (text: string, picks: string[] = ["Ayra Starr"]) =>
+    Draft.parse({ ...draft(text, picks), captions: [{ platform: "TikTok", text: "t" }, { platform: "X", text: "u" }] });
+
+  it("skips platforms by exact name only, so an X caption doesn't hide names with an x in them", () => {
+    const c = candidateMentions(withX("Stream it on Netflix with Alix Earle, then post to X."), brief);
+    expect(c).toEqual(expect.arrayContaining(["Netflix", "Alix Earle"]));
+    expect(c).not.toContain("X");
+  });
+
+  it("matches known names on whole words, not substrings", () => {
+    expect(candidateMentions(draft("the Remastered Edition drops", ["Rema"]), brief)).toContain("Remastered Edition");
+    expect(candidateMentions(draft("we play the Atlanta Braves game"), { ...brief, targetCity: "Atlanta" })).toContain("Atlanta Braves");
+  });
+
+  it("also tries a sentence-start run without its opener, right after the whole run", () => {
+    const c = candidateMentions(draft("Like Burna Boy on a Sunday. Tonight Ayra Starr joins.\nWatch Insecure first."), brief);
+    expect(c.indexOf("Burna Boy")).toBe(c.indexOf("Like Burna Boy") + 1);
+    expect(c).toContain("Insecure");
+    // The opener glued to a pick is still that pick.
+    expect(c.some((n) => n.includes("Ayra Starr"))).toBe(false);
+  });
+
+  it("reads a possessive as the name, and tries lone sentence openers last", () => {
+    const c = candidateMentions(draft("We open with Nia Sol's single. First, Burna Boy."), brief);
+    expect(c.some((n) => n.includes("Nia Sol"))).toBe(false);
+    expect(c.indexOf("We")).toBeGreaterThan(c.indexOf("Burna Boy"));
+  });
+
+  it("never adds the brief's own seeds, typed or resolved from a link", () => {
+    const c = candidateMentions(draft("For fans of Tems, Rema and Asake, and of Wizkid"), brief, ["Wizkid"]);
+    expect(c.filter((n) => /Tems|Rema|Asake|Wizkid/.test(n))).toEqual([]);
+  });
+});
+
 describe("unlistedMentions", () => {
   const qloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
   it("returns only names Qloo has under exactly that name, with a role from Qloo's type", async () => {

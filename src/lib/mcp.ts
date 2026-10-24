@@ -121,7 +121,7 @@ async function planCampaignTool(args: unknown, gate: Gate) {
   }
   const text = [
     `${r.brief.subject} — ${r.brief.product}. Qloo data: ${r.sources.join(", ")}. Model: ${r.llm.label}.`,
-    placeholderReason(r) ?? `Culture Miss Rate: without Qloo ${Math.round(r.metrics.baseline.cultureMissRate * 100)}%, with Qloo ${Math.round(r.metrics.grounded.cultureMissRate * 100)}%.`,
+    placeholderReason(r) ?? `Culture Miss Rate: without Qloo ${Math.round(r.metrics.baseline.cultureMissRate * 100)}%, with the Qloo critic ${Math.round(r.metrics.grounded.cultureMissRate * 100)}% (its bar comes from Qloo's own candidates, so this is low by design).`,
     `Positioning: ${r.grounded.draft.positioning}`,
     "Hooks:",
     ...r.grounded.draft.hooks.map((h) => `- ${h}`),

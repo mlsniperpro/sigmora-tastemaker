@@ -1,7 +1,7 @@
 import { describe, it, vi, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { KvRest } from "@/lib/kv";
-import { KvCache, LayeredCache, MemoryCache } from "@/lib/qloo/cache";
+import { BACKFILL_TTL, KvCache, LayeredCache, MemoryCache } from "@/lib/qloo/cache";
 import { sentJson } from "../must";
 
 describe("MemoryCache", () => {
@@ -83,5 +83,17 @@ describe("LayeredCache", () => {
     const c = new LayeredCache([fast, slow]);
     expect(await c.get("k")).toBe("v");
     expect(await fast.get("k")).toBe("v");
+  });
+
+  it("backfills only briefly, so a short-lived value can't outlive its TTL in the fast layer", async () => {
+    let t = 0;
+    const fast = new MemoryCache(10, () => t);
+    const slow = new MemoryCache(10, () => t);
+    await slow.set("k", "degraded", 600);
+    await new LayeredCache([fast, slow]).get("k");
+    t = (BACKFILL_TTL + 1) * 1000;
+    expect(await fast.get("k")).toBeUndefined();
+    t = 601_000;
+    expect(await new LayeredCache([fast, slow]).get("k")).toBeUndefined();
   });
 });

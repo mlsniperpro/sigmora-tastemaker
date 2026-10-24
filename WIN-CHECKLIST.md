@@ -104,6 +104,26 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A34 component tests rendered with react-dom/server (`tests/unit/components.test.tsx`: Scoreboard blanking, ReceiptChip unscored/not-found/driver, highlighting, unavailable baseline)
 - [x] A35 zod out of the client bundle (constants in `src/lib/vocab.ts`; `?b=` gets a structural check, the server validates): the 157 KB zod chunk is gone from `.next/static/chunks`; `tests/unit/client-bundle.test.ts` fails if a client import reaches zod or server code (mutation-tested). MapLibre (1 MB) loads lazily
 
+## Re-audit 2 (hostile judge on 6784c3e: 1 critical, 3 high)
+
+- [x] B1 (critical) Ship and Measure can't reach real channels without the owner: live mode needs `SIGMORA_OWNER_KEY`; only a request carrying it (header or the httpOnly cookie `POST /api/owner` sets) gets the real publisher; visitors always get the sandbox; a wrong key is a 403; live mode without the key is a 500, never a quiet downgrade (`publisherFor`, `api.test.ts`: "never lets a visitor post as the brand")
+- [x] B2 (high) Unlisted-mention check: platforms excluded by exact name (an "X" caption no longer hides Netflix or Alix Earle); known names matched on whole words; seeds (typed and link-resolved) excluded; sentence openers ("Like Burna Boy") also tried without the opener; possessives read as the name; lone openers tried last (`mentions.test.ts` regressions)
+- [x] B3 (high) Qloo budget: per-IP daily cap (`RATE_LIMIT_PER_DAY`), "Re-run live" is per-IP limited and really runs live, and a run is refused up front when today's Qloo budget can't cover a whole run instead of failing half-way (`counter-guard-config.test.ts`)
+- [x] B4 (high) Scoreboard leads with what isn't circular (baseline invented picks and miss rate, picks replaced) and labels the after-critic rate as low by construction, with the bar it uses (`components.test.tsx`); MCP text says the same
+- [x] B5 No made-up 0 affinity anywhere: entities, venues, cities, tags and compare rows without an affinity are skipped, so the pick is "unscored" (`critic.test.ts`)
+- [x] B6 Unscored picks render neutral, not struck through (`CampaignPack.tsx`)
+- [x] B7 A title with its subtitle dropped ("Wakanda Forever") resolves to Qloo's full title, and the receipt names it, instead of counting as invented (`isTitlePart`, `critic.test.ts`)
+- [x] B8 Screenshots retaken on the current UI; BLOCKED.md asks for a retake against the live URL once keys are set
+- [x] B9 Live trace lists every step in flight, not one title (`useRun.ts`, `Trace.tsx`)
+- [x] B10 Run cache key is SHA-256 (no crafted-brief collision with a preset); FNV `hashId` removed
+- [x] B11 Cache backfill lasts 60 s, so a degraded run's 10-minute TTL holds (`cache.test.ts`)
+- [x] B12 A shared `?b=` brief is shown and runs only on a click (`e2e`: "a shared ?b= brief…")
+- [x] B13 The baseline's venue is judged against its own city's venue pool (`agent.test.ts`)
+- [x] B14 `compareTo` resolves by exact name only, so positioning never runs against a look-alike
+- [x] B15 `pnpm demo` prints the Qloo request count (73 for the hero preset); `.env.example` and the route quote it
+- [x] B16 No model call can outlast the route: a run-level deadline (105 s) on every LLM call (`agent.test.ts`: "never waits on a hung model")
+- [-] B17 `.agent/` and `WIN-CHECKLIST.md` stay tracked: the owner's win gate requires the kit committed and the checklist in the PR
+
 ## Owner audit (PR #1)
 
 - [x] O1 blind pairwise judge (`src/lib/benchmark/judge.ts`, `judge.test.ts`, `judge-replay.test.ts`)

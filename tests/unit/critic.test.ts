@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { ROLE_SPEC, ROLES } from "@/lib/agent/brief";
-import { DEFAULT_CRITIC, isFading, makeCtx, type Audience, type Ctx, type RankedCandidate } from "@/lib/agent/context";
+import { DEFAULT_CRITIC, isFading, makeCtx, scoreEntities, toCandidate, type Audience, type Ctx, type RankedCandidate } from "@/lib/agent/context";
 import { chooseReplacements, critique, metricsOf, thresholdFor } from "@/lib/agent/critic";
 import type { Receipt, Verdict } from "@/lib/agent/types";
 import type { Pick } from "@/lib/llm/types";
@@ -60,6 +60,34 @@ describe("metricsOf", () => {
   });
   it("counts fading as a warning, not a miss", () => {
     expect(metricsOf([receipt("a", "fading"), receipt("b", "pass")]).cultureMissRate).toBe(0);
+  });
+});
+
+describe("an entity Qloo returns without an affinity", () => {
+  it("is never given a made-up 0: no candidate, no score", async () => {
+    expect(toCandidate({ entity_id: "e1", name: "N" }, "artist")).toEqual([]);
+    expect(toCandidate({ entity_id: "e1", name: "N", query: { affinity: 0 } }, "artist")).toEqual([expect.objectContaining({ affinity: 0 })]);
+    const ctx = ctxWith({});
+    const reply = { data: { results: { entities: [{ entity_id: "e1", name: "N", query: {} }, { entity_id: "e2", name: "M", query: { affinity: 0.4 } }] } }, meta: { key: "k", source: "live" } };
+    vi.spyOn(ctx.qloo, "insights").mockResolvedValue(reply as unknown as Awaited<ReturnType<Ctx["qloo"]["insights"]>>);
+    await scoreEntities(ctx, "artist", ["e1", "e2"]);
+    expect(ctx.scores.has("e1")).toBe(false);
+    expect(ctx.scores.get("e2")?.affinity).toBe(0.4);
+  });
+});
+
+describe("a name with its subtitle dropped", () => {
+  it("resolves to Qloo's full title instead of being called invented, and the receipt says so", async () => {
+    const ctx = ctxWith({ reference: [cand("Insecure", 0.6, "tv_show"), cand("Abbott Elementary", 0.5, "tv_show")] });
+    const full = { entity_id: "bp2", name: "Black Panther: Wakanda Forever", types: ["urn:entity:movie"], subtype: "urn:entity:movie" };
+    type Reply<K extends "search" | "insights"> = Awaited<ReturnType<Ctx["qloo"][K]>>;
+    vi.spyOn(ctx.qloo, "search").mockResolvedValue({ data: { results: [full] }, meta: { key: "s", source: "live" } } as unknown as Reply<"search">);
+    vi.spyOn(ctx.qloo, "insights").mockResolvedValue({ data: { results: { entities: [{ ...full, query: { affinity: 0.7 } }] } }, meta: { key: "i", source: "live" } } as unknown as Reply<"insights">);
+    const { receipts } = await critique(ctx, [{ name: "Wakanda Forever", type: "movie", role: "reference", rationale: "" }]);
+    const r = must(receipts[0]);
+    expect(r.verdict).not.toBe("hallucination");
+    expect(r.entityId).toBe("bp2");
+    expect(r.note).toContain('Matched to Qloo\'s "Black Panther: Wakanda Forever"');
   });
 });
 

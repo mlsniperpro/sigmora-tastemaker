@@ -130,3 +130,15 @@ test("a custom brief from the brief bar: a Spotify link alone, a fixed city and 
   await expect(page.getByRole("region", { name: "Taste Map" })).toContainText("Where in Atlanta");
   await noHorizontalScroll(page);
 });
+
+test("a shared ?b= brief is shown first and runs only on a click", async ({ page }) => {
+  const brief = { family: "music", subject: "Kofi Vale", product: "debut EP", seeds: ["Tems"], ages: ["25_to_29"], goal: "Launch to 25–34s.", candidateCities: ["Atlanta", "Houston"] };
+  await page.goto(`/?b=${Buffer.from(JSON.stringify(brief)).toString("base64url")}`);
+  const shared = page.getByRole("region", { name: "Shared brief" });
+  await expect(shared).toContainText("Shared brief: Kofi Vale for fans of Tems");
+  await expect(page.getByRole("region", { name: "Campaign pack" })).toHaveCount(0);
+  await shared.getByRole("button", { name: "Plan & taste-check it" }).click();
+  await finished(page);
+  await expect(shared).toHaveCount(0);
+  await noHorizontalScroll(page);
+});

@@ -10,12 +10,16 @@
  *   env (never seen by the model or the browser), an Idempotency-Key per run
  *   so retries can't double-post, a timeout, and bounded retries.
  *
+ * Only the owner reaches SigmoraPublisher (see publisherFor); every other
+ * caller, in any mode, gets the sandbox.
+ *
  * Measuring (for the re-query loop) reads a campaign's post performance
  * back, with the Tastemaker run it was shipped from. The sandbox posted
  * nothing, so it has nothing to measure and says so.
  */
 import { z } from "zod";
-import { loadConfig } from "../config";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { ConfigError, loadConfig } from "../config";
 import { CampaignId } from "../ids";
 import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
 
@@ -152,10 +156,56 @@ export class SigmoraPublisher implements PublisherProvider {
   }
 }
 
-export function publisherFromEnv(raw: Record<string, string | undefined> = process.env): PublisherProvider {
-  const env = loadConfig(raw);
-  if (env.SIGMORA_PUBLISH_MODE === "live" && env.SIGMORA_API_URL && env.SIGMORA_API_TOKEN) {
-    return new SigmoraPublisher(env.SIGMORA_API_URL, env.SIGMORA_API_TOKEN);
+/** The owner presented the wrong key: refused outright rather than quietly downgraded to the sandbox. */
+export class OwnerKeyError extends Error {
+  constructor() {
+    super("That owner key isn't valid.");
+    this.name = "OwnerKeyError";
   }
-  return new SandboxPublisher();
+}
+
+/** Where the owner's key travels: a header (scripts, curl) or the httpOnly cookie set by /api/owner. */
+export const OWNER_HEADER = "x-tastemaker-owner";
+export const OWNER_COOKIE = "tm_owner";
+
+function ownerKeyOf(headers: Headers): string | undefined {
+  const header = headers.get(OWNER_HEADER)?.trim();
+  if (header) return header;
+  const cookie = headers.get("cookie")?.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${OWNER_COOKIE}=`));
+  return cookie ? decodeURIComponent(cookie.slice(OWNER_COOKIE.length + 1)) : undefined;
+}
+
+/** Constant-time comparison (hashing first makes the lengths equal). */
+export function sameKey(a: string, b: string): boolean {
+  const h = (s: string) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(h(a), h(b));
+}
+
+/**
+ * The publisher for this request. Real channels need live mode on the server
+ * AND the owner's key on the request, so the public demo (no key) always gets
+ * the labeled sandbox and can never post as the brand. Live mode without an
+ * owner key configured is a configuration error, not a quiet sandbox.
+ */
+export function publisherFor(headers: Headers, raw: Record<string, string | undefined> = process.env): PublisherProvider {
+  const env = loadConfig(raw);
+  if (env.SIGMORA_PUBLISH_MODE !== "live") return new SandboxPublisher();
+  if (!env.SIGMORA_API_URL || !env.SIGMORA_API_TOKEN || !env.SIGMORA_OWNER_KEY) {
+    throw new ConfigError("SIGMORA_PUBLISH_MODE=live needs SIGMORA_API_URL, SIGMORA_API_TOKEN and SIGMORA_OWNER_KEY");
+  }
+  const presented = ownerKeyOf(headers);
+  if (presented === undefined) return new SandboxPublisher();
+  if (!sameKey(presented, env.SIGMORA_OWNER_KEY)) throw new OwnerKeyError();
+  return new SigmoraPublisher(env.SIGMORA_API_URL, env.SIGMORA_API_TOKEN);
+}
+
+/** publisherFor as a route needs it: the publisher, or the response that refuses the request. */
+export function publisherForRequest(req: Request): PublisherProvider | Response {
+  try {
+    return publisherFor(req.headers);
+  } catch (err) {
+    if (err instanceof OwnerKeyError) return Response.json({ error: err.message }, { status: 403 });
+    console.error(`[publisher] ${(err as Error).message}`);
+    return Response.json({ error: "Publishing is misconfigured on this deployment." }, { status: 500 });
+  }
 }

@@ -39,12 +39,16 @@ export const EnvSchema = z.object({
   SIGMORA_PUBLISH_MODE: z.enum(["sandbox", "live"]).default("sandbox"),
   SIGMORA_API_URL: optional.pipe(z.url().optional()),
   SIGMORA_API_TOKEN: optional,
+  /** Live mode only: the owner's key. Only requests carrying it reach the real publisher; everyone else gets the sandbox. */
+  SIGMORA_OWNER_KEY: z.string().min(32).optional(),
 
   KV_REST_API_URL: optional.pipe(z.url().optional()),
   KV_REST_API_TOKEN: optional,
 
   /** Uncached runs per IP per minute. */
   RATE_LIMIT_PER_MINUTE: int(4, 1, 1000),
+  /** Uncached runs per IP per UTC day. */
+  RATE_LIMIT_PER_DAY: int(20, 1, 100000),
   /** Uncached runs per UTC day (all users). */
   RUN_DAILY_CAP: int(150, 1, 1000000),
   /** Comma-separated origins allowed to call /api/mcp from a browser. */

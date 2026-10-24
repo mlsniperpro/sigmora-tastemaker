@@ -38,6 +38,8 @@ export interface RunOptions extends Partial<CriticSettings> {
   maxRounds?: number;
   /** After this long, remaining swaps are applied directly instead of asking the model to rewrite. */
   reviseDeadlineMs?: number;
+  /** No model call may still be pending this long after the start (the route's limit is 120 s). */
+  deadlineMs?: number;
   now?: () => Date;
   newId?: () => string;
 }
@@ -82,6 +84,25 @@ const critiqueDetail = (receipts: Receipt[], warnings: string[]) => {
   return warnings.length ? `${base} · trend check failed: ${warnings.join("; ")}` : base;
 };
 
+/** The run ran out of time waiting on the model. */
+export class RunDeadlineError extends Error {
+  constructor(what: string) {
+    super(`Out of time waiting for ${what}`);
+    this.name = "RunDeadlineError";
+  }
+}
+
+/** Rejects once the run's deadline passes, so a slow model call can't outlast the route's time limit. */
+function byDeadline<T>(p: Promise<T>, deadlineAt: number, what: string): Promise<T> {
+  const left = deadlineAt - Date.now();
+  if (left <= 0) return Promise.reject(new RunDeadlineError(what));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new RunDeadlineError(what)), left);
+  });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+
 export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): Promise<RunResult> {
   const brief = Brief.parse(input);
   const tracer = new Tracer(opts.emit);
@@ -90,11 +111,12 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
   const maxRounds = opts.maxRounds ?? 2;
   const startedAt = Date.now();
   const reviseDeadlineMs = opts.reviseDeadlineMs ?? 60_000;
+  const deadlineAt = startedAt + (opts.deadlineMs ?? 105_000);
   const unobserve = qloo.observe(tracer.onCall);
 
   // The baseline needs no Qloo data, so it drafts while the grounded path runs. Never rejects.
   const baselineStart = Date.now();
-  const baselineP = llm.draft({ brief }).then(
+  const baselineP = byDeadline(llm.draft({ brief }), deadlineAt, "the baseline draft").then(
     (draft) => ({ draft, ms: Date.now() - baselineStart }),
     (err: unknown) => ({ err: err instanceof Error ? err : new Error(String(err)), ms: Date.now() - baselineStart }),
   );
@@ -137,7 +159,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     });
     const tags = tracer.optional("tags", "Taste vocabulary (urn:tag)", async (s) => {
       const r = await qloo.insights("urn:tag", { ...signalFor(ctx), take: 10 });
-      audience.tags = (r.data.results.tags ?? []).map((t) => ({ name: t.name, affinity: t.query?.affinity ?? 0 }));
+      audience.tags = (r.data.results.tags ?? []).flatMap((t) => (typeof t.query?.affinity === "number" ? [{ name: t.name, affinity: t.query.affinity }] : []));
       s.detail = audience.tags.slice(0, 5).map((t) => t.name).join(", ") || "No tags returned";
     });
     const culture = tracer.step("culture", "Cross-domain culture map (/v2/insights)", async (s) => {
@@ -179,13 +201,15 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       const other = brief.compareTo;
       if (!other) return;
       await tracer.optional("compare", `Positioning vs. ${other} (/v2/analysis/compare)`, async (s) => {
-        const { hit } = await resolveByName(qloo, other, { take: 3, acceptTop: true });
-        if (!hit) throw new Error(`"${other}" did not resolve`);
+        // Exact name only: positioning against a fuzzy look-alike would show the wrong comparable under the typed name.
+        const { hit } = await resolveByName(qloo, other, { take: 3 });
+        if (!hit) throw new Error(`"${other}" isn't a name Qloo knows`);
         const r = await qloo.compare(ctx.seedIds, [hit.entity_id], 10);
         for (const t of r.data.results.tags ?? []) {
-          const a = t.query?.a?.affinity ?? 0;
-          const b = t.query?.b?.affinity ?? 0;
-          positioning.push({ name: t.name, a, b, delta: t.query?.delta ?? a - b });
+          const a = t.query?.a?.affinity;
+          const b = t.query?.b?.affinity;
+          // A tag Qloo didn't score on both sides has no gap to show; it is skipped, never given a 0.
+          if (typeof a === "number" && typeof b === "number") positioning.push({ name: t.name, a, b, delta: t.query?.delta ?? a - b });
         }
         s.detail = positioning.filter((p) => p.delta > 0).slice(0, 3).map((p) => `+${p.name}`).join(", ") || "no gap found";
       });
@@ -210,7 +234,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       "generate",
       "Draft the campaign (LLM, Qloo-grounded)",
       async (s) => {
-        const d = await llm.draft({ brief, grounding });
+        const d = await byDeadline(llm.draft({ brief, grounding }), deadlineAt, "the draft");
         s.detail = `${d.picks.length} cultural picks, ${d.hooks.length} hooks, ${d.captions.length} captions`;
         return d;
       },
@@ -263,7 +287,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           let failed = "";
           if (offered.some((r) => (r.options?.length ?? 0) > 1) && Date.now() - startedAt <= reviseDeadlineMs) {
             try {
-              choices = await llm.choose(offered, { brief, grounding });
+              choices = await byDeadline(llm.choose(offered, { brief, grounding }), deadlineAt, "the model's choice");
             } catch (err) {
               failed = ` · model choice failed (${err instanceof Error ? err.message : String(err)}); Qloo's top options kept`;
             }
@@ -291,7 +315,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
             note = " · time budget reached; copy not re-polished";
           } else {
             try {
-              const p = await llm.revise(swapped, replacements, { brief, grounding });
+              const p = await byDeadline(llm.revise(swapped, replacements, { brief, grounding }), deadlineAt, "the polish");
               // The model may not move picks, and may not bring a rejected name back into the copy.
               polished = applyReplacements({ ...p, picks: swapped.picks }, replacements);
             } catch (err) {
@@ -326,7 +350,10 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       baselineReceipts = await tracer.step("audit", "Qloo audit of the baseline plan", async (s) => {
         const extra = await unlistedMentions(ctx, base.draft, brief);
         if (extra.length) base.draft = { ...base.draft, picks: [...base.draft.picks, ...extra] };
-        const c = await critique({ ...ctx, city: ownCity }, base.draft.picks);
+        // ...and against that city's own venue pool, so the venue's pass bar isn't another city's.
+        const own: Ctx = { ...ctx, city: ownCity, candidates: { ...ctx.candidates } };
+        if (ownCity && normName(ownCity) !== normName(ctx.city ?? "") && base.draft.picks.some((p) => p.role === "venue")) await loadVenues(own, ownCity);
+        const c = await critique(own, base.draft.picks);
         s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
         return c.receipts;
       });

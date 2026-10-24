@@ -76,7 +76,7 @@ export function Trace({
   steps: TraceStep[];
   running: boolean;
   /** Title of the step in progress. */
-  pending?: string;
+  pending: readonly string[];
   /** When the run is an earlier one: where it came from and when it originally ran. */
   served?: Served & { at: string };
   /** Offered on a recorded run: run the preset live now. */
@@ -113,19 +113,20 @@ export function Trace({
         </p>
       )}
       <p className="sr-only" aria-live="polite">
-        {running ? `Working: ${pending ?? "starting"}` : steps.length ? `Finished ${steps.length} steps` : ""}
+        {running ? `Working: ${pending.join(", ") || "starting"}` : steps.length ? `Finished ${steps.length} steps` : ""}
       </p>
       {!collapsed && (
         <ol className="space-y-3">
           {steps.map((s, i) => (
             <Step key={s.id} s={s} index={i} names={names} />
           ))}
-          {running && (
-            <li className="relative pl-6 text-meta text-muted">
-              <span className="absolute left-0 top-1 h-4 w-4 animate-pulse rounded-full bg-accent/40" aria-hidden />
-              {pending ? `${pending}…` : "Starting…"}
-            </li>
-          )}
+          {running &&
+            (pending.length ? pending : ["Starting"]).map((title, i) => (
+              <li key={`${String(i)}-${title}`} className="relative pl-6 text-meta text-muted">
+                <span className="absolute left-0 top-1 h-4 w-4 animate-pulse rounded-full bg-accent/40" aria-hidden />
+                {title}…
+              </li>
+            ))}
         </ol>
       )}
     </section>

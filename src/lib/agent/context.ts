@@ -10,7 +10,7 @@ import type { Entity, EntityType } from "../qloo/types";
 import type { Candidate } from "../llm/types";
 import { ROLE_SPEC, ROLES, type Brief, type PickType, type Role } from "./brief";
 import type { Driver } from "./types";
-import { normName, sameName } from "./util";
+import { isTitlePart, normName, sameName } from "./util";
 
 export const TREND_TYPES: readonly EntityType[] = ["artist", "tv_show", "movie", "podcast"];
 
@@ -54,6 +54,8 @@ export interface Resolved {
   source?: QlooSource;
   /** Unresolved for this role, but Qloo has it under another type. */
   filedAs?: string;
+  /** Resolved to a Qloo entity whose full title contains the name (the receipt says which). */
+  matchedAs?: string;
 }
 
 /** How strongly candidate discovery leans toward trending entities (Qloo's bias.trends); "off" sends nothing. */
@@ -122,8 +124,10 @@ export function signalFor(ctx: Pick<Ctx, "audience" | "seedIds" | "tagIds">): Ql
 /** True when a reading exists and is below the fading threshold. */
 export const isFading = (ctx: Pick<Ctx, "trends" | "fadingBelow">, entityId: string) => (ctx.trends.get(entityId) ?? 0) < ctx.fadingBelow;
 
-export function toCandidate(e: Entity, type: PickType, key?: string): RankedCandidate {
-  return { name: e.name, type, affinity: e.query?.affinity ?? 0, entityId: e.entity_id, key };
+/** A ranked candidate, or none when Qloo returned the entity without an affinity (no score is ever made up). */
+export function toCandidate(e: Entity, type: PickType, key?: string): RankedCandidate[] {
+  const affinity = e.query?.affinity;
+  return typeof affinity === "number" ? [{ name: e.name, type, affinity, entityId: e.entity_id, key }] : [];
 }
 
 export function entityTypesOf(e: Entity): string[] {
@@ -142,10 +146,13 @@ export function resolvedType(role: Role, searched: PickType, hit: Entity): PickT
  * matches (for user-typed seeds and cities); the critic never does, because
  * search is fuzzy and returns *something* for invented names.
  */
-export async function resolveByName(qloo: QlooClient, name: string, opts: { types?: readonly EntityType[]; take?: number; acceptTop?: boolean } = {}) {
+export async function resolveByName(qloo: QlooClient, name: string, opts: { types?: readonly EntityType[]; take?: number; acceptTop?: boolean; titlePart?: boolean } = {}) {
   const r = await qloo.search(name, opts.types, opts.take ?? 5);
-  const hit = r.data.results.find((e) => sameName(e.name, name)) ?? (opts.acceptTop ? r.data.results[0] : undefined);
-  return { hit, key: r.meta.key, source: r.meta.source };
+  const exact = r.data.results.find((e) => sameName(e.name, name));
+  // `titlePart`: also accept a hit whose title contains the whole name ("Wakanda Forever" → "Black Panther: Wakanda Forever").
+  const part = exact || !opts.titlePart ? undefined : r.data.results.find((e) => isTitlePart(name, e.name));
+  const hit = exact ?? part ?? (opts.acceptTop ? r.data.results[0] : undefined);
+  return { hit, partOf: part?.name, key: r.meta.key, source: r.meta.source };
 }
 
 export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], settings: Partial<CriticSettings> & { discovery?: Discovery } = {}): Ctx {
@@ -250,9 +257,12 @@ export async function scoreEntities(ctx: Ctx, type: PickType, ids: readonly stri
   });
   const entities = res.data.results.entities ?? [];
   for (const e of entities) {
+    const affinity = e.query?.affinity;
+    // No affinity in the reply means no score: the pick stays "unscored" rather than failing on a made-up 0.
+    if (typeof affinity !== "number") continue;
     const ex = e.query?.explainability?.["signal.interests.entities"] ?? [];
     ctx.scores.set(e.entity_id, {
-      affinity: e.query?.affinity ?? 0,
+      affinity,
       drivers: ex.map((d) => ({ name: d.name ?? ctx.seedNames.get(d.entity_id ?? "") ?? d.entity_id ?? "signal", score: d.score })),
       key: res.meta.key,
       source: res.meta.source,
@@ -272,11 +282,11 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
     types.map(async (t) => {
       const params = discoveryParams(t, ctx.discovery);
       const r = await ctx.qloo.insights(`urn:entity:${t as EntityType}`, { ...signalFor(ctx), ...params, take: 10 });
-      const found = (r.data.results.entities ?? []).map((e) => toCandidate(e, t, r.meta.key));
+      const found = (r.data.results.entities ?? []).flatMap((e) => toCandidate(e, t, r.meta.key));
       if (!params["bias.trends"] || !found.length) return [t, found] as const;
       // bias.trends picks *which* entities to consider; the pass bar must still be plain affinity,
       // the scale the critic scores picks on. Re-score the pool once (this also pre-scores pool picks).
-      const scored = new Map((await scoreEntities(ctx, t, found.map((c) => c.entityId))).map((e) => [e.entity_id, e.query?.affinity ?? 0]));
+      const scored = new Map((await scoreEntities(ctx, t, found.map((c) => c.entityId))).flatMap((e) => (typeof e.query?.affinity === "number" ? [[e.entity_id, e.query.affinity] as const] : [])));
       const plain = found.flatMap((c) => {
         const affinity = scored.get(c.entityId);
         return affinity === undefined ? [] : [{ ...c, affinity }];
@@ -293,7 +303,7 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
 
 export async function loadVenues(ctx: Ctx, city: string) {
   const r = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), ...discoveryParams("place", ctx.discovery), "filter.location.query": city, take: 10 });
-  ctx.candidates.venue = (r.data.results.entities ?? []).map((e) => toCandidate(e, "place", r.meta.key));
+  ctx.candidates.venue = (r.data.results.entities ?? []).flatMap((e) => toCandidate(e, "place", r.meta.key));
 }
 
 /** Trend velocity for the given entities, grouped by type; failures are returned, not thrown. */

@@ -42,8 +42,8 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-ink">Ship it</h2>
           <p className="text-meta text-muted">
-            Hand the pack to Sigmora: {result.grounded.draft.captions.length} posts, one a day, plus the hooks, script and music brief for production. The
-            public demo uses a labeled sandbox publisher.
+            Hand the pack to Sigmora: {result.grounded.draft.captions.length} posts, one a day, plus the hooks, script and music brief for production. Visitors
+            get a labeled sandbox publisher; only the owner&apos;s key reaches real channels.
           </p>
         </div>
         <button type="button" onClick={() => void ship()} disabled={busy} className="rounded-lg bg-accent px-4 py-2 text-body font-semibold text-accent-ink disabled:opacity-60">

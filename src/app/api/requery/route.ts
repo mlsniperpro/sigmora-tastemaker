@@ -2,7 +2,7 @@ import { requeryBrief } from "@/lib/agent/requery";
 import { runById } from "@/lib/agent/runCache";
 import { admit, guardResponse } from "@/lib/guard";
 import { HttpError } from "@/lib/net";
-import { MeasureRequest, MetricsUnavailableError, publisherFromEnv } from "@/lib/publisher";
+import { MeasureRequest, MetricsUnavailableError, publisherForRequest } from "@/lib/publisher";
 import { formatZodIssues } from "@/lib/zod";
 
 /** Measure a shipped campaign and return the next brief, seeded with the picks that performed. The client then runs it. */
@@ -16,7 +16,8 @@ export async function POST(req: Request) {
   const body = MeasureRequest.safeParse(json);
   if (!body.success) return Response.json({ error: formatZodIssues(body.error, { root: "body" }) }, { status: 400 });
 
-  const publisher = publisherFromEnv();
+  const publisher = publisherForRequest(req);
+  if (publisher instanceof Response) return publisher;
   const g = await admit(req, { costs: publisher.id === "sigmora" });
   if (!g.ok) return guardResponse(g);
   try {

@@ -1,6 +1,6 @@
 import { keepShippedRun, runById } from "@/lib/agent/runCache";
 import { admit, guardResponse } from "@/lib/guard";
-import { ShipRequest, publisherFromEnv } from "@/lib/publisher";
+import { ShipRequest, publisherForRequest } from "@/lib/publisher";
 import { formatZodIssues } from "@/lib/zod";
 
 export async function POST(req: Request) {
@@ -24,7 +24,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const publisher = publisherFromEnv();
+  const publisher = publisherForRequest(req);
+  if (publisher instanceof Response) return publisher;
   const g = await admit(req, { costs: publisher.id === "sigmora" });
   if (!g.ok) return guardResponse(g);
   try {

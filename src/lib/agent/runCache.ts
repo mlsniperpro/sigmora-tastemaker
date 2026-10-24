@@ -4,6 +4,7 @@
  * key points at the latest result for that brief. Healthy runs are served for
  * a day, degraded ones (a fallback or a failed step) for ten minutes.
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { llmFromEnv } from "../llm";
 import type { LLMProvider } from "../llm/types";
@@ -15,7 +16,6 @@ import { presetById } from "./presets";
 import { runTastemaker } from "./run";
 import recorded from "../../../fixtures/runs/recorded.json";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult, type Served } from "./types";
-import { hashId } from "./util";
 
 /** How long the brief → latest-run pointer serves a healthy run, before a fresh run replaces it. */
 export const RESULT_TTL = 60 * 60 * 24;
@@ -71,7 +71,8 @@ export interface RunDeps {
 
 /** Cache key for a brief: points at the latest result for it. */
 export function runKey(brief: Brief, llmId: string, primarySource: string) {
-  return `run:v${RUN_SCHEMA_VERSION}:${hashId(JSON.stringify([brief, llmId, primarySource]))}`;
+  // SHA-256, so no crafted brief can collide with a preset's key and take over what it serves.
+  return `run:v${RUN_SCHEMA_VERSION}:${createHash("sha256").update(JSON.stringify([brief, llmId, primarySource])).digest("base64url")}`;
 }
 
 /** Cache key for one run's full result. */

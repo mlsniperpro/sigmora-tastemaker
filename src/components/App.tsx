@@ -36,10 +36,14 @@ export function App() {
   const [initial] = useState(() => ({ measure: measureFromUrl(params), runId: runIdFromUrl(params), request: requestFromUrl(params) }));
   const [activePreset, setActivePreset] = useState(!initial.measure && !initial.runId && "preset" in initial.request ? initial.request.preset : undefined);
   const [copied, setCopied] = useState(false);
+  // A shared `?b=` brief is someone else's text: it is shown, and runs (spending the demo's budget) only on a click.
+  const [shared, setShared] = useState(!initial.measure && !initial.runId && "brief" in initial.request ? initial.request : undefined);
 
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
-    void (initial.measure ? requery(initial.measure) : initial.runId ? open(initial.runId) : run(initial.request));
+    if (initial.measure) void requery(initial.measure);
+    else if (initial.runId) void open(initial.runId);
+    else if (!("brief" in initial.request)) void run(initial.request);
   }, [initial, run, open, requery]);
 
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
@@ -108,6 +112,23 @@ export function App() {
         />
       </section>
 
+      {shared && (
+        <div role="region" aria-label="Shared brief" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-body text-ink">
+          <span className="min-w-0">
+            Shared brief: <strong>{shared.brief.subject}</strong> for fans of {shared.brief.seeds.join(", ") || shared.brief.seedLinks?.join(", ")}.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setShared(undefined);
+              void run(shared);
+            }}
+            className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
+          >
+            Plan &amp; taste-check it
+          </button>
+        </div>
+      )}
       {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">{error}</div>}
       {result && <SourceBanner result={result} />}
       {result && <Scoreboard result={result} />}

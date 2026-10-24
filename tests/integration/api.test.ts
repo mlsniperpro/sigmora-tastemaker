@@ -1,6 +1,8 @@
 /** Route handlers (/api/run, /api/ship) over the offline stack: streaming, caching, validation and failure paths. */
 import { describe, expect, it, vi } from "vitest";
 import { POST as run } from "@/app/api/run/route";
+import { POST as owner } from "@/app/api/owner/route";
+import { POST as requery } from "@/app/api/requery/route";
 import { POST as ship } from "@/app/api/ship/route";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
@@ -8,7 +10,7 @@ import { runTastemaker } from "@/lib/agent/run";
 import { DEGRADED_TTL, KEEP_TTL, keepShippedRun, cachedRun, getOrRun, isHealthy, runById, runKey } from "@/lib/agent/runCache";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
-import { SandboxPublisher, SigmoraPublisher, publisherFromEnv, type ShipReceipt } from "@/lib/publisher";
+import { SandboxPublisher, SigmoraPublisher, OWNER_COOKIE, OWNER_HEADER, OwnerKeyError, publisherFor, type ShipReceipt } from "@/lib/publisher";
 import { MemoryCache, defaultCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
 import { must, sentJson } from "../must";
@@ -127,13 +129,42 @@ describe("/api/ship", () => {
     vi.stubEnv("SIGMORA_PUBLISH_MODE", "live");
     vi.stubEnv("SIGMORA_API_URL", "https://sigmora.example");
     vi.stubEnv("SIGMORA_API_TOKEN", "tok");
+    vi.stubEnv("SIGMORA_OWNER_KEY", "k".repeat(32));
     vi.stubGlobal("fetch", sent);
-    const ok = await ship(post({ runId: "flaggedrun1", acceptFlagged: true }));
+    const asOwner = post({ runId: "flaggedrun1", acceptFlagged: true });
+    asOwner.headers.set(OWNER_HEADER, "k".repeat(32));
+    const ok = await ship(asOwner);
     expect(ok.status).toBe(200);
     const body = sentJson(sent.mock.calls[0]?.[1]) as { metadata: { flaggedPicks: string[] }; assets: { hooks: string[]; script: string } };
     expect(body.metadata.flaggedPicks).toEqual([first.name]);
     expect(body.assets.hooks).toEqual(run.grounded.draft.hooks);
     expect(body.assets.script).toBe(run.grounded.draft.script);
+  });
+
+  it("never lets a visitor post as the brand on a live deployment", async () => {
+    const result = must(resultOf(await events(await run(post({ preset: "indie-release" })))), "run result");
+    const sent = vi.fn<typeof fetch>(async () => Response.json({ id: "c1", posts: [] }));
+    vi.stubEnv("SIGMORA_PUBLISH_MODE", "live");
+    vi.stubEnv("SIGMORA_API_URL", "https://sigmora.example");
+    vi.stubEnv("SIGMORA_API_TOKEN", "tok");
+    vi.stubEnv("SIGMORA_OWNER_KEY", "k".repeat(32));
+    vi.stubGlobal("fetch", sent);
+
+    const anon = await ship(post({ runId: result.id, acceptFlagged: true }));
+    expect(((await anon.json()) as ShipReceipt).publisher).toBe("sandbox");
+    const wrong = post({ runId: result.id, acceptFlagged: true });
+    wrong.headers.set(OWNER_HEADER, "w".repeat(32));
+    expect((await ship(wrong)).status).toBe(403);
+    // Measuring someone's campaign needs the owner too: a visitor gets the sandbox, which has nothing to measure.
+    expect((await requery(post({ campaignId: "c1" }))).status).toBe(409);
+    expect(sent).not.toHaveBeenCalled();
+
+    expect((await owner(post({ key: "w".repeat(32) }))).status).toBe(403);
+    const signedIn = await owner(post({ key: "k".repeat(32) }));
+    expect(signedIn.headers.get("set-cookie")).toMatch(new RegExp(`^${OWNER_COOKIE}=k{32}; Path=/api; HttpOnly; Secure; SameSite=Strict`));
+
+    vi.stubEnv("SIGMORA_OWNER_KEY", "");
+    expect((await ship(post({ runId: result.id, acceptFlagged: true }))).status).toBe(500);
   });
 
   it("404s an unknown run and 400s a malformed id", async () => {
@@ -154,10 +185,24 @@ describe("publisher", () => {
   };
   const fastRetry = { retries: 2, baseMs: 1, maxMs: 2, sleep: async () => undefined };
 
-  it("defaults to the labeled sandbox unless live mode is fully configured", () => {
-    expect(publisherFromEnv({}).id).toBe("sandbox");
-    expect(publisherFromEnv({ SIGMORA_API_URL: "https://s.example", SIGMORA_API_TOKEN: "t" }).id).toBe("sandbox");
-    expect(publisherFromEnv({ SIGMORA_PUBLISH_MODE: "live", SIGMORA_API_URL: "https://s.example", SIGMORA_API_TOKEN: "t" }).id).toBe("sigmora");
+  const OWNER = "o".repeat(40);
+  const live = { SIGMORA_PUBLISH_MODE: "live", SIGMORA_API_URL: "https://s.example", SIGMORA_API_TOKEN: "t", SIGMORA_OWNER_KEY: OWNER };
+  const h = (init: Record<string, string> = {}) => new Headers(init);
+
+  it("gives the real publisher only to the owner, in live mode", () => {
+    expect(publisherFor(h(), {}).id).toBe("sandbox");
+    expect(publisherFor(h({ [OWNER_HEADER]: OWNER }), { ...live, SIGMORA_PUBLISH_MODE: "sandbox" }).id).toBe("sandbox");
+    // A public visitor on a live deployment still gets the sandbox: they can never post as the brand.
+    expect(publisherFor(h(), live).id).toBe("sandbox");
+    expect(publisherFor(h({ [OWNER_HEADER]: OWNER }), live).id).toBe("sigmora");
+    expect(publisherFor(h({ cookie: `a=1; ${OWNER_COOKIE}=${OWNER}` }), live).id).toBe("sigmora");
+  });
+
+  it("refuses a wrong owner key, and live mode without an owner key configured", () => {
+    expect(() => publisherFor(h({ [OWNER_HEADER]: "x".repeat(40) }), live)).toThrow(OwnerKeyError);
+    expect(() => publisherFor(h({ cookie: `${OWNER_COOKIE}=nope` }), live)).toThrow(OwnerKeyError);
+    expect(() => publisherFor(h({ [OWNER_HEADER]: OWNER }), { ...live, SIGMORA_OWNER_KEY: undefined })).toThrow(/SIGMORA_OWNER_KEY/);
+    expect(() => publisherFor(h(), { ...live, SIGMORA_OWNER_KEY: "short" })).toThrow(/SIGMORA_OWNER_KEY/);
   });
 
   it("sandbox schedules without posting", async () => {

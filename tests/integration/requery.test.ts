@@ -5,16 +5,25 @@ import { POST as run } from "@/app/api/run/route";
 import type { Brief } from "@/lib/agent/brief";
 import { SHIPPED_TTL, keepShippedRun } from "@/lib/agent/runCache";
 import type { RunEvent, RunResult } from "@/lib/agent/types";
-import { MetricsUnavailableError, SandboxPublisher, SigmoraPublisher } from "@/lib/publisher";
+import { MetricsUnavailableError, OWNER_HEADER, SandboxPublisher, SigmoraPublisher } from "@/lib/publisher";
 import { must } from "../must";
 
 const fastRetry = { retries: 2, baseMs: 1, maxMs: 2, sleep: async () => undefined };
 const post = (body: unknown) => new Request("http://x/api", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "5.6.7.8" }, body: JSON.stringify(body) });
 
+const OWNER_KEY = "k".repeat(32);
+/** The owner's request: only it reaches the real publisher's metrics. */
+const asOwner = (body: unknown) => {
+  const r = post(body);
+  r.headers.set(OWNER_HEADER, OWNER_KEY);
+  return r;
+};
+
 function useLiveSigmora(reply: unknown) {
   vi.stubEnv("SIGMORA_PUBLISH_MODE", "live");
   vi.stubEnv("SIGMORA_API_URL", "https://sigmora.example");
   vi.stubEnv("SIGMORA_API_TOKEN", "tok");
+  vi.stubEnv("SIGMORA_OWNER_KEY", OWNER_KEY);
   const f = vi.fn<typeof fetch>(async () => Response.json(reply));
   vi.stubGlobal("fetch", f);
   return f;
@@ -73,7 +82,7 @@ describe("/api/requery", () => {
 
   it("404s when the campaign's run is gone", async () => {
     useLiveSigmora({ id: "c2", metadata: { tastemakerRunId: "expiredrun" }, posts: [] });
-    const res = await requery(post({ campaignId: "c2" }));
+    const res = await requery(asOwner({ campaignId: "c2" }));
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: string }).error).toMatch(/expired/);
   });
@@ -86,7 +95,7 @@ describe("/api/requery", () => {
     const posts = captions.map((c) => ({ platform: c.platform, text: c.text, impressions: 2000, engagements: c === best ? 300 : 20 }));
     const f = useLiveSigmora({ id: "c9", metadata: { tastemakerRunId: r.id }, posts });
 
-    const res = await requery(post({ campaignId: "c9" }));
+    const res = await requery(asOwner({ campaignId: "c9" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { brief: Brief; winners: { name: string }[] };
     expect(body.winners.length).toBeGreaterThan(0);

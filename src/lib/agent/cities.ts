@@ -76,7 +76,8 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): 
   const byLocality: RankedCandidate[] = ranked
     ? (ranked.data.results.entities ?? []).flatMap((e) => {
         const src = candidates.find((c) => c.entityId === e.entity_id);
-        return src ? [{ ...src, affinity: e.query?.affinity ?? 0, key: ranked.meta.key, lat: src.lat ?? e.location?.lat, lon: src.lon ?? e.location?.lon }] : [];
+        const affinity = e.query?.affinity;
+        return src && typeof affinity === "number" ? [{ ...src, affinity, key: ranked.meta.key, lat: src.lat ?? e.location?.lat, lon: src.lon ?? e.location?.lon }] : [];
       })
     : [];
   const cities = byLocality.length ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];

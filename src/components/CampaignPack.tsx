@@ -2,11 +2,14 @@
 
 import { Fragment } from "react";
 import { ROLE_LABEL, ROLES } from "@/lib/vocab";
-import type { PlanSide, Receipt } from "@/lib/agent/types";
+import type { PlanSide, Receipt, Verdict } from "@/lib/agent/types";
 import { annotation } from "@/lib/agent/evidence";
 import { ReceiptChip, VERDICT_STYLE } from "./Receipt";
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Struck through: the critic rejected these. Fading is a warning and "unscored" means Qloo gave no score, so neither is struck. */
+const STRUCK: ReadonlySet<Verdict> = new Set(["miss", "hallucination"]);
 
 /** Marks every named entity in a text field with its verdict. */
 function Marked({ text, receipts }: { text: string; receipts: Receipt[] }) {
@@ -22,7 +25,7 @@ function Marked({ text, receipts }: { text: string; receipts: Receipt[] }) {
         if (r.verdict === "pass") return <span key={i} className="text-ink underline decoration-pass/60 decoration-2 underline-offset-2">{part}</span>;
         const v = VERDICT_STYLE[r.verdict];
         return (
-          <span key={i} className={`rounded px-0.5 ${v.cls} ${r.verdict === "fading" ? "" : "line-through decoration-2"}`} title={r.note}>
+          <span key={i} className={`rounded px-0.5 ${v.cls} ${STRUCK.has(r.verdict) ? "line-through decoration-2" : ""}`} title={r.note}>
             {part}
           </span>
         );
@@ -81,7 +84,7 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
               <li key={`${role}-${r.name}`} className="space-y-1">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className="text-label uppercase tracking-wider text-muted">{ROLE_LABEL[role]}</span>
-                  <span className={`text-body font-medium ${r.verdict === "pass" ? "text-ink" : r.verdict === "fading" ? "text-fade" : "text-miss line-through"}`}>
+                  <span className={`text-body font-medium ${r.verdict === "pass" ? "text-ink" : r.verdict === "fading" ? "text-fade" : r.verdict === "unscored" ? "text-muted" : "text-miss line-through"}`}>
                     {r.name}
                   </span>
                   {r.replaced && (

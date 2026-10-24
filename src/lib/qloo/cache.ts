@@ -102,14 +102,18 @@ export class KvCache implements CacheStore {
   }
 }
 
+/** Seconds a value read from a slower layer stays in the faster ones. */
+export const BACKFILL_TTL = 60;
+
 export class LayeredCache implements CacheStore {
   constructor(private readonly layers: CacheStore[]) {}
   async get(key: string) {
     for (const [i, layer] of this.layers.entries()) {
       const v = await layer.get(key);
       if (v !== undefined) {
-        // backfill faster layers
-        await Promise.all(this.layers.slice(0, i).map((l) => l.set(key, v, 3600)));
+        // Backfill faster layers briefly: the value's real TTL lives in the slower layer, and a long backfill
+        // would keep a short-lived value (a degraded run's 10 minutes) alive past it.
+        await Promise.all(this.layers.slice(0, i).map((l) => l.set(key, v, BACKFILL_TTL)));
         return v;
       }
     }

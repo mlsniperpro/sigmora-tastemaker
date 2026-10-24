@@ -56,9 +56,10 @@ async function resolvePick(ctx: Ctx, p: PlanPick): Promise<Resolved> {
   else {
     const spec = ROLE_SPEC[p.role];
     const searched: PickType = spec.types.includes(p.type) ? p.type : spec.types[0];
-    const typed = await resolveByName(ctx.qloo, p.name, { types: spec.types });
-    if (typed.hit) out = { ...base, entityId: typed.hit.entity_id, type: resolvedType(p.role, searched, typed.hit), calls: [typed.key], source: typed.source };
-    else {
+    const typed = await resolveByName(ctx.qloo, p.name, { types: spec.types, titlePart: true });
+    if (typed.hit) {
+      out = { ...base, entityId: typed.hit.entity_id, type: resolvedType(p.role, searched, typed.hit), calls: [typed.key], source: typed.source, ...(typed.partOf ? { matchedAs: typed.partOf } : {}) };
+    } else {
       // Before calling a name invented, look across every type: it may be real but filed elsewhere.
       const any = await resolveByName(ctx.qloo, p.name, { take: 10 });
       const otherType = any.hit ? entityTypesOf(any.hit)[0] : undefined;
@@ -91,6 +92,11 @@ async function checkInCity(ctx: Ctx, resolved: readonly Resolved[]) {
 }
 
 function receiptFor(ctx: Ctx, r: Resolved): Receipt {
+  const out = judge(ctx, r);
+  return r.matchedAs ? { ...out, note: `${out.note} Matched to Qloo's "${r.matchedAs}".` } : out;
+}
+
+function judge(ctx: Ctx, r: Resolved): Receipt {
   const spec = ROLE_SPEC[r.role];
   const base = { name: r.name, type: r.type, role: r.role, entityId: r.entityId, drivers: [] as Receipt["drivers"], calls: r.calls, source: r.source };
   // A brief that fixes the market only needs the plan to agree with it.

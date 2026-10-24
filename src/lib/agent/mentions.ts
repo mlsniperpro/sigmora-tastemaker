@@ -30,32 +30,65 @@ const ROLE_FOR: Partial<Record<PickType, Role>> = {
 const WORD = String.raw`\p{Lu}[\p{L}\p{N}'’-]*(?:\.\p{L}[\p{L}\p{N}'’-]*)*`;
 const RUN = new RegExp(String.raw`(?<![\p{L}\p{N}])${WORD}(?:[ \t]+(?:(?:&|of|the|and|in|de|la)[ \t]+)?${WORD}){0,4}`, "gu");
 
-/** Pure: proper-noun runs in the copy that aren't already a pick, the brief's own subject/product, or a platform. */
-export function candidateMentions(draft: Draft, brief: Pick<Brief, "subject" | "product" | "targetCity" | "candidateCities">): string[] {
+/** Does name `a` contain name `b` as whole words ("burna boy" contains "boy", "remastered" doesn't contain "rema")? Both normalised. */
+const hasWords = (a: string, b: string) => ` ${a} `.includes(` ${b} `);
+
+/** Is this match the first word of a sentence (or of a line)? Its first word may then be an ordinary word: "Like Burna Boy". */
+function atSentenceStart(text: string, index: number): boolean {
+  const before = text.slice(0, index).trimEnd();
+  return !before || /[.!?;(—–]$/u.test(before) || text.slice(0, index).endsWith("\n");
+}
+
+/**
+ * Pure: proper-noun runs in the copy that aren't already a pick, a seed, the
+ * brief's own subject/product/cities, or a caption platform, best first.
+ * `alsoKnown` adds names the run already holds (seeds resolved from a link).
+ */
+export function candidateMentions(
+  draft: Draft,
+  brief: Pick<Brief, "subject" | "product" | "seeds" | "targetCity" | "candidateCities">,
+  alsoKnown: readonly string[] = [],
+): string[] {
   const text = [draft.positioning, ...draft.hooks, draft.script, ...draft.captions.map((c) => c.text), draft.musicBrief].join("\n");
-  const known = [...draft.picks.map((p) => p.name), brief.subject, brief.product, brief.targetCity ?? "", ...brief.candidateCities, ...draft.captions.map((c) => c.platform)]
-    .map(normName)
-    .filter(Boolean);
-  const seen = new Set<string>();
-  const out: string[] = [];
+  const norm = (xs: readonly string[]) => xs.map(normName).filter(Boolean);
+  // A run that contains a known name ("Like Ayra Starr") is that name; one that contains a city or the product ("Atlanta Braves") is not.
+  const names = norm([...draft.picks.map((p) => p.name), ...brief.seeds, ...alsoKnown, brief.subject]);
+  const other = norm([brief.product, brief.targetCity ?? "", ...brief.candidateCities]);
+  // Platforms are skipped by exact name only: "X" must not hide every name with an x in it.
+  const platforms = new Set(draft.captions.map((c) => normName(c.platform)));
+  const priority = new Map<string, { name: string; rank: number }>();
+  const add = (name: string, rank: number) => {
+    const key = normName(name);
+    if (!key || platforms.has(key) || names.some((k) => hasWords(k, key) || hasWords(key, k)) || other.some((k) => hasWords(k, key))) return;
+    const prev = priority.get(key);
+    if (!prev || prev.rank < rank) priority.set(key, { name, rank });
+  };
   for (const m of text.matchAll(RUN)) {
-    const run = m[0].replace(/[.'’-]+$/, "").trim();
-    // "Burna Boy and Insecure" is two names, "Mumford & Sons" one: try the whole run and its parts; Qloo decides.
-    for (const name of [run, ...run.split(/\s+(?:and|&)\s+/)]) {
-      const key = normName(name);
-      if (!key || seen.has(key) || known.some((k) => k === key || k.includes(key) || key.includes(k))) continue;
-      seen.add(key);
-      out.push(name);
+    // "Nia Sol's" is Nia Sol.
+    const run = m[0].replace(/['’]s$/u, "").replace(/[.'’-]+$/, "").trim();
+    const words = run.split(/\s+/);
+    const opener = atSentenceStart(text, m.index);
+    if (opener && words.length > 1) {
+      // "Tonight Ayra Starr": the opener may be an ordinary word, so the run without it is tried right after the whole run.
+      add(run, words.length - 0.5);
+      add(words.slice(1).join(" "), words.length - 1);
+    } else if (opener) {
+      // A lone capitalised word opening a sentence ("We", "First") is the least likely name of all.
+      add(run, 0.5);
+    } else {
+      add(run, words.length);
     }
+    // "Burna Boy and Insecure" is two names, "Mumford & Sons" one: try the whole run and its parts; Qloo decides.
+    if (/\s(?:and|&)\s/.test(run)) for (const part of run.split(/\s+(?:and|&)\s+/)) add(part, part.split(/\s+/).length);
   }
-  // Multi-word runs are likelier names than a capitalised sentence start, so they get the capped searches first.
-  return out.sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
+  // Multi-word names are likelier than a lone capitalised word, so they get the capped searches first.
+  return [...priority.values()].sort((a, b) => b.rank - a.rank).map((c) => c.name);
 }
 
 /** Unlisted names that Qloo knows by exactly that name, as picks for the critic to check (searches capped). */
 export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Promise<PlanPick[]> {
   const found = await Promise.all(
-    candidateMentions(draft, brief)
+    candidateMentions(draft, brief, [...ctx.seedNames.values()])
       .slice(0, MAX_MENTION_SEARCHES)
       .map(async (name) => {
         const { hit } = await resolveByName(ctx.qloo, name, { take: 3 });

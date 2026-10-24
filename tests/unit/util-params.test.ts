@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { hashId, median, normName, sameName } from "@/lib/agent/util";
+import { Brief } from "@/lib/agent/brief";
+import { PRESETS } from "@/lib/agent/presets";
+import { runKey } from "@/lib/agent/runCache";
+import { isTitlePart, median, normName, sameName } from "@/lib/agent/util";
+import { must } from "../must";
 import { QlooParamError, assertParams, checkParams, requestKey } from "@/lib/qloo/params";
 
 const name = fc.string({ minLength: 1, maxLength: 40 });
@@ -49,11 +53,30 @@ describe("median", () => {
   });
 });
 
-describe("hashId", () => {
-  test.prop([fc.string()])("is deterministic, short and URL-safe", (s) => {
-    const h = hashId(s);
-    expect(hashId(s)).toBe(h);
-    expect(h).toMatch(/^[a-z0-9]{1,12}$/);
+describe("isTitlePart", () => {
+  it("accepts a title with its subtitle or qualifier dropped, never a single word or a different name", () => {
+    expect(isTitlePart("Wakanda Forever", "Black Panther: Wakanda Forever")).toBe(true);
+    expect(isTitlePart("The Daily Show", "The Daily Show with Trevor Noah")).toBe(true);
+    expect(isTitlePart("Boy", "Burna Boy")).toBe(false);
+    expect(isTitlePart("Burna Boy", "Burna Boy")).toBe(false);
+    expect(isTitlePart("Panther Wakanda", "Black Panther: Wakanda Forever")).toBe(true);
+    expect(isTitlePart("Forever Wakanda", "Black Panther: Wakanda Forever")).toBe(false);
+  });
+  test.prop([fc.array(fc.stringMatching(/^[a-z]{2,8}$/), { minLength: 2, maxLength: 6 }), fc.nat(5), fc.nat(5)])("any run of 2+ whole words of a longer title is a part of it", (words, i, n) => {
+    const start = i % (words.length - 1);
+    const part = words.slice(start, start + 2 + (n % (words.length - start - 1)));
+    fc.pre(normName(part.join(" ")) !== normName(words.join(" ")) && part.length >= 2);
+    expect(isTitlePart(part.join(" "), words.join(" "))).toBe(normName(part.join(" ")).split(" ").length >= 2);
+  });
+});
+
+describe("runKey", () => {
+  const brief = Brief.parse(must(PRESETS[0]).brief);
+  test.prop([fc.string({ maxLength: 80 }), fc.string({ maxLength: 80 })])("is deterministic, URL-safe and full-length SHA-256 per brief", (a, b) => {
+    const k = (subject: string) => runKey({ ...brief, subject }, "llm", "live");
+    expect(k(a)).toBe(k(a));
+    expect(k(a)).toMatch(/^run:v\d+:[A-Za-z0-9_-]{43}$/);
+    if (a !== b) expect(k(a)).not.toBe(k(b));
   });
 });
 

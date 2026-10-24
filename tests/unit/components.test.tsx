@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CampaignPack } from "@/components/CampaignPack";
 import { ReceiptChip } from "@/components/Receipt";
 import { Scoreboard } from "@/components/Scoreboard";
+import { DEFAULT_CRITIC } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
 import type { Receipt, RunResult } from "@/lib/agent/types";
@@ -25,7 +26,11 @@ describe("Scoreboard", () => {
   it("shows the rates for a live run with a real model, and blanks the baseline when it failed", async () => {
     const r = await heroRun();
     const live: RunResult = { ...r, llm: { ...r.llm, scripted: false }, qloo: { ...r.qloo, live: r.qloo.calls, simulated: 0 } };
-    expect(text(renderToStaticMarkup(<Scoreboard result={live} />))).toMatch(/\d+%.*\d+%/);
+    const html = text(renderToStaticMarkup(<Scoreboard result={live} />));
+    expect(html).toMatch(/\d+%.*\d+%/);
+    // The after-critic rate is labelled as circular, with the bar the critic actually uses.
+    expect(html).toContain(`the higher of ${DEFAULT_CRITIC.minAffinity} and ${DEFAULT_CRITIC.missRatio} × their median affinity`);
+    expect(html).toMatch(/near zero by construction/);
     const noBase = text(renderToStaticMarkup(<Scoreboard result={{ ...live, baseline: { ...live.baseline, unavailable: "LLM 529" } }} />));
     expect(noBase).toMatch(/failed this run \(LLM 529\)/);
   });

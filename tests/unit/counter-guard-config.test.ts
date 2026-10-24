@@ -1,7 +1,7 @@
 import { describe, it, vi, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { ConfigError, loadConfig } from "@/lib/config";
-import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
+import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute, readDaily } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
 import { checkGuard, clientIp } from "@/lib/guard";
 import { sentJson } from "../must";
@@ -24,7 +24,7 @@ describe("MemoryCounter", () => {
 });
 
 describe("KvCounter", () => {
-  it("creates the window with a TTL, then INCRs, in one pipeline call", async () => {
+  it("creates the window with a TTL, then INCRBYs, in one pipeline call", async () => {
     const f = vi.fn(async () => Response.json([{ result: "OK" }, { result: 3 }]));
     const n = await new KvCounter(new KvRest("https://kv.example/", "tok", f)).incr("tm:k", 120);
     expect(n).toBe(3);
@@ -32,7 +32,7 @@ describe("KvCounter", () => {
     expect(url).toBe("https://kv.example/pipeline");
     expect(sentJson(init)).toEqual([
       ["SET", "tm:k", "0", "EX", 120, "NX"],
-      ["INCR", "tm:k"],
+      ["INCRBY", "tm:k", 1],
     ]);
   });
   it("rejects a malformed KV reply instead of guessing", async () => {
@@ -71,7 +71,7 @@ describe("window helpers", () => {
 
 describe("guard", () => {
   it("limits per IP per minute and lets other IPs through", async () => {
-    const cfg = { perMinute: 2, dailyCap: 100 };
+    const cfg = { perMinute: 2, perIpDaily: 100, dailyCap: 100 };
     const c = new MemoryCounter();
     const now = 0;
     expect((await checkGuard("a", cfg, c, { now })).ok).toBe(true);
@@ -82,7 +82,7 @@ describe("guard", () => {
     expect((await checkGuard("a", cfg, c, { now: now + 60_000 })).ok).toBe(true);
   });
   it("enforces the daily cap across IPs; per-IP rejections don't spend it", async () => {
-    const cfg = { perMinute: 2, dailyCap: 4 };
+    const cfg = { perMinute: 2, perIpDaily: 100, dailyCap: 4 };
     const c = new MemoryCounter();
     for (const ip of ["a", "b", "a"]) expect((await checkGuard(ip, cfg, c, { now: 0 })).ok).toBe(true);
     expect(await checkGuard("a", cfg, c, { now: 0 })).toMatchObject({ ok: false, status: 429 });
@@ -91,9 +91,31 @@ describe("guard", () => {
   });
   it("lets presets skip the per-IP limit but not the daily cap", async () => {
     const c = new MemoryCounter();
-    const cfg = { perMinute: 1, dailyCap: 3 };
+    const cfg = { perMinute: 1, perIpDaily: 1, dailyCap: 3 };
     for (let i = 0; i < 3; i++) expect((await checkGuard("a", cfg, c, { now: 0, perIp: false })).ok).toBe(true);
     expect(await checkGuard("a", cfg, c, { now: 0, perIp: false })).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it("caps one IP's runs per day, and fresh preset runs are not exempt", async () => {
+    const c = new MemoryCounter();
+    const cfg = { perMinute: 100, perIpDaily: 2, dailyCap: 100 };
+    for (let m = 0; m < 2; m++) expect((await checkGuard("a", cfg, c, { now: m * 60_000 })).ok).toBe(true);
+    expect(await checkGuard("a", cfg, c, { now: 5 * 60_000 })).toMatchObject({ ok: false, status: 429 });
+    expect((await checkGuard("b", cfg, c, { now: 5 * 60_000 })).ok).toBe(true);
+    expect((await checkGuard("a", cfg, c, { now: 86_400_000 })).ok).toBe(true);
+  });
+
+  it("refuses a run up front when today's Qloo budget can't cover a whole one", async () => {
+    const c = new MemoryCounter();
+    const cfg = { perMinute: 100, perIpDaily: 100, dailyCap: 100, qloo: { dailyCap: 300, runCap: 90 } };
+    for (let i = 0; i < 210; i++) await incrDaily(c, "qloo-calls", 0);
+    expect((await checkGuard("a", cfg, c, { now: 0 })).ok).toBe(true);
+    await incrDaily(c, "qloo-calls", 0);
+    const refused = await checkGuard("b", cfg, c, { now: 0 });
+    expect(refused).toMatchObject({ ok: false, status: 503 });
+    expect(refused.ok || refused.message).toMatch(/Qloo budget/);
+    // Reading the budget never spends it, and a refusal counts no run.
+    expect(await readDaily(c, "qloo-calls", 0)).toBe(211);
   });
 
   it("reads the first forwarded IP", () => {

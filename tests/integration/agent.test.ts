@@ -2,11 +2,11 @@
 import { describe, expect, it } from "vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
-import { qlooHealth, runTastemaker } from "@/lib/agent/run";
+import { RunDeadlineError, qlooHealth, runTastemaker } from "@/lib/agent/run";
 import { tasteCheck } from "@/lib/agent/tasteCheck";
 import type { RunEvent } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
-import type { Draft, DraftInput } from "@/lib/llm/types";
+import type { Choice, Draft, DraftInput } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
 import { must } from "../must";
@@ -238,6 +238,9 @@ describe("agent loop: failure paths", () => {
     const venue = must(r.baseline.receipts.find((x) => x.role === "venue"));
     expect(venue.name).toBe("Madison Square Garden");
     expect(venue.note).not.toMatch(/Not in/);
+    // Its pass bar comes from New York's venue pool, loaded in the audit step, not from the grounded city's.
+    const audit = must(r.trace.find((s) => s.id === "audit"));
+    expect(audit.calls.some((c) => c.path === "/v2/insights" && c.key.includes("urn%3Aentity%3Aplace") && c.key.includes("filter.location.query=New%20York"))).toBe(true);
   });
 
   it("keeps a finished grounded plan when the baseline draft fails, and marks the comparison unavailable", async () => {
@@ -257,6 +260,23 @@ describe("agent loop: failure paths", () => {
     expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/trend check failed/);
     expect(r.positioning).toEqual([]);
     expect(r.grounded.receipts.length).toBeGreaterThan(0);
+  });
+
+  it("never waits on a hung model past the run's deadline", async () => {
+    class HungChoice extends StubbornLLM {
+      override choose(): Promise<Choice[]> {
+        return new Promise<Choice[]>(() => undefined);
+      }
+    }
+    const r = await runTastemaker(PRESETS[0].brief, { ...deps(), llm: new HungChoice(), deadlineMs: 300 });
+    expect(r.trace.find((s) => s.id.startsWith("choose-"))?.detail).toMatch(/Out of time waiting for the model's choice/);
+
+    class HungDraft extends DeterministicLLM {
+      override draft(): Promise<Draft> {
+        return new Promise<Draft>(() => undefined);
+      }
+    }
+    await expect(runTastemaker(PRESETS[0].brief, { ...deps(), llm: new HungDraft(), deadlineMs: 100 })).rejects.toThrow(RunDeadlineError);
   });
 
   it("fails the run when the model can't draft at all (both plans need it)", async () => {
