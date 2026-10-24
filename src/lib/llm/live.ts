@@ -6,7 +6,8 @@
 import { ROLE_SPEC, type Role } from "../agent/brief";
 import type { ChatClient } from "./chat";
 import { coerceDraft, extractJson, LLMOutputError } from "./coerce";
-import type { Draft, DraftInput, LLMProvider, Replacement } from "./types";
+import { z } from "zod";
+import type { Choice, Draft, DraftInput, LLMProvider, Replacement } from "./types";
 
 const SYSTEM = `You are a senior marketing strategist planning a launch campaign.
 Return ONLY a JSON object, no prose, matching this TypeScript type:
@@ -53,6 +54,9 @@ export function buildDraftPrompt(input: DraftInput): string {
 }
 
 /** The campaign model: drafts and polishes plans through any ChatClient. */
+const CHOOSER = "You are a senior marketing strategist. You choose between options a taste-data API already approved. Return only JSON.";
+const Choices = z.object({ choices: z.array(z.object({ from: z.string().max(200), to: z.string().max(200), why: z.string().max(400) })).max(20) });
+
 export class LiveLLM implements LLMProvider {
   readonly id: string;
   readonly label: string;
@@ -79,6 +83,23 @@ export class LiveLLM implements LLMProvider {
 
   draft(input: DraftInput): Promise<Draft> {
     return this.completeDraft(buildDraftPrompt(input));
+  }
+
+  /**
+   * For each rejected pick, choose one of the Qloo-approved options that best fits
+   * the brief. The model decides; the caller only accepts names from the options.
+   */
+  async choose(replacements: Replacement[], input: DraftInput): Promise<Choice[]> {
+    const prompt = [
+      `Brief: ${input.brief.subject}: ${input.brief.product}. Goal: ${input.brief.goal}`,
+      "Qloo's taste check rejected these picks. For each, choose the replacement that best serves this brief from the Qloo-approved options (affinity for this audience in brackets). You may only choose a listed option.",
+      ...replacements.map((r) => `- ${r.role} "${r.from}" (${r.reason}) → options: ${(r.options ?? [{ name: r.to, affinity: NaN }]).map((o) => `${o.name} [${Number.isNaN(o.affinity) ? "?" : o.affinity.toFixed(2)}]`).join(", ")}`),
+      'Return only JSON: {"choices": [{"from": string, "to": string, "why": string (one short sentence)}]}',
+    ].join("\n");
+    const raw = extractJson(await this.chat.complete(CHOOSER, prompt));
+    const parsed = Choices.safeParse(raw);
+    if (!parsed.success) throw new LLMOutputError("choices are not in the required shape");
+    return parsed.data.choices;
   }
 
   /** Polish the copy around picks the critic already swapped in (code owns the pick list). */

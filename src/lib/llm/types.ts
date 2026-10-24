@@ -44,6 +44,15 @@ export interface Replacement {
   type: PickType;
   role: Role;
   reason: string;
+  /** Every Qloo-approved option for this swap, best first (`to` is the first until the model chooses). */
+  options?: { name: string; type: PickType; affinity: number }[];
+}
+
+/** The model's pick among a swap's Qloo-approved options, with its reason. */
+export interface Choice {
+  from: string;
+  to: string;
+  why: string;
 }
 
 export interface DraftInput {
@@ -61,6 +70,8 @@ export interface LLMProvider {
   draft(input: DraftInput): Promise<Draft>;
   /** Polish the copy of a draft whose picks the critic already swapped (the caller keeps the pick list). */
   revise(draft: Draft, replacements: Replacement[], input: DraftInput): Promise<Draft>;
+  /** Choose, for each swap, one of its Qloo-approved options for this brief. The caller validates every choice. */
+  choose(replacements: Replacement[], input: DraftInput): Promise<Choice[]>;
 }
 
 /**

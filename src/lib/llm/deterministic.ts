@@ -9,7 +9,7 @@
  * the benchmark refuses to report numbers produced by this provider.
  */
 import { ROLE_SPEC, type Brief, type PickType, type Role } from "../agent/brief";
-import type { Draft, DraftInput, LLMProvider, Pick } from "./types";
+import type { Choice, Draft, DraftInput, LLMProvider, Pick, Replacement } from "./types";
 
 type Guess = [name: string, type: PickType, why: string];
 
@@ -192,5 +192,10 @@ export class DeterministicLLM implements LLMProvider {
   /** The swaps are already applied by the caller; the scripted model leaves the copy as is. */
   revise(draft: Draft): Promise<Draft> {
     return Promise.resolve(draft);
+  }
+
+  /** The scripted model keeps Qloo's top option for every swap, and says so. */
+  choose(replacements: Replacement[]): Promise<Choice[]> {
+    return Promise.resolve(replacements.map((r) => ({ from: r.from, to: r.to, why: "scripted stand-in, keeps Qloo's top option" })));
   }
 }

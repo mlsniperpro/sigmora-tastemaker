@@ -124,6 +124,25 @@ describe("LiveLLM (OpenAI-compatible)", () => {
   });
 });
 
+describe("LiveLLM.choose", () => {
+  const reps = [
+    { from: "Ed Sheeran", to: "Victony", type: "artist" as const, role: "collab" as const, reason: "scores 0.10", options: [{ name: "Victony", type: "artist" as const, affinity: 0.8 }, { name: "Omah Lay", type: "artist" as const, affinity: 0.7 }] },
+  ];
+  it("asks the model to choose among the listed options only, and parses its choices", async () => {
+    const f = vi.fn(async (_u: string, init: RequestInit) => {
+      const body = sentJson(init) as { messages: { content: string }[] };
+      expect(body.messages.at(-1)?.content).toMatch(/Ed Sheeran.*options: Victony \[0\.80\], Omah Lay \[0\.70\]/);
+      return openai(JSON.stringify({ choices: [{ from: "Ed Sheeran", to: "Omah Lay", why: "late-night fit" }] }));
+    });
+    const brief = Brief.parse(PRESETS[0].brief);
+    await expect(live(f).choose(reps, { brief })).resolves.toEqual([{ from: "Ed Sheeran", to: "Omah Lay", why: "late-night fit" }]);
+  });
+  it("throws a typed error on a malformed answer (the caller then keeps Qloo's top options)", async () => {
+    const f = vi.fn(async () => openai(JSON.stringify({ picks: "nope" })));
+    await expect(live(f).choose(reps, { brief: Brief.parse(PRESETS[0].brief) })).rejects.toMatchObject({ name: "LLMOutputError" });
+  });
+});
+
 describe("LiveLLM (Anthropic Messages)", () => {
   it("posts to /v1/messages with x-api-key and joins text blocks", async () => {
     const f = vi.fn(async () => Response.json({ content: [{ type: "text", text: "Here:\n" }, { type: "text", text: JSON.stringify(draft) }] }));

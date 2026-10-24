@@ -13,14 +13,18 @@
 import { qlooFromEnv, type QlooClient } from "../qloo/client";
 import { AGE_BUCKETS } from "../qloo/types";
 import { llmFromEnv } from "../llm";
-import { applyReplacements, type Draft, type Grounding, type LLMProvider } from "../llm/types";
+import { applyReplacements, type Choice, type Draft, type Grounding, type LLMProvider } from "../llm/types";
 import { Brief, ROLE_SPEC, type BriefInput } from "./brief";
+import { applyChoices } from "./choose";
 import { rankCities } from "./cities";
 import { chooseReplacements, critique, metricsOf } from "./critic";
 import { audienceOf, discoveryFromConfig, isFading, loadCulture, loadTrends, loadVenues, makeCtx, resolveByName, resolveSeeds, signalFor, type CriticSettings, type Ctx, type Discovery } from "./context";
+import { unlistedMentions } from "./mentions";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
 import { newRunId, normName, sameName } from "./util";
+
+const mentionNote = (extra: readonly { name: string }[]) => (extra.length ? ` · named in the copy but not listed, so added: ${extra.map((e) => e.name).join(", ")}` : "");
 
 const emptyDraft = (): Draft => ({ positioning: "", hooks: [], script: "", captions: [], musicBrief: "", picks: [] });
 
@@ -236,17 +240,41 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     let receipts: Receipt[] = [];
     let rounds = 0;
     for (let round = 1; round <= maxRounds + 1; round++) {
-      const current = draft;
+      let current = draft;
       await followPlanCity(current);
       receipts = await tracer.step(`critic-${round}`, `Qloo critic, pass ${round} (filter.results.entities + explainability)`, async (s) => {
+        // Names the copy mentions without listing them are checked too.
+        const extra = await unlistedMentions(ctx, current, brief);
+        if (extra.length) current = draft = { ...current, picks: [...current.picks, ...extra] };
         const c = await critique(ctx, current.picks);
-        s.detail = critiqueDetail(c.receipts, c.warnings);
+        s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
         return c.receipts;
       });
       rounds = round;
       if (round > maxRounds || receipts.every((r) => r.verdict === "pass" || r.verdict === "unscored")) break;
-      const replacements = chooseReplacements(ctx, current.picks, receipts, tried);
-      if (!replacements.length) break;
+      const offered = chooseReplacements(ctx, current.picks, receipts, tried);
+      if (!offered.length) break;
+      // The model decides among Qloo-approved options; code accepts only those (applyChoices).
+      const replacements = await tracer.step(
+        `choose-${round}`,
+        `Model chooses among Qloo-approved replacements (round ${round})`,
+        async (s) => {
+          let choices: Choice[] = [];
+          let failed = "";
+          if (offered.some((r) => (r.options?.length ?? 0) > 1) && Date.now() - startedAt <= reviseDeadlineMs) {
+            try {
+              choices = await llm.choose(offered, { brief, grounding });
+            } catch (err) {
+              failed = ` · model choice failed (${err instanceof Error ? err.message : String(err)}); Qloo's top options kept`;
+            }
+          }
+          const c = applyChoices(offered, choices);
+          s.detail = c.notes.join("; ") + failed;
+          return c.replacements;
+        },
+        { model: llm.label },
+      );
+      for (const r of replacements) tried.add(normName(r.to));
       for (const rep of replacements) {
         const old = receipts.find((r) => r.role === rep.role && normName(r.name) === normName(rep.from));
         if (old) originals.set(`${rep.role}:${normName(rep.to)}`, originals.get(`${rep.role}:${normName(rep.from)}`) ?? old);
@@ -296,8 +324,10 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       // The baseline's venues are judged in the baseline's own city, not the grounded plan's.
       const ownCity = brief.targetCity ?? base.draft.picks.find((p) => p.role === "city")?.name ?? ctx.city;
       baselineReceipts = await tracer.step("audit", "Qloo audit of the baseline plan", async (s) => {
+        const extra = await unlistedMentions(ctx, base.draft, brief);
+        if (extra.length) base.draft = { ...base.draft, picks: [...base.draft.picks, ...extra] };
         const c = await critique({ ...ctx, city: ownCity }, base.draft.picks);
-        s.detail = critiqueDetail(c.receipts, c.warnings);
+        s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
         return c.receipts;
       });
     }

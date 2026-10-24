@@ -154,7 +154,8 @@ export function chooseReplacements(ctx: Ctx, picks: readonly PlanPick[], receipt
     if (r.verdict === "pass" || r.verdict === "unscored") continue;
     tried.add(normName(r.name));
     const pool: RankedCandidate[] = r.role === "city" && ctx.audience.targetCity ? [] : (ctx.candidates[r.role] ?? []);
-    const alt = pool.find((c) => !used.has(normName(c.name)) && !tried.has(normName(c.name)) && !(ROLE_SPEC[r.role].checkFading && isFading(ctx, c.entityId)));
+    const eligible = pool.filter((c) => !used.has(normName(c.name)) && !tried.has(normName(c.name)) && !(ROLE_SPEC[r.role].checkFading && isFading(ctx, c.entityId)));
+    const alt = eligible[0];
     if (!alt) continue;
     used.add(normName(alt.name));
     tried.add(normName(alt.name));
@@ -165,6 +166,7 @@ export function chooseReplacements(ctx: Ctx, picks: readonly PlanPick[], receipt
       type: alt.type,
       role: r.role,
       reason: `Qloo-preferred: ${alt.name} scores ${alt.affinity.toFixed(2)} for this audience; ${r.name} ${was}.`,
+      options: eligible.slice(0, 3).map(({ name, type, affinity }) => ({ name, type, affinity })),
     });
   }
   return out;
