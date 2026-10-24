@@ -5,7 +5,7 @@
  * by the simulator, with an injected 429) and an LLM host. A second test
  * records the live responses and replays them with the network off.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunEvent, RunResult } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { Brief } from "@/lib/agent/brief";
@@ -71,8 +71,14 @@ describe("e2e: /api/run in live mode against stubbed Qloo + LLM hosts", () => {
     vi.stubEnv("RATE_LIMIT_PER_MINUTE", "1");
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("streams a full live run, retries the 429, enforces ignored swaps, keeps secrets out, then rate-limits", async () => {
+    // The per-IP limit is a fixed one-minute window: start the clock just after a minute boundary so both
+    // requests below fall inside one window (the soak caught this test straddling a boundary).
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: new Date("2026-10-24T12:00:05Z") });
     const seen: Seen = { qloo: [], llm: 0, injected429: false };
     vi.stubGlobal("fetch", stubNetwork(seen));
     const { POST } = await import("@/app/api/run/route");

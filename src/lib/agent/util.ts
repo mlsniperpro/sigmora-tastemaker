@@ -1,13 +1,22 @@
+/** Words that don't distinguish one name from another ("The Weeknd", "Arsenal F.C."). */
+const NOISE = new Set(["the", "fc"]);
+
+const pairAt = (t: readonly string[]) => t.findIndex((x, k) => x === "f" && t[k + 1] === "c");
+
+/** Canonical form for name matching. Idempotent: normName(normName(s)) === normName(s). */
 export function normName(s: string): string {
-  return s
+  const tokens = s
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/['’]/g, "")
     .replace(/&/g, " and ")
-    .replace(/\b(the|f\.?c\.?)\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+    .split(" ")
+    .filter((t) => t && !NOISE.has(t));
+  // "F.C." arrives as the tokens "f", "c": drop such pairs until none is left (each pass shortens the list).
+  for (let i = pairAt(tokens); i !== -1; i = pairAt(tokens)) tokens.splice(i, 2);
+  return tokens.join(" ");
 }
 
 /**

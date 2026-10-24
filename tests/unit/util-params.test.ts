@@ -6,6 +6,11 @@ import { QlooParamError, assertParams, checkParams, requestKey } from "@/lib/qlo
 const name = fc.string({ minLength: 1, maxLength: 40 });
 
 describe("names", () => {
+  it("normName is idempotent on the soak counterexample and F.C. variants", () => {
+    for (const s of ["_fC", "f c c", "Arsenal F.C.", "F.C. Barcelona", "f the c"]) expect(normName(normName(s)), s).toBe(normName(s));
+    expect(normName("Arsenal F.C.")).toBe("arsenal");
+    expect(normName("The Weeknd")).toBe("weeknd");
+  });
   test.prop([fc.string({ maxLength: 60 })])("normName is idempotent", (s) => {
     expect(normName(normName(s))).toBe(normName(s));
   });
