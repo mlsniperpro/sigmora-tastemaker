@@ -33,6 +33,7 @@ import {
   tagDiscoveryParams,
   tagSignalFor,
   trendItems,
+  watchSimulated,
   type CriticSettings,
   type Ctx,
   type Discovery,
@@ -100,9 +101,13 @@ function groundingFor(ctx: Ctx, audience: RunResult["audience"], positioning: Ru
   return grounding;
 }
 
-const critiqueDetail = (c: Critique) => {
+/** One critic pass for the trace. On simulated data the verdict counts are placeholders, so only the number of picks checked is given. */
+const critiqueDetail = (c: Critique, simulated: boolean) => {
   const m = metricsOf(c.receipts);
-  const base = `${m.picks} picks · ${m.hallucinations} invented · ${m.misses} low-affinity · ${m.fading} fading · ${m.unscored} unscored`;
+  const base = simulated
+    ? // Unscored means "not checked", a fact about the run, not a simulated verdict.
+      `${m.picks} picks checked by the offline simulator (verdict counts hidden: simulated data)${m.unscored ? ` · ${m.unscored} unscored` : ""}`
+    : `${m.picks} picks · ${m.hallucinations} invented · ${m.misses} low-affinity · ${m.fading} fading · ${m.unscored} unscored`;
   return base + (c.cut ? ` · cut short (${c.cut})` : "") + (c.warnings.length ? ` · trend check failed: ${c.warnings.join("; ")}` : "");
 };
 
@@ -137,6 +142,9 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
   // Qloo calls stop earlier, leaving the model time to finish: a slow or crowded Qloo phase degrades the critic, never the route.
   qloo.setDeadline(startedAt + (opts.qlooDeadlineMs ?? 75_000));
   const unobserve = qloo.observe(tracer.onCall);
+  // Simulated answers carry placeholder numbers: once one arrives, trace details name no affinity, score or verdict count.
+  const watch = watchSimulated(qloo);
+  const sim = watch.sim;
 
   // The baseline needs no Qloo data, so it drafts while the grounded path runs. Never rejects.
   const baselineStart = Date.now();
@@ -153,7 +161,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       s.detail = `${ok.length}/${all.length} seeds resolved: ${ok.map((x) => x.matched ?? x.name).join(", ")}`;
       return all;
     });
-    const ctx = makeCtx(audienceOf(brief), qloo, seeds, { ...opts, discovery: opts.discovery ?? discoveryFromConfig() });
+    const ctx = makeCtx(audienceOf(brief), qloo, seeds, { ...opts, discovery: opts.discovery ?? discoveryFromConfig(), sim });
 
     const vibe = brief.vibe;
     if (vibe) {
@@ -178,9 +186,8 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       audience.age = agg.age;
       audience.gender = agg.gender;
       const top = [...audience.age].sort((a, b) => b.value - a.value)[0];
-      s.detail = top
-        ? `Strongest age over-index: ${top.bucket.replace(/_/g, " ")} (${top.value > 0 ? "+" : ""}${top.value.toFixed(2)})${rows.length > 1 ? `, mean of ${rows.length} seed rows` : ""}`
-        : "No demographic signal";
+      const value = sim.on ? "" : ` (${top && top.value > 0 ? "+" : ""}${top?.value.toFixed(2) ?? ""})`;
+      s.detail = top ? `Strongest age over-index: ${top.bucket.replace(/_/g, " ")}${value}${rows.length > 1 ? `, mean of ${rows.length} seed rows` : ""}` : "No demographic signal";
     });
     const tags = tracer.optional("tags", "Taste vocabulary (urn:tag)", async (s) => {
       const r = await qloo.insights("urn:tag", { ...tagSignalFor(ctx), ...tagDiscoveryParams(ctx.discovery), take: 10 });
@@ -209,7 +216,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           ctx.candidates.city = r.cities;
           where.heatmap = r.heatmap;
           where.rankedBy = r.rankedBy;
-          const top = r.cities.slice(0, 3).map((c) => `${c.name} ${c.affinity.toFixed(2)}`).join(" › ");
+          const top = r.cities.slice(0, 3).map((c) => (sim.on ? c.name : `${c.name} ${c.affinity.toFixed(2)}`)).join(" › ");
           s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.localityError ? ` (locality ranking failed: ${r.localityError})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}`;
         });
       }
@@ -321,7 +328,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
             });
           }
           const c = await critique(own, base.draft.picks);
-          s.detail = critiqueDetail(c) + mentionNote(mentions);
+          s.detail = critiqueDetail(c, sim.on) + mentionNote(mentions);
           return c.receipts;
         }).then(
           (receipts) => ({ receipts }),
@@ -351,7 +358,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
         if (extra.length) current = draft = { ...current, picks: [...current.picks, ...extra] };
         for (const e of extra) mentionedOnly.add(`${e.role}:${normName(e.name)}`);
         const c = await critique(ctx, current.picks);
-        s.detail = critiqueDetail(c) + mentionNote(mentions);
+        s.detail = critiqueDetail(c, sim.on) + mentionNote(mentions);
         return c;
       });
       receipts = pass.receipts;
@@ -372,7 +379,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
             try {
               choices = await byDeadline(llm.choose(offered, { brief, grounding }), deadlineAt, "the model's choice");
             } catch (err) {
-              failed = ` · model choice failed (${err instanceof Error ? err.message : String(err)}); Qloo's top options kept`;
+              failed = ` · model choice failed (${err instanceof Error ? err.message : String(err)}); ${sim.on ? "the simulator's" : "Qloo's"} top options kept`;
             }
           }
           // The model's own ideas go through the same Qloo critic before they can be used.
@@ -387,7 +394,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
               unchecked = ` · the model's own ideas weren't checked (${err instanceof Error ? err.message : String(err)})`;
             }
           }
-          const c = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts);
+          const c = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts, sim.on);
           s.detail = c.notes.join("; ") + failed + unchecked;
           return c.replacements;
         },
@@ -461,5 +468,6 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     return result;
   } finally {
     unobserve();
+    watch.stop();
   }
 }

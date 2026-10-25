@@ -8,6 +8,7 @@
  */
 import type { Draft, Pick as PlanPick } from "../llm/types";
 import type { Brief, PickType, Role } from "./brief";
+import type { QlooClient } from "../qloo/client";
 import { entityTypesOf, resolveByName, type Ctx } from "./context";
 import { normName, sameName } from "./util";
 
@@ -107,16 +108,24 @@ export interface Mentions {
   notes: string[];
 }
 
-/** Unlisted names that Qloo knows by exactly that name, as picks for the critic to check (searches capped). */
-export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Promise<Mentions> {
-  const all = candidateMentions(draft, brief, [...ctx.seedNames.values()]);
-  const searched = all.slice(0, MAX_MENTION_SEARCHES);
-  // Failed searches, grouped by reason: names per error message.
+export interface Known {
+  /** The names Qloo knows by exactly that name, each as a pick in the role its Qloo type fills. */
+  picks: PlanPick[];
+  /** Searches that failed (out of budget or time, or any Qloo error): names per reason. */
+  failed: Map<string, string[]>;
+}
+
+/**
+ * The names Qloo knows by exactly that name, as picks for the critic, each in the role its Qloo type
+ * fills (the caller caps the searches). A name Qloo can't find is dropped: from free text alone an
+ * invented name can't be told from an ordinary capitalised phrase. A failed search leaves that one
+ * name unchecked (and reported) rather than failing the caller.
+ */
+export async function knownNames(qloo: QlooClient, names: readonly string[], rationale: string): Promise<Known> {
   const failed = new Map<string, string[]>();
   const found = await Promise.all(
-    searched.map(async (name) => {
-      // A failed search (out of budget or time, or any Qloo error) leaves that one name unchecked rather than failing the plan.
-      const found = await resolveByName(ctx.qloo, name, { take: 3 }).catch((err: unknown) => {
+    names.map(async (name) => {
+      const found = await resolveByName(qloo, name, { take: 3 }).catch((err: unknown) => {
         const reason = err instanceof Error ? err.message : String(err);
         failed.set(reason, [...(failed.get(reason) ?? []), name]);
         return undefined;
@@ -125,13 +134,20 @@ export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Pr
       if (!hit || !sameName(hit.name, name)) return [];
       const type = entityTypesOf(hit).find((t): t is PickType => t in ROLE_FOR);
       const role = type ? ROLE_FOR[type] : undefined;
-      return type && role ? [{ name, type, role, rationale: "Named in the copy but not listed as a pick; added so the critic checks it." }] : [];
+      return type && role ? [{ name, type, role, rationale }] : [];
     }),
   );
+  return { picks: found.flat(), failed };
+}
+
+/** Unlisted names that Qloo knows by exactly that name, as picks for the critic to check (searches capped). */
+export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Promise<Mentions> {
+  const all = candidateMentions(draft, brief, [...ctx.seedNames.values()]);
+  const { picks, failed } = await knownNames(ctx.qloo, all.slice(0, MAX_MENTION_SEARCHES), "Named in the copy but not listed as a pick; added so the critic checks it.");
   const skipped = all.slice(MAX_MENTION_SEARCHES);
   const notes = [
     ...[...failed].map(([reason, names]) => `copy names not checked (${reason}): ${names.join(", ")}`),
     ...(skipped.length ? [`${skipped.length} more capitalised name${skipped.length === 1 ? "" : "s"} in the copy not searched (cap of ${MAX_MENTION_SEARCHES} searches)`] : []),
   ];
-  return { picks: found.flat(), notes };
+  return { picks, notes };
 }

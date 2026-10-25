@@ -214,3 +214,15 @@ Qloo depth and agent correctness (0 critical; 2 high, 3 medium, 2 low, all fixed
 - [x] D14 (medium) Overrun calls are charged to the reserved shares (D9)
 - [x] D15 (low) Entities Qloo omitted aren't re-scored every pass; the mention-search cap is shown in the trace
 - [x] D16 A malformed Qloo 200 is neither cached nor recorded as a fixture, and a cached entry that no longer validates is refetched (`client.test.ts`)
+
+Judge path and claims (0 critical; 2 high, 3 medium, 3 low, plus the biggest-gain suggestion, all done):
+
+- [x] D17 (high) No numbers on simulated runs anywhere: trace step details (verdict counts, affinities, metro scores), Taste Map values and the choose step say "simulator" and print no Qloo-looking numbers; live and replay runs keep them (`tests/integration/honest-numbers.test.ts`, `components.test.tsx`, e2e)
+- [x] D18 (high) The benchmark request count is re-measured (`pnpm benchmark` offline: 1949 requests, still "not a measurement"); docs/benchmark.md and BLOCKED.md quote it
+- [x] D19 (medium) The trend chip uses the critic's fading bar and shows a percent change
+- [x] D20 (medium) The sticky bar has a "Trace · N Qloo calls" jump link, so the trace is one tap away at 390 px (e2e)
+- [x] D21 (medium) "Re-run" (not "Re-run live") when the run's Qloo data is simulated
+- [x] D22 (low) Stale numbers fixed: ~76 calls in the route comment, the surface count in evidence-status, README screenshots retaken
+- [x] D23 (low) No text under 12 px at 390 px
+- [x] D24 (low) Sandbox receipt says "Sandbox: schedule computed, nothing posted."
+- [x] D25 Audit any AI's plan: paste a campaign from any model and the Qloo critic checks every name in it against the audience. A live model extracts the names (the deterministic scanner otherwise), invented ones come back not found, weak ones get Qloo-preferred replacements; one-click sample; budgeted like taste_check, Origin-checked, and only a budgeted audit counts toward the limits (`src/app/api/audit/route.ts`, `src/lib/agent/audit.ts`, `extract.ts`, `AuditPanel.tsx`; `audit.test.ts`, `extract.test.ts`, e2e)

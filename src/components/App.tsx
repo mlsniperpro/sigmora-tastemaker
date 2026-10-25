@@ -6,6 +6,8 @@ import { PRESETS } from "@/lib/agent/presets";
 import type { RunResult, Served } from "@/lib/agent/types";
 import { entityNames, placeholderReason } from "@/lib/agent/evidence";
 import { measureFromUrl, requestFromUrl, runIdFromUrl } from "@/lib/permalink";
+import { AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
+import { AuditPanel } from "./AuditPanel";
 import { BriefForm } from "./BriefForm";
 import { Intro } from "./Intro";
 import { CampaignPack } from "./CampaignPack";
@@ -40,23 +42,55 @@ export function RoiLine({ result, served }: { result: RunResult; served?: Served
   );
 }
 
-/** The With / Without Qloo switch. It stays pinned to the top of the screen so its effect is always in view. */
-function PlanToggle({ mode, setMode, result }: { mode: "qloo" | "without"; setMode: (m: "qloo" | "without") => void; result?: RunResult }) {
+/**
+ * The With / Without Qloo switch. It stays pinned to the top of the screen so its effect is always in view.
+ * Below the desktop layout (where the trace sits in the left rail) it also jumps to the trace, which is
+ * otherwise several screens down at phone width.
+ */
+function PlanToggle({
+  mode,
+  setMode,
+  result,
+  calls,
+  onTrace,
+}: {
+  mode: "qloo" | "without";
+  setMode: (m: "qloo" | "without") => void;
+  result?: RunResult;
+  /** Qloo calls in the trace so far. */
+  calls: number;
+  onTrace: () => void;
+}) {
   const flagged = result && !result.baseline.unavailable ? result.baseline.receipts.filter((r) => r.verdict === "miss" || r.verdict === "hallucination").length : 0;
   return (
     <div className="sticky top-0 z-30 -mx-4 border-b border-line bg-bg/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-bg/80 sm:-mx-6 sm:px-6">
       <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0 text-meta leading-snug text-muted" aria-live="polite">
-          {mode === "qloo" ? (
-            <>
-              <span className="font-semibold text-accent">With Qloo:</span> <span className="hidden sm:inline">the plan after the Qloo critic; </span>every pick has a receipt
-            </>
-          ) : (
-            <>
-              <span className="font-semibold text-miss">Without Qloo:</span> same model, no Qloo{flagged > 0 ? <span className="hidden sm:inline">; struck picks failed the check</span> : null}
-            </>
+        <div className="min-w-0">
+          {/* On a phone the toggle's pressed state says this, so the line gives its room to the trace link (still read out). */}
+          <p className="sr-only text-meta leading-snug text-muted sm:not-sr-only" aria-live="polite">
+            {mode === "qloo" ? (
+              <>
+                <span className="font-semibold text-accent">With Qloo:</span> <span className="hidden sm:inline">the plan after the Qloo critic; </span>every pick has a receipt
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-miss">Without Qloo:</span> same model, no Qloo{flagged > 0 ? <span className="hidden sm:inline">; struck picks failed the check</span> : null}
+              </>
+            )}
+          </p>
+          {calls > 0 && (
+            <a
+              href="#agent-trace"
+              onClick={(e) => {
+                e.preventDefault();
+                onTrace();
+              }}
+              className="whitespace-nowrap text-meta font-medium text-violet hover:underline lg:hidden"
+            >
+              Trace · {calls} Qloo calls ↓
+            </a>
           )}
-        </p>
+        </div>
         <div role="group" aria-label="Plan view" className="flex shrink-0 rounded-full border border-line bg-panel p-1 text-meta">
           <button
             type="button"
@@ -88,6 +122,8 @@ export function App() {
   const [initial] = useState(() => ({ measure: measureFromUrl(params), runId: runIdFromUrl(params), request: requestFromUrl(params) }));
   const [activePreset, setActivePreset] = useState(!initial.measure && !initial.runId && "preset" in initial.request ? initial.request.preset : undefined);
   const [copied, setCopied] = useState(false);
+  // Kept here so the toggle bar's jump link can open a collapsed trace.
+  const [traceCollapsed, setTraceCollapsed] = useState(false);
   // The brief form folds into a one-line summary once there is a run to look at.
   const [editing, setEditing] = useState(false);
   // A shared `?b=` brief is someone else's text: it is shown, and runs (spending the demo's budget) only on a click.
@@ -103,6 +139,16 @@ export function App() {
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
   const showForm = editing || (!result && !running);
   const runSimulated = !!result && result.qloo.simulated > 0;
+  const traceCalls = steps.reduce((n, s) => n + s.calls.length, 0);
+  const jumpToTrace = () => {
+    setTraceCollapsed(false);
+    // After the expanded steps render, so the scroll lands on the final layout.
+    requestAnimationFrame(() => {
+      const el = document.getElementById("agent-trace");
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      el?.focus({ preventScroll: true });
+    });
+  };
 
   return (
     <main className="mx-auto w-full max-w-[1400px] space-y-4 px-4 pb-5 pt-5 sm:px-6">
@@ -110,7 +156,7 @@ export function App() {
         <Intro>{result && <RoiLine result={result} served={served} />}</Intro>
       </header>
 
-      <PlanToggle mode={mode} setMode={setMode} result={result} />
+      <PlanToggle mode={mode} setMode={setMode} result={result} calls={traceCalls} onTrace={jumpToTrace} />
 
       <section aria-label="Brief" className="space-y-2 rounded-2xl border border-line bg-panel p-3 sm:p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -208,6 +254,7 @@ export function App() {
       {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">{error}</div>}
       {result && <DiffCard result={result} mode={mode} />}
       {result && <SourceBanner result={result} />}
+      <AuditPanel seeds={result?.brief.seeds ?? AUDIT_SAMPLE_AUDIENCE.seeds} ages={result?.brief.ages ?? AUDIT_SAMPLE_AUDIENCE.ages} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="order-3 min-w-0 lg:sticky lg:top-16 lg:order-1 lg:max-h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto">
@@ -216,8 +263,11 @@ export function App() {
             running={running}
             pending={pending}
             served={served && result ? { ...served, at: result.createdAt } : undefined}
-            // A preset served from the cache or a recording can be run live now ("fresh" skips both).
+            // A preset served from the cache or a recording can be run again now ("fresh" skips both); live only when Qloo is.
             onRerun={activePreset && served ? () => void run({ preset: activePreset, fresh: true }) : undefined}
+            rerunLive={!runSimulated}
+            collapsed={traceCollapsed}
+            setCollapsed={setTraceCollapsed}
             names={result ? entityNames(result) : undefined}
           />
         </div>

@@ -3,6 +3,14 @@
 import { useState } from "react";
 import type { RunResult } from "@/lib/agent/types";
 import type { ShipReceipt } from "@/lib/publisher";
+import { SIMULATED_LABEL, receiptNote } from "./Receipt";
+
+/** A flagged pick's note as the reader may see it: a simulated run's notes carry placeholder numbers, so its words replace them. */
+function flaggedNote(f: { verdict: string; note: string }, simulated: boolean): string {
+  if (!simulated) return f.note;
+  const verdict = Object.keys(SIMULATED_LABEL).find((v): v is keyof typeof SIMULATED_LABEL => v === f.verdict);
+  return verdict ? receiptNote({ verdict, note: f.note }, true) : "Flagged by the offline simulator.";
+}
 
 /** Ship the verified pack; once Sigmora has measured it, re-run with the picks that performed as the new seeds. */
 export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (campaignId: string) => void }) {
@@ -11,6 +19,7 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
   const [error, setError] = useState<string>();
   /** Picks the critic still flags; Ship asks before sending them. */
   const [flagged, setFlagged] = useState<{ name: string; verdict: string; note: string }[]>();
+  const simulated = result.qloo.simulated > 0;
 
   async function ship(acceptFlagged = false) {
     setBusy(true);
@@ -54,12 +63,15 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
       {flagged && (
         <div role="alertdialog" aria-label="Flagged picks" className="mt-3 space-y-1.5 rounded-lg border border-fade/40 bg-fade/10 p-2.5 text-meta text-fade">
           <p>
-            <strong>{flagged.length} pick{flagged.length > 1 ? "s" : ""} still failed the Qloo critic.</strong> Ship anyway, or pick another preset or brief.
+            <strong>
+              {flagged.length} pick{flagged.length > 1 ? "s" : ""} still failed {simulated ? "the simulated check" : "the Qloo critic"}.
+            </strong>{" "}
+            Ship anyway, or pick another preset or brief.
           </p>
           <ul className="list-disc pl-5">
             {flagged.map((f) => (
               <li key={f.name}>
-                {f.name}: {f.note}
+                {f.name}: {flaggedNote(f, simulated)}
               </li>
             ))}
           </ul>
@@ -80,7 +92,7 @@ export function ShipBar({ result, onMeasure }: { result: RunResult; onMeasure: (
               </li>
             ))}
           </ul>
-          <p className="font-mono text-label text-muted">campaign {receipt.campaignId}</p>
+          <p className="font-mono text-meta text-muted">campaign {receipt.campaignId}</p>
           {receipt.publisher === "sigmora" && (
             <p className="flex flex-wrap items-center gap-2 text-meta text-muted">
               <button type="button" onClick={() => onMeasure(receipt.campaignId)} className="rounded-lg border border-accent/60 px-3 py-1.5 text-accent">

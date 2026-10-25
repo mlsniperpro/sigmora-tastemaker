@@ -80,6 +80,11 @@ describe("the model's own ideas", () => {
     const { replacements, notes } = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts);
     expect(replacements.map((r) => r.to)).toEqual(["Burna Boy", "Ckay"]);
     expect(notes[0]).toMatch(/the model's own idea, which passed Qloo's check \(affinity 0\.71\): global reach/);
+    // On simulated data the same choice is told in words: no placeholder score, and the simulator is credited.
+    const sim = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts, true);
+    expect(sim.replacements.map((r) => r.to)).toEqual(["Burna Boy", "Ckay"]);
+    expect(sim.notes[0]).toMatch(/the model's own idea, which passed the simulator's check: global reach/);
+    expect(sim.notes.join(" ") + sim.replacements.map((r) => r.reason).join(" ")).not.toMatch(/affinity 0\.71|\(affinity/);
     expect(replacements[0]?.reason).toMatch(/proposed Burna Boy itself, and Qloo scored it above the bar/);
     expect(notes[1]).toMatch(/Qloo's top option: the model's own idea "Lagos Velvet Collective" came back hallucination/);
   });
@@ -116,19 +121,22 @@ describe("the model's choice in a run", () => {
     const step = r.trace.find((s) => s.id === "choose-1");
     expect(step?.detail).toMatch(/the model's own idea "Lagos Velvet Collective" came back hallucination/);
     expect(r.grounded.receipts.some((x) => x.name === "Lagos Velvet Collective")).toBe(false);
-    // The scripted model's own "Telfar" passes Qloo and replaces the low-affinity sponsor, verified again by the next critic pass.
+    // The scripted model's own "Telfar" passes the check and replaces the low-affinity sponsor, verified again by the next critic pass.
+    // This run's data is simulated, so the trace credits the simulator, not Qloo, and prints none of its placeholder scores.
     const scripted = await runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
-    expect(scripted.trace.find((s) => s.id === "choose-1")?.detail).toMatch(/→ Telfar \(the model's own idea, which passed Qloo's check/);
+    const chose = scripted.trace.find((s) => s.id === "choose-1")?.detail ?? "";
+    expect(chose).toMatch(/→ Telfar \(the model's own idea, which passed the simulator's check: /);
+    expect(chose).not.toMatch(/affinity|\d\.\d\d|Qloo's check/);
     expect(scripted.grounded.receipts.find((x) => x.name === "Telfar")?.verdict).toBe("pass");
   });
 
-  it("keeps Qloo's top options when the model's choice call fails", async () => {
+  it("keeps the critic's top options when the model's choice call fails, crediting the simulator on simulated data", async () => {
     class Broken extends DeterministicLLM {
       override choose(): Promise<Choice[]> {
         return Promise.reject(new Error("LLM 503"));
       }
     }
     const r = await runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new Broken() });
-    expect(r.trace.find((s) => s.id === "choose-1")?.detail).toMatch(/model choice failed \(LLM 503\); Qloo's top options kept/);
+    expect(r.trace.find((s) => s.id === "choose-1")?.detail).toMatch(/model choice failed \(LLM 503\); the simulator's top options kept/);
   });
 });

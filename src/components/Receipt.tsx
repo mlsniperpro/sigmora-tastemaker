@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Receipt, Verdict } from "@/lib/agent/types";
+import { FADING_BELOW } from "@/lib/vocab";
 
 export const VERDICT_STYLE: Record<Verdict, { label: string; cls: string; dot: string }> = {
   pass: { label: "Qloo-verified", cls: "text-pass border-pass/40 bg-pass/10", dot: "bg-pass" },
@@ -43,13 +44,26 @@ export const verdictLabel = (verdict: Verdict, simulated: boolean) => (simulated
 /** The one-line note for a pick; a simulated one gets words with no placeholder numbers. */
 export const receiptNote = (r: Pick<Receipt, "verdict" | "note">, simulated: boolean) => (simulated ? SIMULATED_NOTE[r.verdict] : r.note);
 
-function TrendMark({ trend, simulated }: { trend?: number; simulated: boolean }) {
+/** A signed percent change, e.g. "−4.2%" or "+1.2%". */
+const percentChange = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}%`;
+
+/**
+ * The newest /v2/trending reading, on the critic's own bar: "fading" below FADING_BELOW (as the
+ * critic's verdict), "rising" above the same distance up, otherwise steady. A simulated reading shows
+ * the direction only.
+ */
+export function TrendMark({ trend, simulated }: { trend?: number; simulated: boolean }) {
   if (trend === undefined) return null;
-  const up = trend > 0.1;
-  const down = trend < -0.1;
+  const down = trend < FADING_BELOW;
+  const up = trend > -FADING_BELOW;
+  const bar = `the critic marks a pick fading below ${percentChange(FADING_BELOW)}`;
+  const title = simulated
+    ? `Simulated trend; ${bar}`
+    : `Newest weekly /v2/trending population_percent_delta: ${percentChange(trend)}; ${bar}`;
   return (
-    <span className={up ? "text-pass" : down ? "text-fade" : "text-muted"} title={simulated ? "Simulated trend" : `/v2/trending velocity ${trend.toFixed(2)}`}>
-      {up ? "↗ rising" : down ? "↘ cooling" : "→ steady"}
+    <span className={up ? "text-pass" : down ? "text-fade" : "text-muted"} title={title}>
+      {up ? "↗ rising" : down ? "↘ fading" : "→ steady"}
+      {!simulated && <span className="font-mono"> {percentChange(trend)}</span>}
     </span>
   );
 }

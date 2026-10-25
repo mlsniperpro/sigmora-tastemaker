@@ -17,15 +17,22 @@ function Panel({ title, sub, children }: { title: string; sub?: string; children
   );
 }
 
-/** Signed over-index bars around a zero line (diverging: violet = over, grey = under). */
-function Diverging({ rows }: { rows: { label: string; value: number; hint?: string }[] }) {
+/**
+ * Signed over-index bars around a zero line (diverging: violet = over, grey = under).
+ * `plain`: simulated data, so the bars keep their shape and sign but print no value.
+ */
+function Diverging({ rows, plain }: { rows: { label: string; value: number; hint?: string }[]; plain: boolean }) {
   const max = Math.max(0.01, ...rows.map((r) => Math.abs(r.value)));
   return (
     <ul className="space-y-1.5">
       {rows.map((r) => {
         const w = (Math.abs(r.value) / max) * 50;
         return (
-          <li key={r.label} className="grid grid-cols-[6.5rem_1fr_2.5rem] items-center gap-2 text-caption" title={r.hint ?? `${r.label}: ${pct(r.value)}`}>
+          <li
+            key={r.label}
+            className={`grid items-center gap-2 text-caption ${plain ? "grid-cols-[6.5rem_1fr]" : "grid-cols-[6.5rem_1fr_2.5rem]"}`}
+            title={plain ? `${r.label}: ${r.value >= 0 ? "over-indexes" : "under-indexes"} (simulated)` : (r.hint ?? `${r.label}: ${pct(r.value)}`)}
+          >
             <span className="truncate text-ink/80">{r.label}</span>
             <span className="relative h-3">
               <span className="absolute left-1/2 top-0 h-3 w-px bg-line" aria-hidden />
@@ -34,7 +41,7 @@ function Diverging({ rows }: { rows: { label: string; value: number; hint?: stri
                 style={r.value >= 0 ? { left: "50%", width: `${w}%` } : { right: "50%", width: `${w}%` }}
               />
             </span>
-            <span className="text-right font-mono text-muted">{pct(r.value)}</span>
+            {!plain && <span className="text-right font-mono text-muted">{pct(r.value)}</span>}
           </li>
         );
       })}
@@ -64,7 +71,7 @@ function CityMap({ result }: { result: RunResult }) {
   const noTiles = useCallback(() => setTiles(false), []);
   if (!cells.length) return null;
   const caption = (
-    <p className="mt-1 text-label text-muted">
+    <p className="mt-1 text-meta text-muted">
       {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; brighter = higher affinity.` : "Metro affinity."}
       {result.cities[0] ? ` Numbered: top metros, ${result.cities[0].name} first (ranked by ${result.citiesRankedBy}).` : ""}
     </p>
@@ -81,6 +88,7 @@ function CityMap({ result }: { result: RunResult }) {
 }
 
 function SvgCityMap({ result, cells, located }: { result: RunResult; cells: readonly HeatCell[]; located: readonly MapCity[] }) {
+  const plain = result.qloo.simulated > 0;
   const max = Math.max(...cells.map((p) => p.affinity), 0.01);
   const winner = result.cities[0];
   // Draw weakest first so the strongest cells sit on top.
@@ -91,7 +99,7 @@ function SvgCityMap({ result, cells, located }: { result: RunResult; cells: read
         <polygon points={US.map(([lo, la]) => `${px(lo)},${py(la)}`).join(" ")} className="fill-panel stroke-line" strokeWidth={1} />
         {ordered.map((p, i) => (
           <circle key={i} cx={px(p.lon)} cy={py(p.lat)} r={2 + (p.affinity / max) * 7} className="fill-violet/40 stroke-bg" strokeWidth={1}>
-            <title>{`affinity ${p.affinity.toFixed(2)}`}</title>
+            {!plain && <title>{`affinity ${p.affinity.toFixed(2)}`}</title>}
           </circle>
         ))}
         {located.slice(0, 4).map((c, i) => (
@@ -103,7 +111,7 @@ function SvgCityMap({ result, cells, located }: { result: RunResult; cells: read
           </g>
         ))}
       </svg>
-      <p className="mt-1 text-label text-muted">
+      <p className="mt-1 text-meta text-muted">
         {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; size = affinity.` : "Metro affinity."} Labels: top metros
         {winner ? `, ${winner.name} first` : ""} (ranked by {result.citiesRankedBy}). Outline is stylized.
       </p>
@@ -111,18 +119,23 @@ function SvgCityMap({ result, cells, located }: { result: RunResult; cells: read
   );
 }
 
-function Rank({ rows }: { rows: { name: string; affinity: number }[] }) {
+/** Ranked bars; `plain` (simulated data) keeps the rank order and bar lengths but prints no score. */
+function Rank({ rows, plain }: { rows: { name: string; affinity: number }[]; plain: boolean }) {
   const max = Math.max(0.01, ...rows.map((r) => r.affinity));
   return (
     <ol className="space-y-1">
       {rows.map((r, i) => (
-        <li key={r.name} className="grid grid-cols-[1rem_6rem_1fr_2.2rem] items-center gap-2 text-caption" title={`${r.name}: ${r.affinity.toFixed(2)}`}>
+        <li
+          key={r.name}
+          className={`grid items-center gap-2 text-caption ${plain ? "grid-cols-[1rem_6rem_1fr]" : "grid-cols-[1rem_6rem_1fr_2.2rem]"}`}
+          title={plain ? `${r.name}: rank ${i + 1} (simulated)` : `${r.name}: ${r.affinity.toFixed(2)}`}
+        >
           <span className="font-mono text-muted">{i + 1}</span>
           <span className={`truncate ${i === 0 ? "font-semibold text-accent" : "text-ink/80"}`}>{r.name}</span>
           <span className="h-2 rounded bg-panel">
             <span className={`block h-2 rounded ${i === 0 ? "bg-accent" : "bg-violet/70"}`} style={{ width: `${(r.affinity / max) * 100}%` }} />
           </span>
-          <span className="text-right font-mono text-muted">{r.affinity.toFixed(2)}</span>
+          {!plain && <span className="text-right font-mono text-muted">{r.affinity.toFixed(2)}</span>}
         </li>
       ))}
     </ol>
@@ -142,6 +155,7 @@ const TYPE_LABEL: Record<string, string> = {
 
 /** Inputs (left) → picks (right); an edge where Qloo's explainability says that input drove that pick. */
 function AffinityWeb({ result }: { result: RunResult }) {
+  const plain = result.qloo.simulated > 0;
   const web = affinityWeb(result);
   if (!web.picks.length || !web.inputs.length) return null;
   const W = 320;
@@ -162,7 +176,7 @@ function AffinityWeb({ result }: { result: RunResult }) {
           strokeOpacity={0.2 + (e.weight / max) * 0.7}
           strokeWidth={0.75 + (e.weight / max) * 3}
         >
-          <title>{`${web.inputs[e.input] ?? ""} → ${web.picks[e.pick]?.name ?? ""}: explainability ${e.weight.toFixed(2)}`}</title>
+          <title>{`${web.inputs[e.input] ?? ""} → ${web.picks[e.pick]?.name ?? ""}${plain ? " (simulated)" : `: explainability ${e.weight.toFixed(2)}`}`}</title>
         </path>
       ))}
       {web.inputs.map((n, i) => (
@@ -176,11 +190,11 @@ function AffinityWeb({ result }: { result: RunResult }) {
       {web.picks.map((p, i) => (
         <g key={`${p.role}-${p.name}`}>
           <circle cx={xPick} cy={yPick(i)} r={4.5} className={p.verdict === "pass" ? "fill-pass" : p.verdict === "fading" ? "fill-fade" : "fill-miss"}>
-            <title>{`${p.name} (${TYPE_LABEL[p.type] ?? p.type}): affinity ${p.affinity?.toFixed(2) ?? "—"}`}</title>
+            <title>{`${p.name} (${TYPE_LABEL[p.type] ?? p.type})${plain ? "" : `: affinity ${p.affinity?.toFixed(2) ?? "—"}`}`}</title>
           </circle>
           <text x={xPick + 9} y={yPick(i)} dominantBaseline="middle" className="fill-ink" style={{ fontSize: 11 }}>
             {p.name.length > 16 ? `${p.name.slice(0, 15)}…` : p.name}
-            <tspan className="fill-muted" style={{ fontSize: 10.5 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
+            <tspan className="fill-muted" style={{ fontSize: 11.5 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
           </text>
         </g>
       ))}
@@ -188,8 +202,13 @@ function AffinityWeb({ result }: { result: RunResult }) {
   );
 }
 
+/**
+ * The Taste Map. On simulated data (no Qloo key) every panel keeps its shapes and ranks but prints no
+ * value: the simulator's numbers are placeholders, and the header says the data is simulated.
+ */
 export function TasteMap({ result }: { result: RunResult }) {
   const { audience } = result;
+  const plain = result.qloo.simulated > 0;
   const gap = result.positioning.slice(0, 6);
   return (
     <section aria-label="Taste Map" className="space-y-3 rounded-2xl border border-line bg-panel p-4">
@@ -202,8 +221,12 @@ export function TasteMap({ result }: { result: RunResult }) {
       </header>
 
       {audience.age.length > 0 && (
-        <Panel title="Who over-indexes" sub="urn:demographics — signed affinity vs. the average audience, ×100 (+ over-indexes, − under)">
+        <Panel
+          title="Who over-indexes"
+          sub={plain ? "urn:demographics — bar length and side show the simulated over- (right) or under-index (left); values hidden" : "urn:demographics — signed affinity vs. the average audience, ×100 (+ over-indexes, − under)"}
+        >
           <Diverging
+            plain={plain}
             rows={[
               ...audience.age.map((a) => ({ label: a.bucket.replace(/_/g, " "), value: a.value })),
               ...audience.gender.map((g) => ({ label: g.bucket, value: g.value })),
@@ -216,8 +239,9 @@ export function TasteMap({ result }: { result: RunResult }) {
         <Panel title="Taste vocabulary" sub="urn:tag — the words this audience's taste is described in (feeds the copy)">
           <ul className="flex flex-wrap gap-1.5">
             {audience.tags.map((t) => (
-              <li key={t.name} className="rounded-full border border-line px-2 py-0.5 text-caption text-ink/85" title={`affinity ${t.affinity.toFixed(2)}`}>
-                {t.name} <span className="font-mono text-muted">{t.affinity.toFixed(2)}</span>
+              <li key={t.name} className="rounded-full border border-line px-2 py-0.5 text-caption text-ink/85" title={plain ? undefined : `affinity ${t.affinity.toFixed(2)}`}>
+                {t.name}
+                {!plain && <span className="font-mono text-muted"> {t.affinity.toFixed(2)}</span>}
               </li>
             ))}
           </ul>
@@ -236,7 +260,11 @@ export function TasteMap({ result }: { result: RunResult }) {
           }
         >
           <CityMap result={result} />
-          {result.cities.length > 0 && <div className="mt-2"><Rank rows={result.cities.slice(0, 6)} /></div>}
+          {result.cities.length > 0 && (
+            <div className="mt-2">
+              <Rank rows={result.cities.slice(0, 6)} plain={plain} />
+            </div>
+          )}
         </Panel>
       )}
 
@@ -246,7 +274,7 @@ export function TasteMap({ result }: { result: RunResult }) {
 
       {gap.length > 0 && (
         <Panel title={`Positioning vs. ${result.compareTo}`} sub="/v2/analysis/compare — where your audience leans (+) or doesn't (−) vs. theirs">
-          <Diverging rows={gap.map((g) => ({ label: g.name, value: g.delta, hint: `${g.name}: yours ${g.a.toFixed(2)} vs theirs ${g.b.toFixed(2)}` }))} />
+          <Diverging plain={plain} rows={gap.map((g) => ({ label: g.name, value: g.delta, hint: `${g.name}: yours ${g.a.toFixed(2)} vs theirs ${g.b.toFixed(2)}` }))} />
         </Panel>
       )}
     </section>

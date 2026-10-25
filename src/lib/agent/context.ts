@@ -9,6 +9,7 @@ import type { QlooParams } from "../qloo/params";
 import { isQlooStop } from "../qloo/errors";
 import { AGE_BUCKETS, explainabilityOf, latestTrend, type Entity, type EntityType } from "../qloo/types";
 import type { Candidate } from "../llm/types";
+import { FADING_BELOW } from "../vocab";
 import { ROLE_SPEC, ROLES, type Brief, type PickType, type Role } from "./brief";
 import type { Driver } from "./types";
 import { isTitlePart, normName, sameName } from "./util";
@@ -37,7 +38,7 @@ export interface CriticSettings {
   fadingBelow: number;
 }
 
-export const DEFAULT_CRITIC: CriticSettings = { missRatio: 0.7, minAffinity: 0.25, fadingBelow: -3 };
+export const DEFAULT_CRITIC: CriticSettings = { missRatio: 0.7, minAffinity: 0.25, fadingBelow: FADING_BELOW };
 
 /** Who the plan is for. */
 export interface Audience {
@@ -108,6 +109,25 @@ export interface Ctx extends CriticSettings {
   inCity: Map<string, InCityCheck>;
   /** Launch city, when known; venues must be in it. */
   city?: string;
+  /**
+   * Set once any of this job's Qloo answers came from the offline simulator. Its numbers are placeholders,
+   * so text the agent writes (trace details, replacement reasons) then names no affinity, score or verdict count.
+   */
+  sim: SimulatedWatch;
+}
+
+/** Watches a job's Qloo calls for simulated answers (shared by the run and its Ctx). */
+export interface SimulatedWatch {
+  on: boolean;
+}
+
+/** A watch that starts on when the client can only simulate, and turns on at the first simulated answer. Returns it and the unsubscribe. */
+export function watchSimulated(qloo: QlooClient): { sim: SimulatedWatch; stop: () => void } {
+  const sim: SimulatedWatch = { on: qloo.primarySource === "simulated" };
+  const stop = qloo.observe((m) => {
+    if (m.source === "simulated") sim.on = true;
+  });
+  return { sim, stop };
 }
 
 export type InCityCheck = { ok: boolean; key: string } | { error: string };
@@ -202,7 +222,7 @@ export async function resolveByName(qloo: QlooClient, name: string, opts: { type
   return { hit, partOf: part?.name, key: r.meta.key, source: r.meta.source };
 }
 
-export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], settings: Partial<CriticSettings> & { discovery?: Discovery } = {}): Ctx {
+export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], settings: Partial<CriticSettings> & { discovery?: Discovery; sim?: SimulatedWatch } = {}): Ctx {
   const resolved = seeds.flatMap((s) => (s.entityId ? [{ id: s.entityId, name: s.name }] : []));
   return {
     ...DEFAULT_CRITIC,
@@ -219,6 +239,7 @@ export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], set
     scores: new Map(),
     resolved: new Map(),
     inCity: new Map(),
+    sim: settings.sim ?? { on: qloo.primarySource === "simulated" },
   };
 }
 

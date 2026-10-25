@@ -88,7 +88,7 @@ export function CampaignPack({ side, mode, runSimulated = false }: { side: PlanS
             items.map((r) => (
               <li key={`${role}-${r.name}`} className="space-y-1">
                 <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-label uppercase tracking-wider text-muted">{ROLE_LABEL[role]}</span>
+                  <span className="text-meta uppercase tracking-wider text-muted">{ROLE_LABEL[role]}</span>
                   <span className={`text-body font-medium ${r.verdict === "pass" ? "text-ink" : r.verdict === "fading" ? "text-fade" : r.verdict === "unscored" ? "text-muted" : "text-miss line-through"}`}>
                     {r.name}
                   </span>
@@ -116,7 +116,7 @@ export function CampaignPack({ side, mode, runSimulated = false }: { side: PlanS
         <ul className="space-y-1.5">
           {draft.captions.map((c) => (
             <li key={`${c.platform}-${c.text}`} className="text-body-sm leading-snug">
-              <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-label font-medium text-violet">{c.platform}</span>
+              <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-meta font-medium text-violet">{c.platform}</span>
               <Marked text={c.text} receipts={receipts} runSimulated={runSimulated} />
             </li>
           ))}

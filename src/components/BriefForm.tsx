@@ -5,10 +5,10 @@ import type { BriefInput } from "@/lib/agent/brief";
 import { briefFromForm, type FormFields } from "@/lib/agent/briefForm";
 import { AGE_BUCKETS, type AgeBucket } from "@/lib/vocab";
 
-const AGE_LABEL = (a: string) => a.replace(/_/g, " ").replace("and younger", "& under").replace("and older", "+");
-const INPUT = "mt-0.5 w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-body text-ink";
+export const AGE_LABEL = (a: string) => a.replace(/_/g, " ").replace("and younger", "& under").replace("and older", "+");
+export const INPUT = "mt-0.5 w-full rounded-lg border border-line bg-bg px-2 py-1.5 text-body text-ink";
 
-function Chips<T extends string>({ label, options, selected, toggle, name }: { label: string; options: readonly T[]; selected: (o: T) => boolean; toggle: (o: T) => void; name: (o: T) => string }) {
+export function Chips<T extends string>({ label, options, selected, toggle, name }: { label: string; options: readonly T[]; selected: (o: T) => boolean; toggle: (o: T) => void; name: (o: T) => string }) {
   return (
     <fieldset>
       <legend className="text-caption text-muted">{label}</legend>

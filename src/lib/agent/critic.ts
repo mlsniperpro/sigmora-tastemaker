@@ -271,20 +271,30 @@ export function chooseReplacements(ctx: Ctx, picks: readonly PlanPick[], receipt
     if (!alt) continue;
     used.add(normName(alt.name));
     tried.add(normName(alt.name));
+    // Simulated scores are placeholders: the reason then says what happened in words only.
+    const plain = ctx.sim.on;
     const was =
       r.verdict === "hallucination"
-        ? "isn't a Qloo entity"
+        ? plain
+          ? "isn't in the simulator's catalog"
+          : "isn't a Qloo entity"
         : r.verdict === "fading"
-          ? `is fading (trend ${r.trend?.toFixed(2)})`
+          ? plain || r.trend === undefined
+            ? "is fading"
+            : `is fading (trend ${r.trend.toFixed(2)})`
           : r.verdict === "unscored"
             ? "couldn't be scored"
-            : `scores ${r.affinity?.toFixed(2) ?? "below the bar"}`;
+            : plain || r.affinity === undefined
+              ? "scores below the bar"
+              : `scores ${r.affinity.toFixed(2)}`;
     out.push({
       from: r.name,
       to: alt.name,
       type: alt.type,
       role: r.role,
-      reason: `Qloo-preferred: ${alt.name} scores ${alt.affinity.toFixed(2)} for this audience; ${r.name} ${was}.`,
+      reason: plain
+        ? `Simulated preference: ${alt.name} clears the bar in the offline simulator; ${r.name} ${was}.`
+        : `Qloo-preferred: ${alt.name} scores ${alt.affinity.toFixed(2)} for this audience; ${r.name} ${was}.`,
       options: eligible.slice(0, 3).map(({ name, type, affinity }) => ({ name, type, affinity })),
     });
   }

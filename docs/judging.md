@@ -6,11 +6,11 @@
 
 ## The 3-click path
 
-1. **Open the demo.** The hero preset (indie Afro-fusion single launch) runs on load. Watch the **Agent trace** (left on desktop, bottom on mobile): every step names the Qloo endpoint and `filter.type` it called. Click a step to see each call's parameters, source and latency.
+1. **Open the demo.** The hero preset (indie Afro-fusion single launch) runs on load. Watch the **Agent trace** (left on desktop; on a phone, tap "Trace · N Qloo calls" in the sticky bar): every step names the Qloo endpoint and `filter.type` it called. Click a step to see each call's parameters, source and latency.
 2. **Click a receipt chip** in the Campaign pack. It shows the affinity, the pass bar, the explainability split across the seed entities, the trend, and the exact `GET` behind it. "Replaced" picks show what the critic threw out.
 3. **Flip "Without Qloo".** Same model, no Qloo access. Invented entities are pink, low-affinity picks red and struck through, fading references amber. The diff card at the top shows both sides for this run: what the plain model would have shipped, with its worst picks struck through, next to what the Qloo critic changed.
 
-Then try the other two presets, or "Your own brief" (paste names your audience loves, or a Spotify/IMDb link).
+Then try the other two presets, or "Your own brief" (paste names your audience loves, or a Spotify/IMDb link). To see Qloo audit another AI's work, open **Audit any AI's plan** under the diff card and click **Try a sample plan**, or paste a plan from any chatbot.
 
 ## Where each Qloo surface fires
 

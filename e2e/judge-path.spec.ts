@@ -48,7 +48,18 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   await trace.getByRole("button", { name: /Qloo critic, pass 1/ }).click();
   await expect(trace).toContainText("feature.explainability=true");
   await expect(trace).toContainText("filter.results.entities=");
-  await expect(page.getByRole("region", { name: "Taste Map" })).toBeVisible();
+  const map = page.getByRole("region", { name: "Taste Map" });
+  await expect(map).toBeVisible();
+  // No real data, no numbers: simulated runs show shapes and ranks only, and the trace names no verdict count or score.
+  if (simulated) {
+    await expect(map).toContainText("simulated data, not Qloo");
+    await expect(map).not.toContainText(/\d\.\d\d|[+−]\d/);
+    await expect(trace).toContainText("picks checked by the offline simulator");
+    await expect(trace).not.toContainText(/\d+ invented · |affinity \d|\d\.\d\d/);
+  } else {
+    await expect(map).toContainText(/\d\.\d\d/);
+    await expect(trace).toContainText(/\d+ invented · \d+ low-affinity/);
+  }
   await noHorizontalScroll(page);
   // Chart labels stay legible at phone width (rendered glyph boxes, not the declared size).
   const smallest = await page.getByRole("region", { name: "Taste Map" }).evaluate((el) => Math.min(...[...el.querySelectorAll("svg text")].map((t) => t.getBoundingClientRect().height)));
@@ -163,4 +174,52 @@ test("a shared ?b= brief is shown first and runs only on a click", async ({ page
   await finished(page);
   await expect(shared).toHaveCount(0);
   await noHorizontalScroll(page);
+});
+
+test("audit any AI's plan: the sample plan in one click, every name with a verdict", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const panel = page.getByRole("region", { name: "Audit any AI's plan" });
+  // Closed by default: one line under the diff card.
+  const toggle = panel.getByRole("button", { name: /Audit any AI's plan/ });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(panel.getByRole("button", { name: "Try a sample plan" })).toBeHidden();
+  await toggle.click();
+  await panel.getByRole("button", { name: "Try a sample plan" }).click();
+  await expect(panel.getByLabel("The plan, as the AI wrote it")).toHaveValue(/Collab targets: Ayra Starr/);
+  const results = panel.getByRole("region", { name: "Audit results" });
+  await expect(results.getByRole("listitem").first()).toBeVisible();
+  await expect(results).toContainText("Kemi Adebayo-Rhodes");
+  await expect(results).toContainText("The Highlife Hour");
+  const simulated = ((await results.textContent()) ?? "").includes("simulated data, not Qloo");
+  if (simulated) {
+    await expect(results.getByText("Simulated: not in catalog").first()).toBeVisible();
+    await expect(results).not.toContainText(/Not found in Qloo|Qloo-verified|\d\.\d\d/);
+  } else {
+    await expect(results.getByText("Not found in Qloo").first()).toBeVisible();
+    await expect(results).toContainText(/checked by Qloo: \d+ not found in Qloo/);
+  }
+  // Each verdict chip opens its receipt, as in the pack.
+  await results.getByRole("button", { expanded: false }).first().click();
+  await expect(results.getByRole("button", { expanded: true }).first()).toBeVisible();
+  await noHorizontalScroll(page);
+});
+
+test("the toggle bar jumps to the trace below the desktop layout", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const jump = page.getByRole("link", { name: /^Trace · \d+ Qloo calls/ });
+  if ((page.viewportSize()?.width ?? 0) >= 1024) {
+    // On desktop the trace is the left rail, already in view, so there is nothing to jump to.
+    await expect(jump).toBeHidden();
+    return;
+  }
+  const trace = page.getByRole("region", { name: "Agent trace" });
+  await trace.getByRole("button", { name: "Hide steps" }).click();
+  await page.getByRole("heading", { name: "Campaign pack", exact: true }).scrollIntoViewIfNeeded();
+  await jump.click();
+  // It opens the collapsed trace and lands on it.
+  await expect(trace.getByRole("button", { name: "Hide steps" })).toBeVisible();
+  await expect(trace.getByRole("heading", { name: "Agent trace" })).toBeInViewport();
+  await expect(trace).toBeFocused();
 });

@@ -92,7 +92,7 @@ export class SandboxPublisher implements PublisherProvider {
       publisher: "sandbox",
       campaignId: `sandbox-${plan.runId}`,
       posts: schedule(plan, now).map((s) => ({ ...s, status: "sandbox" })),
-      note: "Sandbox publisher: the schedule is real, nothing was posted. Connect Sigmora to publish to real channels.",
+      note: "Sandbox: schedule computed, nothing posted. Connect Sigmora to publish to real channels.",
     });
   }
 

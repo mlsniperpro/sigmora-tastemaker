@@ -21,6 +21,7 @@ Tastemaker plans a launch campaign for a creator or small brand (audience, launc
 5. Every surviving pick carries a **receipt**: affinity, pass bar, which seed drove it, trend, and the exact Qloo call.
 6. **Without Qloo:** one toggle shows the plan the same model writes with no Qloo access, with its misses struck through.
 7. **Ship:** the verified pack goes to Sigmora's publishing engine as a schedule (a labeled sandbox on the public demo).
+8. **Audit any AI's plan:** paste a campaign written by ChatGPT, Claude or anyone, and the same Qloo critic checks every cultural name in it against your audience, with a receipt and a Qloo-preferred replacement for each failure. One click runs it on a sample chatbot plan.
 
 ## Why it can't work without Qloo
 

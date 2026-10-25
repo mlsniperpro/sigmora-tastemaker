@@ -78,6 +78,9 @@ export function Trace({
   pending,
   served,
   onRerun,
+  rerunLive = true,
+  collapsed,
+  setCollapsed,
   names = new Map<string, string>(),
 }: {
   steps: TraceStep[];
@@ -86,21 +89,25 @@ export function Trace({
   pending: readonly string[];
   /** When the run is an earlier one: where it came from and when it originally ran. */
   served?: Served & { at: string };
-  /** Offered on a recorded run: run the preset live now. */
+  /** Offered on a recorded run: run the preset again now. */
   onRerun?: () => void;
+  /** The re-run calls live Qloo (false when this deployment can only simulate, so it isn't called "live"). */
+  rerunLive?: boolean;
+  /** Steps hidden (the owner keeps this, so the toggle bar's jump link can open the trace). */
+  collapsed: boolean;
+  setCollapsed: (c: boolean) => void;
   names?: ReadonlyMap<string, string>;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
   const calls = steps.reduce((n, s) => n + s.calls.length, 0);
   const surfaces = new Set(steps.flatMap((s) => s.calls.map((c) => surfaceOf(c.key))));
   return (
-    <section aria-label="Agent trace" className="rounded-2xl border border-line bg-panel p-4">
+    <section id="agent-trace" tabIndex={-1} aria-label="Agent trace" className="scroll-mt-16 rounded-2xl border border-line bg-panel p-4 outline-none">
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Agent trace</h2>
         <span className="font-mono text-meta text-muted">
           {calls} Qloo calls · {surfaces.size} Qloo surfaces
         </span>
-        <button type="button" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} className="text-meta text-violet hover:underline">
+        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="text-meta text-violet hover:underline">
           {collapsed ? "Show steps" : "Hide steps"}
         </button>
       </header>
@@ -108,7 +115,7 @@ export function Trace({
         <div role="status" className="mb-3 space-y-1.5 rounded-lg border border-line bg-panel-2 px-2.5 py-2 text-meta leading-snug text-muted">
           {onRerun && (
             <button type="button" onClick={onRerun} className="rounded-full bg-accent px-3 py-1 text-meta font-semibold text-accent-ink">
-              Re-run live
+              {rerunLive ? "Re-run live" : "Re-run"}
             </button>
           )}
           <p>

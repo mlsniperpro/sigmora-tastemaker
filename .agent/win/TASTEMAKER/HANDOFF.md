@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (from session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-25 ~09:25 UTC)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, resumed 2026-10-25 12:52 UTC; this file is current as of each push)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -39,37 +39,29 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight: the exact state of partial work
-- **`.agent/win/TASTEMAKER/wip-judge-audit4.patch`** is the UNFINISHED, uncommitted work of a stopped agent, a diff against **b190264** (not the current HEAD). The agent had finished the code and was updating docs when it stopped. It has NOT been tested or reviewed.
-- **What the patch is meant to do (judge audit 4, items 1–9):**
-  1. HIGH: no numbers on SIMULATED runs in the trace step details and Taste Map values.
-  2. HIGH: re-run `pnpm benchmark` offline, so docs/benchmark.md and BLOCKED.md quote the new request count. It was 1318; the auditor measured about 1949 after the per-entity trending change. BLOCKED.md and docs/benchmark.md still say 1318.
-  3. `TrendMark` in Receipt.tsx should use the critic's `fadingBelow` (-3) and show a percent change.
-  4. A "Trace · N calls" jump link at 390 px (the trace sits about 5 screens down).
-  5. "Re-run", not "Re-run live", on simulated runs.
-  6. Fix stale numbers: evidence-status "11+ surfaces" (check surfaces.ts) and the README screenshots (73 calls, Apple Music).
-  7. Make 10 px text 12 px at 390 px.
-  8. Clearer sandbox ship note: change `src/lib/publisher/index.ts` to "Sandbox: schedule computed, nothing posted." (the patch doesn't include this).
-  9. **The big one:** an "Audit any AI's plan" panel plus `src/app/api/audit/route.ts`. A judge pastes any LLM's campaign, and Qloo's `taste_check` audits every name in it. It needs `sameOrigin`, `floodGuard`, `admit` and `qlooBudget({fresh:true}, ip)` with reserve and release, the way `src/lib/mcp.ts` `tasteCheckTool` does.
-- **To use it:** `git apply --3way .agent/win/TASTEMAKER/wip-judge-audit4.patch`. Expect conflicts in run.ts, critic.ts, choose.ts and Trace.tsx, because b2529c4 changed critiqueDetail, mentions and the audit order. Then review it, test it, and finish the docs. If it doesn't apply cleanly, redo the items above by hand. Delete the patch file once it is merged or abandoned.
+## In flight
+- The WIP judge-audit patch is merged, reviewed, tested and applied (WIN-CHECKLIST D17–D25). The patch file is deleted.
+- The "Audit any AI's plan" panel is live: `src/app/api/audit/route.ts`, `src/lib/agent/{audit,extract}.ts`, `src/components/AuditPanel.tsx`.
+- **Last verified at this push:**
+  - lint and typecheck clean;
+  - `pnpm test` 34 files / 431 tests;
+  - `pnpm test:e2e` 16 passed;
+  - `pnpm benchmark` offline: 1949 requests (not a measurement);
+  - README screenshots retaken.
+- Nothing is running in the background.
 
 ## Next steps, in order
-1. Claim the LEASE.
-2. Merge or redo the patch above (items 1–9; item 9 has the biggest score impact). Re-run `pnpm benchmark` offline and update BLOCKED.md and docs with the new request count.
-3. Add the judge-audit-4 items (D17+) to WIN-CHECKLIST.md.
-4. Squash, run lint, typecheck, test and e2e, then push.
-5. Run a fresh full three-lens audit (fresh read-only agents). Fix what it finds, and repeat until **two audits in a row are clean**.
-6. Break-it on the final commit:
+1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).
+2. Break-it on the final commit:
    - `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`;
    - about 60 rounds of `FC_NUM_RUNS=500 FC_SEED=<random>`;
    - `pnpm test:e2e`;
    - a fresh clone of the pushed branch running the README commands;
    - the live-stub failure-injection tests.
-7. Write `.agent/win/TASTEMAKER/reaudit.md` (`AUDITED_COMMIT: <sha>`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT: <sha>`). Both are still stale: they name 3b25d12. Commit, push, and run the gate until it prints PASS.
-8. Update the PR body (status, Decisions, Self-review, expected load and where it breaks first), then post the final status comment.
+3. Write `.agent/win/TASTEMAKER/reaudit.md` (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT`). Both are still stale: they name 3b25d12. Commit, push, and run the gate until it prints PASS.
+4. Update the PR body (status, Decisions, Self-review, load), then post the final status comment.
 
 ## Open audit findings (not fixed)
-- Judge audit 4, items 1–9 above (in the patch, unverified). Items 1 and 2 are HIGH.
 - Accepted as decisions, already marked `[-]` in WIN-CHECKLIST:
   - C11: per-instance counters for rate limits during a KV outage. Budgets fail closed.
   - D7: the per-instance Qloo throttle.

@@ -77,7 +77,16 @@ export interface LLMProvider {
   revise(draft: Draft, replacements: Replacement[], input: DraftInput): Promise<Draft>;
   /** For each swap, choose one of its Qloo-approved options or propose an own idea. The caller verifies every answer with Qloo. */
   choose(replacements: Replacement[], input: DraftInput): Promise<Choice[]>;
+  /**
+   * List the cultural entities someone else's campaign text names, each with the role it plays there.
+   * Optional: the scripted model has none, and the deterministic scanner reads the text instead.
+   * The caller checks every name with Qloo, so an invented one comes back "not found".
+   */
+  extract?(text: string): Promise<NamedPick[]>;
 }
+
+/** A cultural entity named in a plan, without a rationale (what an audit checks). */
+export type NamedPick = Omit<Pick, "rationale">;
 
 /**
  * Swap names in every text field and in the pick list, in one pass: whole

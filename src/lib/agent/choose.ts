@@ -44,7 +44,8 @@ export function withOwnIdeas(offered: readonly Replacement[], proposals: readonl
   });
 }
 
-export function applyChoices(replacements: readonly Replacement[], choices: readonly Choice[], verdicts: readonly Receipt[] = []): Chosen {
+/** `simulated`: the scores are the offline simulator's placeholders, so notes and reasons name none of them. */
+export function applyChoices(replacements: readonly Replacement[], choices: readonly Choice[], verdicts: readonly Receipt[] = [], simulated = false): Chosen {
   const taken = new Set<string>();
   const notes: string[] = [];
   const out: Replacement[] = [];
@@ -58,25 +59,27 @@ export function applyChoices(replacements: readonly Replacement[], choices: read
     const byModel = wanted !== undefined && pick === wanted;
     const own = byModel && "own" in pick && pick.own === true;
     const list = options.filter((o) => !("own" in o && o.own)).map((o) => o.name).join(", ");
-    const score = Number.isNaN(pick.affinity) ? "" : ` (affinity ${pick.affinity.toFixed(2)})`;
+    const score = simulated || Number.isNaN(pick.affinity) ? "" : ` (affinity ${pick.affinity.toFixed(2)})`;
+    const whose = simulated ? "the simulator's" : "Qloo's";
+    const check = `${whose} check`;
     const failed = choice?.own && !byModel ? verdicts.find((v) => normName(v.name) === normName(choice.to)) : undefined;
     notes.push(
       own
-        ? `${r.from} → ${pick.name} (the model's own idea, which passed Qloo's check${score}: ${choice?.why ?? ""})`
+        ? `${r.from} → ${pick.name} (the model's own idea, which passed ${check}${score}: ${choice?.why ?? ""})`
         : byModel
           ? `${r.from} → ${pick.name} (model's choice from ${list}: ${choice?.why ?? ""})`
           : choice?.own
-            ? `${r.from} → ${pick.name} (Qloo's top option: the model's own idea "${choice.to}" ${failed ? `came back ${failed.verdict}` : "wasn't checked"})`
-            : `${r.from} → ${pick.name} (Qloo's top available option${choice ? `; the model's "${choice.to}" wasn't one of ${list}` : ""})`,
+            ? `${r.from} → ${pick.name} (${whose} top option: the model's own idea "${choice.to}" ${failed ? `came back ${failed.verdict}` : "wasn't checked"})`
+            : `${r.from} → ${pick.name} (${whose} top available option${choice ? `; the model's "${choice.to}" wasn't one of ${list}` : ""})`,
     );
     out.push({
       ...r,
       to: pick.name,
       type: pick.type,
       reason: own
-        ? `${r.reason} The model proposed ${pick.name} itself, and Qloo scored it above the bar${score}: ${choice?.why ?? ""}`
+        ? `${r.reason} The model proposed ${pick.name} itself, and ${simulated ? "the simulator" : "Qloo"} scored it above the bar${score}: ${choice?.why ?? ""}`
         : byModel
-          ? `${r.reason} The model chose ${pick.name} from Qloo-approved ${list}: ${choice?.why ?? ""}`
+          ? `${r.reason} The model chose ${pick.name} from ${simulated ? "the simulator's options" : "Qloo-approved"} ${list}: ${choice?.why ?? ""}`
           : r.reason,
     });
   }

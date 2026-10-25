@@ -1,13 +1,14 @@
 # Culture Miss Rate benchmark
 
-> **No measurement yet.** The last run (2026-10-24T16:59:06.596Z) does not count: drafts came from the scripted offline model, not an LLM; Qloo answers came from: simulated. Its numbers are not published here. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks, and all 30 briefs completed. Run `pnpm benchmark` with `QLOO_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` (and optionally `JUDGE_*`) set and `QLOO_DAILY_CALL_CAP` above 1318, the request count of that run.
+> **No measurement yet.** The last run (2026-10-25T12:55:48.601Z) does not count: drafts came from the scripted offline model, not an LLM; Qloo answers came from: simulated. Its numbers are not published here. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks, and all 30 briefs completed. Run `pnpm benchmark` with `QLOO_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` (and optionally `JUDGE_*`) set and `QLOO_DAILY_CALL_CAP` above 1949, the request count of that run.
 
 ## Method
 
 - 30 briefs (benchmark/briefs.ts): 10 music releases, 10 DTC city launches, 10 sports-club fan markets.
 - For each brief the **same model** drafts two plans: one with Qloo grounding and the Qloo critic loop, one with no Qloo access.
 - Every cultural entity each plan names is resolved with Qloo `/search` and scored with `/v2/insights` + `filter.results.entities` + `feature.explainability` against the brief's audience signal, with no trend bias or diversification on scoring calls.
-- **Hallucination rate:** named entities that do not resolve to any Qloo entity.
+- **Not-found ("hallucination") rate:** named entities with no match in a typed or an untyped Qloo `/search`. Real entities outside Qloo's catalogue land here too, so this is an upper bound on invention. A real entity Qloo files under another type counts as a miss for its role.
+- **Unscored:** picks Qloo returned no affinity for (or whose role had no candidate pool); they are excluded from every rate's denominator and shown in the Unscored column.
 - **Culture Miss Rate:** hallucinations plus resolved picks scoring below the pass bar (max(0.25, 0.7 × the median plain affinity of the candidates Qloo returned for that role: up to 10, brand and venue lists diversified by subtype, trend-biased lists re-scored without the bias); launch city: outside the top 3 ranked metros; venues: not in the launch city).
 - **Fading-reference rate:** hook references that clear the bar but whose newest /v2/trending reading (a 6-week window) has `population_percent_delta` below −3 (provisional until the first live recording).
 - The grounded plan is scored after the critic loop (up to 2 revise rounds), so it measures the shipped plan. The pass bar is the one the critic uses, so this measures what the product ships, not an independent judgment of taste — which is what the judge below is for.

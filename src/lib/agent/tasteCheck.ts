@@ -5,7 +5,7 @@ import type { Brief } from "./brief";
 import { chooseReplacements, critique, metricsOf } from "./critic";
 import { rankCities } from "./cities";
 import { PRESETS } from "./presets";
-import { discoveryFromConfig, loadCulture, loadVenues, makeCtx, resolveSeeds, type Audience, type CriticSettings } from "./context";
+import { discoveryFromConfig, loadCulture, loadVenues, makeCtx, resolveSeeds, watchSimulated, type Audience, type CriticSettings } from "./context";
 import type { Metrics, Receipt } from "./types";
 
 export interface TasteCheckInput {
@@ -31,9 +31,11 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
   const qloo = opts.qloo ?? qlooFromEnv();
   const sources = new Set<QlooSource>();
   const unobserve = qloo.observe((m) => sources.add(m.source));
+  // Replacement reasons name no placeholder score once an answer is simulated.
+  const watch = watchSimulated(qloo);
   try {
     const audience: Audience = { ages: input.ages, gender: input.gender, targetCity: input.city };
-    const ctx = makeCtx(audience, qloo, await resolveSeeds(qloo, { seeds: input.seeds, seedLinks: [] }), { ...opts, discovery: discoveryFromConfig() });
+    const ctx = makeCtx(audience, qloo, await resolveSeeds(qloo, { seeds: input.seeds, seedLinks: [] }), { ...opts, discovery: discoveryFromConfig(), sim: watch.sim });
     const picks: PlanPick[] = input.picks.map((p) => ({ ...p, rationale: "" }));
     // Only the candidate pools these picks need (thresholds and replacements come from them).
     await loadCulture(ctx, [...new Set(picks.map((p) => p.role))]);
@@ -46,6 +48,12 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
       if (named.length) {
         const pool = [...new Set([...named, ...(PRESETS[0].brief.candidateCities ?? [])])].slice(0, 16);
         ctx.candidates.city = (await rankCities(ctx, pool)).cities;
+        // Venues are judged in the city the plan itself names (as the agent judges its own plan's venues).
+        const planCity = named[0];
+        if (planCity && picks.some((p) => p.role === "venue")) {
+          ctx.city = planCity;
+          await loadVenues(ctx, planCity);
+        }
       }
     }
     const { receipts, warnings, cut } = await critique(ctx, picks);
@@ -58,5 +66,6 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
     };
   } finally {
     unobserve();
+    watch.stop();
   }
 }

@@ -1,8 +1,16 @@
 /** Components rendered to HTML on the server: what a reader sees for each verdict and source. */
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { AuditPanel, AuditResults, auditSummary } from "@/components/AuditPanel";
 import { CampaignPack } from "@/components/CampaignPack";
-import { ReceiptChip } from "@/components/Receipt";
+import { ReceiptChip, TrendMark } from "@/components/Receipt";
+import { TasteMap } from "@/components/TasteMap";
+import { Trace } from "@/components/Trace";
+import { auditPlan } from "@/lib/agent/audit";
+import { metricsOf } from "@/lib/agent/critic";
+import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
+import { FADING_BELOW } from "@/lib/vocab";
+import { must } from "../must";
 import { RoiLine } from "@/components/App";
 import { DiffCard, worstMisses } from "@/components/DiffCard";
 import { DEFAULT_CRITIC } from "@/lib/agent/context";
@@ -111,5 +119,102 @@ describe("CampaignPack highlighting", () => {
   it("says so when the plan without Qloo couldn't be drafted", () => {
     const html = text(renderToStaticMarkup(<CampaignPack side={{ draft, receipts: [], unavailable: "LLM 529" }} mode="without" />));
     expect(html).toMatch(/isn.t available on this run \(LLM 529\)/);
+  });
+});
+
+describe("TasteMap", () => {
+  it("draws shapes and ranks with no numeric labels on simulated data, under the simulated badge", async () => {
+    const run = await heroRun();
+    expect(run.audience.age.length).toBeGreaterThan(0);
+    expect(run.cities.length).toBeGreaterThan(0);
+    const html = renderToStaticMarkup(<TasteMap result={run} />);
+    const shown = text(html);
+    // What a reader can see: the text (SVG <title>s included) and every tooltip; not geometry or bar widths.
+    const readable = `${shown} ${[...html.matchAll(/title="([^"]*)"/g)].map((m) => m[1]).join(" ")}`;
+    expect(shown).toContain("simulated data, not Qloo");
+    expect(shown).toMatch(/values hidden/);
+    // No affinity, over-index or explainability value anywhere, tooltips included.
+    expect(readable).not.toMatch(/\d\.\d\d/);
+    expect(readable).not.toMatch(/[+−]\d/);
+    expect(readable).not.toMatch(/affinity \d|explainability \d/);
+    // The shapes and the rank order are still there: bars, the numbered metros, the web.
+    expect(html).toMatch(/bg-violet/);
+    expect(shown).toContain(`1 ${must(run.cities[0], "top city").name}`);
+    expect(html).toContain("Cross-domain affinity web");
+  });
+  it("labels every value on Qloo data", async () => {
+    const live = asLive(await heroRun());
+    const shown = text(renderToStaticMarkup(<TasteMap result={live} />));
+    expect(shown).not.toContain("simulated data, not Qloo");
+    expect(shown).toContain(must(live.cities[0], "top city").affinity.toFixed(2));
+    expect(shown).toContain(must(live.audience.tags[0], "a tag").affinity.toFixed(2));
+    expect(shown).toMatch(/[+-]\d+ /);
+  });
+});
+
+describe("TrendMark", () => {
+  const mark = (trend: number, simulated = false) => text(renderToStaticMarkup(<TrendMark trend={trend} simulated={simulated} />)).trim();
+  it("uses the critic's fading bar and shows the reading as a percent change", () => {
+    expect(FADING_BELOW).toBe(DEFAULT_CRITIC.fadingBelow);
+    // Just above the bar: steady, not cooling (the old chip called anything under -0.1 cooling).
+    expect(mark(FADING_BELOW + 0.5)).toBe("→ steady −2.5%");
+    expect(mark(-0.5)).toBe("→ steady −0.5%");
+    expect(mark(FADING_BELOW - 1.2)).toBe("↘ fading −4.2%");
+    expect(mark(-FADING_BELOW + 1)).toBe("↗ rising +4.0%");
+    const html = renderToStaticMarkup(<TrendMark trend={-4.2} simulated={false} />);
+    expect(html).toMatch(/population_percent_delta: −4\.2%; the critic marks a pick fading below −3\.0%/);
+    expect(html).not.toMatch(/velocity/);
+  });
+  it("gives the direction only on simulated data", () => {
+    expect(mark(-4.2, true)).toBe("↘ fading");
+    expect(renderToStaticMarkup(<TrendMark trend={-4.2} simulated />)).not.toMatch(/4\.2/);
+  });
+});
+
+describe("Trace re-run", () => {
+  const trace = (rerunLive: boolean) =>
+    text(
+      renderToStaticMarkup(
+        <Trace steps={[]} running={false} pending={[]} served={{ from: "recording", at: "2026-10-25T08:00:00Z" }} onRerun={() => undefined} rerunLive={rerunLive} collapsed={false} setCollapsed={() => undefined} />,
+      ),
+    );
+  it("says live only when the re-run calls live Qloo", () => {
+    expect(trace(true)).toContain("Re-run live");
+    expect(trace(false)).toContain("Re-run");
+    expect(trace(false)).not.toContain("Re-run live");
+  });
+});
+
+describe("AuditResults", () => {
+  const audited = () => auditPlan({ text: AUDIT_SAMPLE, ...AUDIT_SAMPLE_AUDIENCE }, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+  it("shows every name with the simulated chip and no numbers on simulated data", async () => {
+    const html = text(renderToStaticMarkup(<AuditResults result={await audited()} />));
+    expect(html).toContain("simulated data, not Qloo");
+    expect(html).toMatch(/\d+ names found and checked by the offline simulator/);
+    expect(html).toContain("Kemi Adebayo-Rhodes");
+    expect(html).toContain("Simulated: not in catalog");
+    expect(html).toContain("(the simulator's pick)");
+    expect(html).not.toMatch(/\d\.\d\d|Not found in Qloo|Qloo-verified|low-affinity/);
+    expect(html).toMatch(/deterministic scanner/);
+  });
+  it("counts verdicts and prints Qloo's numbers on Qloo data", async () => {
+    const sim = await audited();
+    const r = { ...sim, simulated: false, receipts: sim.receipts.map((x) => ({ ...x, source: "live" as const })) };
+    const html = text(renderToStaticMarkup(<AuditResults result={r} />));
+    expect(html).toContain(`checked by Qloo: ${String(r.metrics.hallucinations)} not found in Qloo · ${String(r.metrics.misses)} low-affinity`);
+    expect(html).toContain("Not found in Qloo");
+    expect(html).toMatch(/affinity \d\.\d\d/);
+    expect(html).toContain("(Qloo's pick)");
+    expect(html).not.toContain("simulated data, not Qloo");
+  });
+  it("explains an audit that found no names", () => {
+    expect(auditSummary({ receipts: [], metrics: metricsOf([]), simulated: true })).toMatch(/No cultural names found/);
+  });
+  it("starts closed, with the sample one click away", () => {
+    const html = renderToStaticMarkup(<AuditPanel seeds={["Tems"]} ages={["25_to_29"]} />);
+    expect(html).toMatch(/aria-expanded="false"/);
+    expect(html).toMatch(/hidden=""/);
+    expect(text(html)).toContain("Audit any AI's plan");
+    expect(text(html)).toContain("Try a sample plan");
   });
 });

@@ -28,6 +28,8 @@ Open the demo and click a preset:
 
 Then flip **Without Qloo**, and click any receipt chip to see the Qloo call behind it.
 
+**Audit any AI's plan.** Open the panel under the diff card, paste a campaign that ChatGPT, Claude or anyone wrote (up to 4,000 characters), or click **Try a sample plan**, and the same Qloo critic judges every cultural name in it against the audience: names Qloo can't find, low-affinity and fading picks, each with a receipt and a Qloo-preferred replacement. With a live model configured, the model lists the names (`LiveLLM.extract`); offline, a deterministic scanner takes every name on a labelled line ("Collab targets: …"), invented ones included, plus other names Qloo knows by that exact name (`src/lib/agent/extract.ts`, `POST /api/audit`).
+
 ## How the agent works
 
 ```

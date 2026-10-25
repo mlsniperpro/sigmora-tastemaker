@@ -23,6 +23,12 @@ export const ROLE_LABEL: Record<Role, string> = {
   city: "Launch city",
 };
 
+/**
+ * The critic calls a pick fading when the newest /v2/trending `population_percent_delta`
+ * (a percent change) is below this; the receipt chip uses the same bar.
+ */
+export const FADING_BELOW = -3;
+
 /** Run ids and publisher campaign ids appear in URLs, so their charsets are tight. */
 export const RUN_ID_RE = /^[a-z0-9]{1,40}$/;
 export const CAMPAIGN_ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
