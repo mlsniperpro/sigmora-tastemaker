@@ -1,97 +1,106 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, took over from session_01GU9AevzaBAt2vnPTdZEP2L on 2026-10-25 08:07 UTC)
+# TASTEMAKER handoff (from session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-25 ~09:25 UTC)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
 - **Dates:**
   - Freeze: 2026-10-29 15:00 UTC (fixes only after that).
   - Deadline: 2026-10-31 03:45 UTC.
-- **PR:** mlsniperpro/sigmora-tastemaker#1 (branch `tastemaker` → `main`). Keep exactly one PR. Update the PR body status with the gate's last line.
+- **PR:** mlsniperpro/sigmora-tastemaker#1 (branch `tastemaker` → `main`). Keep exactly one PR, and update its body with the gate's last line.
 - **Rules:**
   - read AGENTS.md and docs/PLAYBOOK.md first;
-  - substantial pushes at least 45 minutes apart;
-  - run `pnpm lint && pnpm typecheck && pnpm test` (plus e2e) before each push;
+  - pushes at least 45 minutes apart;
+  - squash WIP before pushing;
+  - run `pnpm lint && pnpm typecheck && pnpm test` and `pnpm test:e2e` before each push;
   - never edit `.agent/win-gate.sh`;
   - never weaken a test;
   - secrets only from env;
   - no model identifiers in commits or code.
 
 ## Done (evidence)
-- **WIN-CHECKLIST.md:** every judging criterion, playbook item and audit finding is mapped to evidence.
-  - Sections A1–A35 (audit 1), O1–O8 (owner audit), B1–B17 (audit 2).
-  - 0 open items.
-- **Audit 3 (on 4ef5b36) found 0 critical and 2 high.** Fixed in the last code commit (`handoff:` parent, "Re-audit 3 fixes"):
-  - **High: budget.** `QlooClient.reserve/release` (src/lib/qloo/client.ts) reserves `QLOO_RUN_ESTIMATE` calls atomically and refunds the unspent ones. Wired into src/app/api/run/route.ts and src/lib/mcp.ts. Tests are in tests/integration/client.test.ts.
-  - **High: platforms in the copy.** The `CHANNELS` stop-list in src/lib/agent/mentions.ts keeps streaming services, social networks and stores out of picks. Mention-only picks are flagged and never swapped (`mentionedOnly` in run.ts). Tests are in tests/unit/mentions.test.ts.
-  - **Medium.** When the Qloo budget or deadline runs out, the critic returns `unscored` instead of throwing (`critique` in critic.ts, `isQlooStop` in qloo/errors.ts). The Qloo deadline is 75 s (`setDeadline`). Tests are in tests/integration/agent.test.ts ("finishes the plan with unscored picks…").
-  - **Low.** MCP `plan_campaign` honours `fresh`.
-- **Last verified on that commit:** lint and typecheck clean; `pnpm test` 27 files / 308 tests passed.
-  - Not yet run on it: e2e, build, soak, fresh clone.
-  - Last full e2e run (12 passed) and build were on 4ef5b36.
-- **Gate's last line (on 4ef5b36):** `GATE: FAIL (5)`, failing on:
-  - stale reaudit.md and break-it.md (they still say 3b25d12);
-  - the soak's process id in pids;
-  - an uncommitted pids file.
-  - `checks.sh` itself passes.
+- **Re-audit 3 and re-audit 4:** each ran as three parallel hostile audits (security, Qloo depth, judge path).
+  - Every finding is mapped in WIN-CHECKLIST.md: C1–C39 (audit 3) and D1–D16 (audit 4: security plus Qloo).
+  - D1–D16 are fixed in the handoff commit's parent (`b2529c4`, "Qloo contract fixes, Qloo-verified model ideas, re-audit 4 hardening").
+- **Main changes this session:**
+  - Owner sessions are HMAC-signed, expiring tokens (`src/lib/publisher/owner.ts`).
+  - The Qloo budget is split into a presets pool and a custom pool, with per-preset and per-network (IPv6 /64) shares; impossible settings fail at startup.
+    - Code: `src/lib/guard.ts` `qlooBudget`, `src/lib/config.ts` `budgetProblems`, `src/lib/qloo/client.ts` `reserve/release`.
+    - The budget fails closed (`budgetCounter`).
+  - Flood guard; CSP and security headers (`next.config.ts`).
+  - A refused cold preset shows its last run (`runCache.ts` `lastRun`; `tests/e2e/stub-live-fallback.test.ts`).
+  - Qloo contract fixes, checked against the docs: trending dates and series, compare `results[]`, diversify only where documented, multi-seed demographics, fine ages, explainability warnings. Tests: `tests/unit/qloo-contract.test.ts`, `tests/integration/failure-paths.test.ts`.
+  - The model may propose its own replacement idea, and the Qloo critic scores it before it can be used (`src/lib/agent/choose.ts` `ownProposals`/`withOwnIdeas`; `tests/unit/choose.test.ts`).
+  - Honest metrics (`judged` counts; null rate when fewer than half judged).
+  - UI: the first-screen DiffCard, a sticky With/Without toggle, the brief folded to one line, simulated-data labels on chips (`src/components/DiffCard.tsx`, `Receipt.tsx`).
+- **Last verified on b2529c4:**
+  - lint and typecheck clean;
+  - `pnpm test` 31 files / 403 tests passed;
+  - `pnpm test:e2e` 12 passed;
+  - `pnpm demo` hero 76 Qloo calls (DTC 60, sports 76; the reservation is 80).
+- **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
+- **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (2026-10-25 09:05 UTC, session_01PRg5xX3d1yQyMW528USmNf)
-- **Pushed eba9860 (08:55):** the audit-3 security fixes plus the judge-path UI (diff card, sticky toggle, simulated labels).
-- **Local, not yet pushed (squash before pushing, at 09:40 or later):**
-  - the Qloo contract fixes (trending, compare, diversify, demographics, honest metrics);
-  - model-proposed replacements verified by Qloo (`choose.ts` `ownProposals`/`withOwnIdeas`);
-  - the benchmark validity rule;
-  - the audit-4 security fixes: preset and custom pools, last-run fallback, Origin on /api/run, owner attempt limit, fail-closed budget counter, the cookie sandbox fallback, overruns charged to the shares.
-- **Audit 4 ran on b190264** (three lenses). Security is fixed (WIN-CHECKLIST D1–D9).
-- **Two worktree agents are running** (`.claude/worktrees/`, both reset to b190264). Cherry-pick their commits when they report:
-  - Judge path + "Audit any AI's plan" panel: no numbers on simulated runs in the trace and Taste Map, the TrendMark threshold, a trace jump link, "Re-run" without "live" on simulated runs, 12 px text, README screenshots, `/api/audit` plus the panel, and a re-run of the offline benchmark (it gives the new request count for BLOCKED.md and the benchmark docs; the old figure was 1318, now about 1949).
-  - Qloo audit-4 fixes: the explainability warning and null-affinity schema, per-pick degrade on a budget or deadline cut, no swaps after a cut pass, not starving the audit, optional own-idea scoring, a venue city 400, mentions errors, the compare shape warning, and omitted-entity rescoring.
-- **Soak on b190264:** a `FC_NUM_RUNS=100000` deep pass (380/380, 209 s) and 60 seeded `FC_NUM_RUNS=500` rounds, with no failure. Redo it on the final commit for break-it.md.
+## In flight: the exact state of partial work
+- **`.agent/win/TASTEMAKER/wip-judge-audit4.patch`** is the UNFINISHED, uncommitted work of a stopped agent, a diff against **b190264** (not the current HEAD). The agent had finished the code and was updating docs when it stopped. It has NOT been tested or reviewed.
+- **What the patch is meant to do (judge audit 4, items 1–9):**
+  1. HIGH: no numbers on SIMULATED runs in the trace step details and Taste Map values.
+  2. HIGH: re-run `pnpm benchmark` offline, so docs/benchmark.md and BLOCKED.md quote the new request count. It was 1318; the auditor measured about 1949 after the per-entity trending change. BLOCKED.md and docs/benchmark.md still say 1318.
+  3. `TrendMark` in Receipt.tsx should use the critic's `fadingBelow` (-3) and show a percent change.
+  4. A "Trace · N calls" jump link at 390 px (the trace sits about 5 screens down).
+  5. "Re-run", not "Re-run live", on simulated runs.
+  6. Fix stale numbers: evidence-status "11+ surfaces" (check surfaces.ts) and the README screenshots (73 calls, Apple Music).
+  7. Make 10 px text 12 px at 390 px.
+  8. Clearer sandbox ship note: change `src/lib/publisher/index.ts` to "Sandbox: schedule computed, nothing posted." (the patch doesn't include this).
+  9. **The big one:** an "Audit any AI's plan" panel plus `src/app/api/audit/route.ts`. A judge pastes any LLM's campaign, and Qloo's `taste_check` audits every name in it. It needs `sameOrigin`, `floodGuard`, `admit` and `qlooBudget({fresh:true}, ip)` with reserve and release, the way `src/lib/mcp.ts` `tasteCheckTool` does.
+- **To use it:** `git apply --3way .agent/win/TASTEMAKER/wip-judge-audit4.patch`. Expect conflicts in run.ts, critic.ts, choose.ts and Trace.tsx, because b2529c4 changed critiqueDetail, mentions and the audit order. Then review it, test it, and finish the docs. If it doesn't apply cleanly, redo the items above by hand. Delete the patch file once it is merged or abandoned.
 
 ## Next steps, in order
-1. Merge both agents' commits; resolve conflicts in run.ts and choose.ts. Apply the sandbox note wording and the benchmark count they report.
-2. Add WIN-CHECKLIST items D10+ for the judge and Qloo audit-4 findings.
-3. Squash the WIP commits, run lint, typecheck, test and e2e, then push (45 minutes or more after the last push).
-4. Run a full three-lens audit again (fresh agents, read-only). Fix what it finds, and repeat until two audits in a row are clean.
-5. Break-it on the final commit:
-   - the deep soak;
-   - 60 seeded rounds;
+1. Claim the LEASE.
+2. Merge or redo the patch above (items 1–9; item 9 has the biggest score impact). Re-run `pnpm benchmark` offline and update BLOCKED.md and docs with the new request count.
+3. Add the judge-audit-4 items (D17+) to WIN-CHECKLIST.md.
+4. Squash, run lint, typecheck, test and e2e, then push.
+5. Run a fresh full three-lens audit (fresh read-only agents). Fix what it finds, and repeat until **two audits in a row are clean**.
+6. Break-it on the final commit:
+   - `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`;
+   - about 60 rounds of `FC_NUM_RUNS=500 FC_SEED=<random>`;
    - `pnpm test:e2e`;
    - a fresh clone of the pushed branch running the README commands;
-   - failure injection (the live-stub tests).
-6. Write reaudit.md (`AUDITED_COMMIT`, 0/0, `CLEAN_AUDITS_IN_A_ROW: 2`) and break-it.md (`TESTED_COMMIT`), commit, push, and run the gate until it prints PASS.
-7. Update the PR body (status, Decisions, Self-review) and post the final status comment.
+   - the live-stub failure-injection tests.
+7. Write `.agent/win/TASTEMAKER/reaudit.md` (`AUDITED_COMMIT: <sha>`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT: <sha>`). Both are still stale: they name 3b25d12. Commit, push, and run the gate until it prints PASS.
+8. Update the PR body (status, Decisions, Self-review, expected load and where it breaks first), then post the final status comment.
+
+## Open audit findings (not fixed)
+- Judge audit 4, items 1–9 above (in the patch, unverified). Items 1 and 2 are HIGH.
+- Accepted as decisions, already marked `[-]` in WIN-CHECKLIST:
+  - C11: per-instance counters for rate limits during a KV outage. Budgets fail closed.
+  - D7: the per-instance Qloo throttle.
+  - C39: a non-budget error in the grounded critic's first pass still fails the run; presets then fall back to their recording or last run.
 
 ## Key decisions (why)
-- **Qloo is the critic inside the loop:**
-  - the model chooses only among Qloo-approved replacements (`applyChoices`);
-  - the pass bar is the higher of 0.25 and 0.7 × the median of Qloo's own candidates, which is circular by design, so the UI says so;
-  - the honest comparison is the baseline's miss and invented counts, and the blind judge.
-- **Owner-only live publishing:** visitors always get the sandbox, because the demo must stay free and open through Nov 16 without anyone posting as the brand.
-- **Preset recordings:** presets serve recorded live runs, so judges see results instantly and spend no quota.
-- **Refuse before spending:** a run reserves its Qloo budget up front, so it is never refused half-way.
-- **No made-up numbers:** `unscored` instead of 0, and simulated data is labelled.
-- **Local build allowed:** `next build` runs locally because checks.sh requires it.
-- **Repo tracking:** `.agent/` and WIN-CHECKLIST.md stay tracked because the owner's gate requires them.
+- **Qloo is the critic inside the loop.**
+  - The model chooses among Qloo's above-bar options, or proposes its own idea, which Qloo must pass. That makes it agentic, not a fixed pipeline, and no unverified name reaches the plan.
+  - The pass bar is max(0.25, 0.7 × the pool median). That's circular by design, and the UI says so.
+- **Budget pools, not one cap.** Presets and custom briefs can't starve each other, and no one network can take the custom pool. A run is refused before it spends; refused runs don't count toward the run cap.
+- **Fail closed on the money counter, fail open on rate limits during a KV outage:** a free demo must stay up, but it must not overspend.
+- **No numbers on simulated data** (playbook §7). Recorded runs and owner-only live publishing are as in the earlier HANDOFF: visitors always get the sandbox.
+- **Real Ship only for preset runs or runs served to the signed-in owner,** so an injected brief can't be posted as the brand.
+- **`next build` runs locally,** because checks.sh requires it. `.agent/` and WIN-CHECKLIST.md stay tracked for the gate. `.claude/worktrees/` is gitignored.
 
 ## Commands
 - **Install:** `pnpm install --frozen-lockfile`
 - **Checks:** `pnpm lint && pnpm typecheck && pnpm test`
-- **E2E:** `pnpm test:e2e`. Set `PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium` if a preinstalled Chromium is present.
-- **Build:** `pnpm build`
-- **Run:** `pnpm dev`. `pnpm demo` gives a terminal run; it prints the trace and the count of Qloo requests.
-- **Screenshots:** `pnpm screenshots <url>` (needs a running server).
-- **Gate:** `bash .agent/win-gate.sh TASTEMAKER`. It runs `.agent/win/TASTEMAKER/checks.sh`.
+- **E2E:** `PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium pnpm test:e2e`
+- **Build and run:** `pnpm build`; `pnpm dev`
+- **Demo:** `pnpm demo [indie-release|dtc-city|sports-club]` prints the trace and the Qloo call count.
+- **Benchmark (offline):** `pnpm benchmark`
+- **Deep property tests:** `pnpm test:deep`
+- **Gate:** `bash .agent/win-gate.sh TASTEMAKER` (runs `.agent/win/TASTEMAKER/checks.sh`)
 
-## Owner-only blockers (see BLOCKED.md)
-- `QLOO_API_KEY`; then run `pnpm fixtures:record` and `pnpm runs:record`, and verify the live calls.
+## Owner-only blockers (BLOCKED.md has the checklist)
+- `QLOO_API_KEY`: hackathon.api.qloo.com is reachable from cloud sessions (401 without a key). Then run `pnpm fixtures:record` and `pnpm runs:record`.
 - `LLM_*` and `JUDGE_*` keys.
-- Vercel deploy and env.
-- KV.
-- Sigmora `/v1` plus `SIGMORA_OWNER_KEY`.
-- Qloo judging quota, then raise `QLOO_DAILY_CALL_CAP`.
-- Live benchmark run.
-- Make the repo public and merge (MIT licence in About).
-- GitHub Actions billing: CI gets no runners.
-- Devpost submission, after retaking the screenshots on the live URL.
-- Dogfood campaign.
-- Brand tokens.
-- Video footage.
+- Vercel project and env vars; KV.
+- Sigmora `/v1` plus `SIGMORA_OWNER_KEY` (12+ distinct characters).
+- The judging-period Qloo quota (then raise `QLOO_DAILY_CALL_CAP` and the pools).
+- A live benchmark run.
+- Make the repo public and merge (MIT licence in About); GitHub Actions billing.
+- Devpost submission; dogfood campaign; brand tokens; video. The owner was notified by push at 08:2x UTC.
