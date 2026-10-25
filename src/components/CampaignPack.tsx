@@ -4,7 +4,7 @@ import { Fragment } from "react";
 import { ROLE_LABEL, ROLES } from "@/lib/vocab";
 import type { PlanSide, Receipt, Verdict } from "@/lib/agent/types";
 import { annotation } from "@/lib/agent/evidence";
-import { ReceiptChip, VERDICT_STYLE } from "./Receipt";
+import { ReceiptChip, VERDICT_STYLE, isSimulated, receiptNote } from "./Receipt";
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -12,7 +12,7 @@ const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const STRUCK: ReadonlySet<Verdict> = new Set(["miss", "hallucination"]);
 
 /** Marks every named entity in a text field with its verdict. */
-function Marked({ text, receipts }: { text: string; receipts: Receipt[] }) {
+function Marked({ text, receipts, runSimulated }: { text: string; receipts: Receipt[]; runSimulated: boolean }) {
   const names = [...new Set(receipts.map((r) => r.name))].sort((a, b) => b.length - a.length);
   if (!names.length) return <>{text}</>;
   // Whole words only, any case: "Tems" mustn't mark "Temsy", and "the weeknd" should mark "The Weeknd".
@@ -25,7 +25,7 @@ function Marked({ text, receipts }: { text: string; receipts: Receipt[] }) {
         if (r.verdict === "pass") return <span key={i} className="text-ink underline decoration-pass/60 decoration-2 underline-offset-2">{part}</span>;
         const v = VERDICT_STYLE[r.verdict];
         return (
-          <span key={i} className={`rounded px-0.5 ${v.cls} ${STRUCK.has(r.verdict) ? "line-through decoration-2" : ""}`} title={r.note}>
+          <span key={i} className={`rounded px-0.5 ${v.cls} ${STRUCK.has(r.verdict) ? "line-through decoration-2" : ""}`} title={receiptNote(r, isSimulated(r, runSimulated))}>
             {part}
           </span>
         );
@@ -43,7 +43,12 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "without" }) {
+/**
+ * One campaign plan with every pick's receipt. `runSimulated`: the run's Qloo
+ * answers came from the offline simulator, so verdicts are labelled simulated and
+ * carry no numbers (receipts with a source of their own say so themselves).
+ */
+export function CampaignPack({ side, mode, runSimulated = false }: { side: PlanSide; mode: "qloo" | "without"; runSimulated?: boolean }) {
   const { draft, receipts } = side;
   if (side.unavailable) {
     return (
@@ -58,12 +63,12 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
     <section aria-label="Campaign pack" className="space-y-4 rounded-2xl border border-line bg-panel p-4">
       <header className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold tracking-wide text-ink">{mode === "qloo" ? "Campaign pack" : "Campaign pack — without Qloo"}</h2>
-        <span className="text-label text-muted">{mode === "qloo" ? "every pick carries a receipt" : "same model, no Qloo access; audited by Qloo"}</span>
+        <span className="text-meta text-muted">{mode === "qloo" ? "every pick carries a receipt" : runSimulated ? "same model, no Qloo access; audited by the simulator" : "same model, no Qloo access; audited by Qloo"}</span>
       </header>
 
       <Block title="Positioning">
         <p className="text-lead leading-relaxed text-ink">
-          <Marked text={draft.positioning} receipts={receipts} />
+          <Marked text={draft.positioning} receipts={receipts} runSimulated={runSimulated} />
         </p>
       </Block>
 
@@ -71,7 +76,7 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
         <ul className="space-y-2">
           {draft.hooks.map((h, i) => (
             <li key={i} className="rounded-lg border border-line bg-panel-2/60 p-2.5 text-body leading-snug">
-              <Marked text={h} receipts={receipts} />
+              <Marked text={h} receipts={receipts} runSimulated={runSimulated} />
             </li>
           ))}
         </ul>
@@ -93,8 +98,8 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
                     </span>
                   )}
                 </div>
-                {r.verdict !== "pass" && <p className="text-caption leading-snug text-muted">{annotation(r)}</p>}
-                <ReceiptChip r={r} />
+                {r.verdict !== "pass" && <p className="text-meta leading-snug text-muted">{isSimulated(r, runSimulated) ? receiptNote(r, true) : annotation(r)}</p>}
+                <ReceiptChip r={r} runSimulated={runSimulated} />
               </li>
             )),
           )}
@@ -103,7 +108,7 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
 
       <Block title="30-second script">
         <p className="text-body-sm leading-relaxed text-ink/90">
-          <Marked text={draft.script} receipts={receipts} />
+          <Marked text={draft.script} receipts={receipts} runSimulated={runSimulated} />
         </p>
       </Block>
 
@@ -112,7 +117,7 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
           {draft.captions.map((c) => (
             <li key={`${c.platform}-${c.text}`} className="text-body-sm leading-snug">
               <span className="mr-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-label font-medium text-violet">{c.platform}</span>
-              <Marked text={c.text} receipts={receipts} />
+              <Marked text={c.text} receipts={receipts} runSimulated={runSimulated} />
             </li>
           ))}
         </ul>
@@ -120,7 +125,7 @@ export function CampaignPack({ side, mode }: { side: PlanSide; mode: "qloo" | "w
 
       <Block title="Music & visual brief">
         <p className="text-body-sm leading-relaxed text-ink/90">
-          <Marked text={draft.musicBrief} receipts={receipts} />
+          <Marked text={draft.musicBrief} receipts={receipts} runSimulated={runSimulated} />
         </p>
       </Block>
     </section>

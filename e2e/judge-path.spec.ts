@@ -21,9 +21,18 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   // Where the numbers came from is said plainly, and placeholder numbers are blanked.
   await expect(page.getByRole("note")).toContainText(/Simulated Qloo data|Replayed Qloo responses/);
   await expect(page.getByRole("note")).toContainText("Scripted model");
-  const scoreboard = page.getByLabel("Scoreboard");
-  await expect(scoreboard).toContainText("not shown");
-  await expect(scoreboard).not.toContainText("%");
+  const simulated = ((await page.getByRole("note").textContent()) ?? "").includes("Simulated Qloo data");
+  // The core idea is on the first screen: the same model with and without Qloo, from this run's own receipts.
+  const diff = page.getByRole("region", { name: "With and without Qloo" });
+  await expect(diff).toContainText("Same model, no Qloo");
+  await expect(diff).toContainText("With the Qloo critic");
+  await expect(diff).toContainText("not shown");
+  await expect(diff).not.toContainText("%");
+  const top = await diff.boundingBox();
+  expect(top?.y ?? Infinity, "the diff card starts in the first viewport").toBeLessThan(page.viewportSize()?.height ?? 0);
+  // The plain model's worst picks, struck through with their notes.
+  await expect(diff.locator(".line-through").first()).toBeVisible();
+  if (simulated) await expect(diff).not.toContainText(/Not found in Qloo|\d\.\d\d/);
 
   // Every pick carries a receipt that opens.
   const pack = page.getByRole("region", { name: "Campaign pack" });
@@ -46,12 +55,22 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   expect(smallest).toBeGreaterThanOrEqual(9);
 
   // The same model without Qloo, audited by Qloo.
+  // The toggle stays on screen while the reader is down in the pack.
   const view = page.getByRole("group", { name: "Plan view" });
+  await pack.getByRole("heading", { name: "Cultural picks" }).scrollIntoViewIfNeeded();
+  await expect(view).toBeInViewport();
   await view.getByRole("button", { name: "Without Qloo" }).click();
+  await expect(view.getByRole("button", { name: "Without Qloo" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("heading", { name: "Campaign pack — without Qloo" })).toBeVisible();
-  // Failures are annotated inline, not only on hover.
-  await expect(pack.getByText(/Qloo affinity \d\.\d\d: .*Qloo's .*candidates/).first()).toBeVisible();
-  await expect(pack.getByText("Not found in Qloo").first()).toBeVisible();
+  // Failures are annotated inline, not only on hover; simulated verdicts say so and print no numbers.
+  if (simulated) {
+    await expect(pack.getByText("Simulated: not in catalog").first()).toBeVisible();
+    await expect(pack.getByText(/offline simulator/).first()).toBeVisible();
+    await expect(pack).not.toContainText(/Not found in Qloo|Qloo-verified|affinity \d\.\d\d/);
+  } else {
+    await expect(pack.getByText(/Qloo affinity \d\.\d\d: .*Qloo's .*candidates/).first()).toBeVisible();
+    await expect(pack.getByText("Not found in Qloo").first()).toBeVisible();
+  }
   await view.getByRole("button", { name: "With Qloo" }).click();
   await expect(page.getByRole("heading", { name: "Campaign pack", exact: true })).toBeVisible();
 
@@ -84,7 +103,7 @@ test("a run permalink opens that exact run, in a fresh browser", async ({ page, 
   await finished(other);
   await expect(other).toHaveURL(permalink);
   // It's the stored run, and the trace says so.
-  await expect(other.getByRole("region", { name: "Agent trace" })).toContainText("Replay of a finished run");
+  await expect(other.getByRole("region", { name: "Agent trace" })).toContainText("Instant: this exact run finished at");
   await expect(other.getByRole("region", { name: "Campaign pack" })).toHaveText(first);
   await other.close();
 });
@@ -115,7 +134,10 @@ test("the city map draws real tiles, and falls back to the SVG map when the tile
 test("a custom brief from the brief bar: a Spotify link alone, a fixed city and a comparable", async ({ page }) => {
   await page.goto("/?preset=indie-release");
   await finished(page);
+  // Once a run is on screen the brief folds to one line; "Edit brief" opens the form.
   const bar = page.getByRole("form", { name: "Your own brief" });
+  await expect(bar).toBeHidden();
+  await page.getByRole("button", { name: "Edit brief" }).click();
   await bar.getByLabel(/Spotify artist \/ IMDb link/).fill("https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq");
   await bar.getByRole("button", { name: /More details/ }).click();
   await bar.getByLabel("Who's launching").fill("Kofi Vale");

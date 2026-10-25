@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CampaignPack } from "@/components/CampaignPack";
 import { ReceiptChip } from "@/components/Receipt";
-import { Scoreboard } from "@/components/Scoreboard";
+import { RoiLine } from "@/components/App";
+import { DiffCard, worstMisses } from "@/components/DiffCard";
 import { DEFAULT_CRITIC } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
@@ -13,26 +14,66 @@ import { Draft } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
 
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, "&");
 const receipt = (o: Partial<Receipt>): Receipt => ({ name: "Tems", type: "artist", role: "collab", verdict: "pass", drivers: [], calls: [], note: "n", ...o });
 const heroRun = () => runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
 
-describe("Scoreboard", () => {
-  it("shows no numbers for a simulated, scripted run, and says why", async () => {
-    const html = text(renderToStaticMarkup(<Scoreboard result={await heroRun()} />));
+/** The run as if Qloo had answered live and a real model had drafted it (receipts keep their own sources unless `relabel`). */
+const asLive = (r: RunResult, relabel = false): RunResult => ({
+  ...r,
+  llm: { ...r.llm, scripted: false },
+  qloo: { ...r.qloo, live: r.qloo.calls, simulated: 0 },
+  ...(relabel ? { baseline: { ...r.baseline, receipts: r.baseline.receipts.map((x) => ({ ...x, source: "live" as const })) } } : {}),
+});
+
+describe("DiffCard", () => {
+  it("shows no numbers for a simulated, scripted run, says why, and labels its verdicts simulated", async () => {
+    const html = text(renderToStaticMarkup(<DiffCard result={await heroRun()} mode="qloo" />));
     expect(html).not.toMatch(/\d+%/);
+    expect(html).not.toMatch(/\d\.\d\d/);
     expect(html).toMatch(/simulated Qloo data and a scripted stand-in model/);
+    expect(html).toMatch(/Same model, no Qloo — of 10 picks flagged/);
+    expect(html).toContain("Simulated: not in catalog");
+    expect(html).not.toContain("Not found in Qloo");
   });
-  it("shows the rates for a live run with a real model, and blanks the baseline when it failed", async () => {
-    const r = await heroRun();
-    const live: RunResult = { ...r, llm: { ...r.llm, scripted: false }, qloo: { ...r.qloo, live: r.qloo.calls, simulated: 0 } };
-    const html = text(renderToStaticMarkup(<Scoreboard result={live} />));
+  it("counts the run's own receipts for a live run with a real model, and blanks the baseline when it failed", async () => {
+    const live = asLive(await heroRun(), true);
+    const b = live.metrics.baseline;
+    const html = text(renderToStaticMarkup(<DiffCard result={live} mode="without" />));
+    expect(html).toContain(`${b.hallucinations} invented · ${b.misses} low-affinity · ${b.fading} fading`);
+    expect(html).toContain(`${b.hallucinations + b.misses + b.fading} of ${b.picks} picks flagged`);
     expect(html).toMatch(/\d+%.*\d+%/);
+    // The worst misses carry their own notes, names Qloo can't find first.
+    const worst = worstMisses(live.baseline.receipts);
+    expect(worst).toHaveLength(3);
+    expect(worst[0]?.verdict).toBe("hallucination");
+    for (const w of worst) expect(html).toContain(w.note);
     // The after-critic rate is labelled as circular, with the bar the critic actually uses.
     expect(html).toContain(`the higher of ${DEFAULT_CRITIC.minAffinity} and ${DEFAULT_CRITIC.missRatio} × their median affinity`);
     expect(html).toMatch(/near zero by construction/);
-    const noBase = text(renderToStaticMarkup(<Scoreboard result={{ ...live, baseline: { ...live.baseline, unavailable: "LLM 529" } }} />));
+    const noBase = text(renderToStaticMarkup(<DiffCard result={{ ...live, baseline: { ...live.baseline, unavailable: "LLM 529" } }} mode="qloo" />));
     expect(noBase).toMatch(/failed this run \(LLM 529\)/);
+  });
+});
+
+describe("RoiLine", () => {
+  it("counts no misses on a placeholder run and labels it simulated", async () => {
+    const html = text(renderToStaticMarkup(<RoiLine result={await heroRun()} />));
+    expect(html).not.toMatch(/would have shipped wrong/);
+    expect(html).toMatch(/simulated Qloo calls/);
+    expect(html).toMatch(/simulated: no miss count/);
+  });
+  it("states the measured miss count on a live run with a real model", async () => {
+    const html = text(renderToStaticMarkup(<RoiLine result={asLive(await heroRun())} served={{ from: "cache" }} />));
+    expect(html).toMatch(/\d+ of the plain model's picks would have shipped wrong/);
+    expect(html).toMatch(/\(when it first ran\)/);
+    expect(html).not.toMatch(/simulated/);
   });
 });
 
@@ -47,6 +88,15 @@ describe("ReceiptChip", () => {
     const scored = text(renderToStaticMarkup(<ReceiptChip r={receipt({ affinity: 0.81, drivers: [{ name: "Rema", score: 0.2 }, { name: "Asake", score: 0.5 }] })} />));
     expect(scored).toMatch(/affinity 0\.81/);
     expect(scored).toMatch(/driven by Asake \(0\.50\)/);
+  });
+  it("labels simulated verdicts as simulated and prints none of the simulator's numbers", () => {
+    const sim = (o: Partial<Receipt>) => text(renderToStaticMarkup(<ReceiptChip r={receipt({ source: "simulated", affinity: 0.87, threshold: 0.5, ...o })} />));
+    expect(sim({})).toContain("Simulated pass");
+    expect(sim({ verdict: "miss" })).toContain("Simulated miss");
+    expect(sim({ verdict: "hallucination", affinity: undefined })).toContain("Simulated: not in catalog");
+    expect(sim({ drivers: [{ name: "Asake", score: 0.5 }] })).not.toMatch(/\d\.\d|affinity|Qloo-verified/);
+    // A receipt with no source of its own takes the run's.
+    expect(text(renderToStaticMarkup(<ReceiptChip r={receipt({ affinity: 0.6 })} runSimulated />))).toContain("Simulated pass");
   });
 });
 

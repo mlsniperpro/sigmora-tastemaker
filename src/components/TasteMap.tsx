@@ -193,9 +193,12 @@ export function TasteMap({ result }: { result: RunResult }) {
   const gap = result.positioning.slice(0, 6);
   return (
     <section aria-label="Taste Map" className="space-y-3 rounded-2xl border border-line bg-panel p-4">
-      <header className="flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold tracking-wide text-ink">Taste Map</h2>
-        <span className="text-label text-muted">seeded from {result.seeds.filter((s) => s.entityId).map((s) => s.name).join(", ")}</span>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+        <h2 className="text-sm font-semibold tracking-wide text-ink">
+          Taste Map
+          {result.qloo.simulated > 0 && <span className="ml-2 rounded bg-fade/15 px-1.5 py-0.5 text-caption font-medium text-fade">simulated data, not Qloo</span>}
+        </h2>
+        <span className="text-meta text-muted">seeded from {result.seeds.filter((s) => s.entityId).map((s) => s.name).join(", ")}</span>
       </header>
 
       {audience.age.length > 0 && (

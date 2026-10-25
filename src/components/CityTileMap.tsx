@@ -42,6 +42,10 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
           if (!map?.loaded()) fail();
           console.warn(`[map] ${e.error instanceof Error ? e.error.message : String(e.error)}`);
         });
+        // The basemap style names sprite icons (e.g. "circle-11") it doesn't ship; supply a transparent 1×1 so none are missing.
+        map.on("styleimagemissing", (e: { id: string }) => {
+          if (map && !map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
+        });
         map.on("load", () => {
           if (!map) return;
           const max = Math.max(...cells.map((c) => c.affinity), 0.01);
