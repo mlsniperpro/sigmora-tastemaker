@@ -72,6 +72,11 @@ describe("labelled lines", () => {
     expect(names(real.picks)).toEqual(["city:Lagos", "podcast:The Breakfast Club", "reference:Insecure", "venue:Echostage", "sponsor:Telfar"]);
   });
 
+  it("reads hook lines as references: 'think Stranger Things meets Euphoria'", () => {
+    expect(names(labelledPicks("Hook: think Stranger Things meets Euphoria").picks)).toEqual(["reference:Stranger Things", "reference:Euphoria"]);
+    expect(namesIn("Insecure x Atlanta vs. The Bear")).toEqual(["Insecure", "Atlanta", "The Bear"]);
+  });
+
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {
     for (const filler of [" ".repeat(3970), "\u00a0".repeat(4000), "a ".repeat(2000), ":".repeat(4000), "-".repeat(4000)]) {
       const started = performance.now();

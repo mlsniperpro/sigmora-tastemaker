@@ -37,7 +37,7 @@ const LABELS: { re: RegExp; role: Role; type: PickType }[] = [
   { re: /\bvenues?\b|\bpop-?ups?\b/i, role: "venue", type: "place" },
   { re: /\bpresenters?\b|\bhosts?\b|\bcreators?\b|\binfluencers?\b|\bambassadors?\b|\bface of\b/i, role: "presenter", type: "person" },
   { re: /\bfilms?\b|\bmovies?\b/i, role: "reference", type: "movie" },
-  { re: /\breferences?\b|\btv shows?\b|\bseries\b|\btouchstones?\b/i, role: "reference", type: "tv_show" },
+  { re: /\breferences?\b|\btv shows?\b|\bseries\b|\btouchstones?\b|\bhooks?\b/i, role: "reference", type: "tv_show" },
 ];
 
 /** Every word a pick label may contain: role nouns and qualifiers. Anything else ("voice", "KPIs", "market") makes the line prose. */
@@ -93,10 +93,12 @@ export function namesIn(value: string): string[] {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\s*\([^)]*\)/g, "");
   // "Ayra Starr — her alté edge fits" / "Insecure. It nails the tone"
-  const head = plain.split(/\s[—–-]\s|\s*\(|:\s|\.\s|\s+because\s|\s+for\s+(?:its|their|the)\s/u)[0] ?? "";
+  // "think Stranger Things meets Euphoria": a lead-in like "think" or "like" isn't part of a name.
+  const lead = plain.replace(/^\s*(?:think|like|e\.g\.|eg|ie|i\.e\.|such as|imagine)\s+/i, "").replace(/\bvs\.\s/g, "vs ");
+  const head = lead.split(/\s[—–-]\s|\s*\(|:\s|\.\s|\s+because\s|\s+for\s+(?:its|their|the)\s/u)[0] ?? "";
   return head
     // "/" splits only with spaces around it, so "AC/DC" stays one name.
-    .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+)\s+/u)
+    .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|meets|vs|x)\s+/u)
     .map((n) => n.trim().replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").trim())
     .filter((n) => n.length >= 2 && n.length <= 60 && /^[\p{Lu}\p{N}]/u.test(n) && n.split(/\s+/).length <= 6 && !EMPTY.has(normName(n)) && !CALENDAR.test(n));
 }
