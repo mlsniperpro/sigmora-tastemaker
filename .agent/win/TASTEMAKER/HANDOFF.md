@@ -40,16 +40,16 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight
-- The WIP judge-audit patch is merged, reviewed, tested and applied (WIN-CHECKLIST D17–D25). The patch file is deleted.
-- The "Audit any AI's plan" panel is live: `src/app/api/audit/route.ts`, `src/lib/agent/{audit,extract}.ts`, `src/components/AuditPanel.tsx`.
-- **Last verified at this push:**
+## In flight (2026-10-25 ~14:00 UTC)
+- **Pushed head:** 14951cf, with audit rounds 3–6 fixed (WIN-CHECKLIST sections C–G).
   - lint and typecheck clean;
-  - `pnpm test` 34 files / 431 tests;
-  - `pnpm test:e2e` 16 passed;
-  - `pnpm benchmark` offline: 1949 requests (not a measurement);
-  - README screenshots retaken.
-- Nothing is running in the background.
+  - 451 tests;
+  - 22 e2e (including a no-text-under-12-px check);
+  - demo 76/60/76 calls.
+- **Round 7 of the three-lens audit** (Sonnet subagents, read-only, each in its own scratch worktree) is running on 14951cf. Its findings are not yet in.
+- **Soak on 14951cf** is running in the session scratchpad. Earlier soaks were clean on b190264, af4f11a and 9da7b26 (100k deep pass plus 60 seeded rounds each).
+- **Drafts in the session scratchpad** (not in the repo, so a new session redoes them): `break-it.draft.md`, `breakit-notes.md` (fresh clone of af4f11a: install, demo 76, 431/431 tests, GET / 200, /api/run streams, MCP answers) and `pr-body-now.md`.
+- **PR #1 body** was updated at ~14:00 UTC.
 
 ## Next steps, in order
 1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).
