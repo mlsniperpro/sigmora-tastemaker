@@ -6,6 +6,8 @@ import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
+import type { QlooPath } from "@/lib/qloo/params";
+import { simulate } from "@/lib/qloo/sim/simulator";
 
 let ip = 0;
 /** Each request from its own address unless one is given, so per-IP limits don't leak between tests. */
@@ -60,7 +62,9 @@ describe("/api/audit budget", () => {
       }
       expect(fetchSpy).not.toHaveBeenCalled();
       // With budget, a live audit is a paid request: the same network's next one inside the minute is rate-limited, before any Qloo call.
-      vi.stubEnv("QLOO_DAILY_CALL_CAP", "400");
+      // Room for two audits from one network (the first one's failed calls are spent), so the second meets the per-minute limit.
+      vi.stubEnv("QLOO_DAILY_CALL_CAP", "960");
+      vi.stubEnv("QLOO_IP_DAILY_CALLS", "240");
       await audit(post(sample, from));
       const calls = fetchSpy.mock.calls.length;
       const limited = await audit(post(sample, from));
@@ -91,6 +95,34 @@ describe("/api/audit offline", () => {
     // Suggestions on simulated data name no placeholder score.
     expect(r.suggestions.length).toBeGreaterThan(0);
     for (const s of r.suggestions) expect(s.reason).not.toMatch(/\d\.\d\d|Qloo-preferred/);
+  });
+
+  it("stays within the calls it reserves on a worst-case plan, live wire format", async () => {
+    // Many invented names (two searches each), prose names, five seeds and six named cities ranked among the US metros.
+    const text = [
+      "Plan",
+      "- Collab targets: Qorvax Blee, Zintar Mullo, Pexo Drane",
+      "- Brand partners: Vlorbo Cola, Snizzle Wear",
+      "- References: Glimmerfall Saga, Throbnar Nights, The Wexley Files",
+      "- Podcast pitch: Mumbo Pod Hour",
+      "- Presenter: Kalvo Pretz",
+      "- Venue: Xantu Hall",
+      "- Films: Zebulon Rising",
+      "- Launch city: Lagos, Nairobi, Accra, Kampala, Kigali, Dakar",
+      "We will tour with Wizkid and Davido, hit Love Island USA, partner with Sephora and Adidas, then pop up with Doja Cat and SZA and Drake and Kendrick Lamar and Olivia Rodrigo.",
+    ].join("\n");
+    let sent = 0;
+    const fetchImpl = (async (u: string | URL) => {
+      sent++;
+      const url = new URL(String(u));
+      const params: Record<string, string> = {};
+      url.searchParams.forEach((v, k) => (params[k] = v));
+      return Response.json(simulate(url.pathname as QlooPath, params));
+    }) as typeof fetch;
+    const qloo = new QlooClient({ mode: "live", apiKey: "k", fixtures: {}, cache: new MemoryCache(), fetchImpl, runCallCap: 1000 });
+    const r = await auditPlan({ text, seeds: ["Asake", "Olamide", "Fireboy DML", "Omah Lay", "Kizz Daniel"], ages: ["25_to_29"] }, { qloo, llm: new DeterministicLLM() });
+    expect(r.receipts.length).toBeGreaterThan(10);
+    expect(sent).toBeLessThanOrEqual(AUDIT_CALL_ESTIMATE);
   });
 
   it("stays within the calls it reserves", async () => {

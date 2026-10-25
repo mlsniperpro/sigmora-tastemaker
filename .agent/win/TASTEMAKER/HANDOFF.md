@@ -8,8 +8,9 @@
 - **PR:** mlsniperpro/sigmora-tastemaker#1 (branch `tastemaker` → `main`). Keep exactly one PR, and update its body with the gate's last line.
 - **Rules:**
   - read AGENTS.md and docs/PLAYBOOK.md first;
-  - pushes at least 45 minutes apart;
-  - squash WIP before pushing;
+  - **push when a substantial task is complete and green** (a set of audit findings fixed and tested, a feature slice working, a soak or break-it pass recorded, the gate run); don't wait for a timer;
+  - each push is a meaningful, squashed commit set: never empty, format-only or "wip" commits; exactly one PR;
+  - **never sit idle or end a turn to wait.** While a subagent, audit, soak or build runs, keep working on the next item and collect the results when they arrive. The only reasons to stop are the API usage limit or the /goal being met;
   - run `pnpm lint && pnpm typecheck && pnpm test` and `pnpm test:e2e` before each push;
   - never edit `.agent/win-gate.sh`;
   - never weaken a test;
@@ -78,6 +79,13 @@
 - **`next build` runs locally,** because checks.sh requires it. `.agent/` and WIN-CHECKLIST.md stay tracked for the gate. `.claude/worktrees/` is gitignored.
 
 ## Commands
+- **Subagents (owner rule):** every Agent/Task launch sets `model: "sonnet"` and `effort: "high"`. That covers auditors, reviewers, fixers, researchers, and soak or log watchers. Keep these in the main session:
+  - integrating changes;
+  - the self-review of your diff;
+  - deciding which findings are real;
+  - the gate.
+
+  Verify any subagent finding before acting on it, and never drop one unchecked.
 - **Install:** `pnpm install --frozen-lockfile`
 - **Checks:** `pnpm lint && pnpm typecheck && pnpm test`
 - **E2E:** `PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium pnpm test:e2e`

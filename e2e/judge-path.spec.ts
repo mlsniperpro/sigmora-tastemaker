@@ -95,7 +95,7 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   // Ship goes to the labeled sandbox: a real schedule, nothing posted.
   await page.getByRole("button", { name: "Schedule with Sigmora" }).click();
   const ship = page.getByRole("region", { name: "Ship" });
-  await expect(ship).toContainText("nothing was posted");
+  await expect(ship).toContainText("nothing posted");
   await expect(ship.getByRole("listitem").first()).toContainText("sandbox");
 
   expect(errors).toEqual([]);

@@ -1,4 +1,5 @@
 /** The critic on its own: score arbitrary picks against an audience (used by MCP). */
+import { sameName } from "./util";
 import { qlooFromEnv, type QlooClient, type QlooSource } from "../qloo/client";
 import type { Pick as PlanPick, Replacement } from "../llm/types";
 import type { Brief } from "./brief";
@@ -47,9 +48,10 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
       const named = picks.filter((p) => p.role === "city").map((p) => p.name);
       if (named.length) {
         const pool = [...new Set([...named, ...(PRESETS[0].brief.candidateCities ?? [])])].slice(0, 16);
-        ctx.candidates.city = (await rankCities(ctx, pool)).cities;
-        // Venues are judged in the city the plan itself names (as the agent judges its own plan's venues).
-        const planCity = named[0];
+        // The plan's own city names count only on an exact Qloo match, so an invented city can't borrow a real one's rank.
+        ctx.candidates.city = (await rankCities(ctx, pool, { exact: named })).cities;
+        // Venues are judged in the city the plan names, once Qloo knows it by that name (as the agent judges its own plan's venues).
+        const planCity = named.find((n) => ctx.candidates.city?.some((c) => sameName(c.name, n)));
         if (planCity && picks.some((p) => p.role === "venue")) {
           ctx.city = planCity;
           await loadVenues(ctx, planCity);

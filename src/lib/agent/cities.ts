@@ -9,6 +9,7 @@
  */
 import { resolveByName, signalFor, type Ctx, type RankedCandidate } from "./context";
 import type { HeatCell } from "./types";
+import { normName, sameName } from "./util";
 
 /** Contiguous US bounding box as WKT (longitude first). */
 export const US_WKT = "POLYGON((-125 24, -66 24, -66 50, -125 50, -125 24))";
@@ -57,11 +58,20 @@ export interface CityRanking {
 const settle = <T>(p: Promise<T>) => p.then((r) => ({ ok: true as const, r })).catch((err: unknown) => ({ ok: false as const, err }));
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
-export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): Promise<CityRanking> {
+/**
+ * Ranks the candidate metros for the audience. `exact` names (cities a plan
+ * under audit names, not ones the user typed) count only on an exact Qloo
+ * match: search returns a top hit even for an invented name, and a made-up
+ * city must not borrow a real one's rank.
+ */
+export async function rankCities(ctx: Ctx, candidateCities: readonly string[], opts: { exact?: readonly string[] } = {}): Promise<CityRanking> {
+  const exact = new Set((opts.exact ?? []).map(normName));
   const found = await Promise.all(
     candidateCities.map(async (name) => {
-      const { hit } = await resolveByName(ctx.qloo, name, { types: ["locality"], take: 3, acceptTop: true });
-      return hit && { name, type: "locality" as const, affinity: 0, entityId: hit.entity_id, lat: hit.location?.lat, lon: hit.location?.lon };
+      const strict = exact.has(normName(name));
+      const { hit } = await resolveByName(ctx.qloo, name, { types: ["locality"], take: 3, acceptTop: !strict });
+      if (!hit || (strict && !sameName(hit.name, name))) return undefined;
+      return { name, type: "locality" as const, affinity: 0, entityId: hit.entity_id, lat: hit.location?.lat, lon: hit.location?.lon };
     }),
   );
   const candidates = found.filter((c): c is NonNullable<typeof c> => !!c);

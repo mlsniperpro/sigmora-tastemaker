@@ -151,7 +151,7 @@ describe("blank env values", () => {
     const c = loadConfig({ SIGMORA_PUBLISH_MODE: "", QLOO_MODE: "  ", QLOO_DAILY_CALL_CAP: "", QLOO_BIAS_TRENDS: "", QLOO_API_KEY: " " });
     expect(c.SIGMORA_PUBLISH_MODE).toBe("sandbox");
     expect(c.QLOO_MODE).toBe("auto");
-    expect(c.QLOO_DAILY_CALL_CAP).toBe(400);
+    expect(c.QLOO_DAILY_CALL_CAP).toBe(480);
     expect(c.QLOO_BIAS_TRENDS).toBe("medium");
     expect(c.QLOO_API_KEY).toBeUndefined();
   });
@@ -195,7 +195,7 @@ describe("budget settings", () => {
   it("refuses settings that would refuse a kind of run all day, or let one network take the custom pool", () => {
     expect(() => loadConfig({ QLOO_DAILY_CALL_CAP: "300", QLOO_PRESET_POOL: "240" })).toThrow(/must cover one run/);
     expect(() => loadConfig({ QLOO_PRESET_POOL: "50" })).toThrow(/QLOO_PRESET_POOL \(50\) must cover one run/);
-    expect(() => loadConfig({ QLOO_DAILY_CALL_CAP: "1000", QLOO_IP_DAILY_CALLS: "900" })).toThrow(/can't exceed the custom pool/);
+    expect(() => loadConfig({ QLOO_DAILY_CALL_CAP: "1000", QLOO_IP_DAILY_CALLS: "900" })).toThrow(/at most 1\/3 of the custom pool/);
     expect(budgetProblems(loadConfig({ QLOO_DAILY_CALL_CAP: "0" }))).toEqual([]);
   });
   test.prop([fc.integer({ min: 0, max: 5000 }), fc.integer({ min: 0, max: 5000 }), fc.integer({ min: 10, max: 500 }), fc.integer({ min: 10, max: 2000 })])(

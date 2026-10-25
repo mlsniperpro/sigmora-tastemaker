@@ -69,6 +69,9 @@ describe("e2e: /api/run in live mode against stubbed Qloo + LLM hosts", () => {
     vi.stubEnv("LLM_API_KEY", "llm-secret");
     vi.stubEnv("LLM_BASE_URL", LLM);
     vi.stubEnv("RATE_LIMIT_PER_MINUTE", "1");
+    // Room for two runs from one network, so the second meets the per-minute limit rather than its Qloo share.
+    vi.stubEnv("QLOO_DAILY_CALL_CAP", "1200");
+    vi.stubEnv("QLOO_IP_DAILY_CALLS", "240");
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
   });
   afterEach(() => {

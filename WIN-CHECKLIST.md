@@ -226,3 +226,17 @@ Judge path and claims (0 critical; 2 high, 3 medium, 3 low, plus the biggest-gai
 - [x] D23 (low) No text under 12 px at 390 px
 - [x] D24 (low) Sandbox receipt says "Sandbox: schedule computed, nothing posted."
 - [x] D25 Audit any AI's plan: paste a campaign from any model and the Qloo critic checks every name in it against the audience. A live model extracts the names (the deterministic scanner otherwise), invented ones come back not found, weak ones get Qloo-preferred replacements; one-click sample; budgeted like taste_check, Origin-checked, and only a budgeted audit counts toward the limits (`src/app/api/audit/route.ts`, `src/lib/agent/audit.ts`, `extract.ts`, `AuditPanel.tsx`; `audit.test.ts`, `extract.test.ts`, e2e)
+
+## Re-audit 5 (2026-10-25, three parallel audits on af4f11a)
+
+Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the judge-path audit had no critical or high findings:
+
+- [x] E1 (high) No regex backtracking on pasted text: a label is read with `indexOf` plus a pattern on a 60-character prefix, and whitespace runs are squashed first (a 4000-space line took 22.5 s; now under 100 ms; `extract.test.ts` "stays fast on hostile input")
+- [x] E2 (high) One network can't lock everyone out of custom briefs and audits: each network's share is at most a third of the custom pool (`NETWORKS_PER_POOL`); defaults are cap 480, presets 240, custom 240, 80 per network (one run or one audit); invalid settings are refused at startup (`counter-guard-config.test.ts`)
+- [x] E3 (high) The audit scanner reads only pure pick labels: planning lines ("Brand voice", "Partner KPIs", "Target market", "Shows: Friday…", "Venue: TBC", dates) are prose, never invented entities; "Host city" is a city and "Podcast host" a podcast (`extract.test.ts`)
+- [x] E4 (high) An invented city can't borrow a real one's verdict: cities a plan names count only on an exact Qloo match, and venues are judged in the plan's city only once Qloo knows it (`rankCities` `exact`)
+- [x] E5 (medium) The model's extraction is checked against the text: only names the text contains word for word are audited, the scanner's labelled picks are merged in, and dropped names are reported; an injected or "corrected" list falls back to the scanner (`extract.test.ts`)
+- [x] E6 (medium) The model gets 12 s to list names; past that the scanner's list is used, so the Qloo checks keep their time (`EXTRACT_TIMEOUT_MS`)
+- [x] E7 (low) The audit reserves 80 calls, held by a worst-case plan in a live-wire test (`audit.test.ts`)
+- [x] E8 (low) MCP `taste_check` and `plan_campaign` reserve the Qloo budget before counting toward the rate limits (as /api/run and /api/audit)
+- [x] E9 The e2e assertion for the new sandbox wording is fixed (af4f11a's e2e run predated the wording change)

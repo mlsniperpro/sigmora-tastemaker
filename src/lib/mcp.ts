@@ -13,7 +13,7 @@ import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
 import { loadConfig } from "./config";
 import { QLOO_SPENT, qlooBudget, type GuardResult } from "./guard";
-import { qlooFromEnv } from "./qloo/client";
+import { qlooFromEnv, type QlooClient, type ReserveOptions } from "./qloo/client";
 import { formatZodIssues } from "./zod";
 
 export const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -94,10 +94,7 @@ async function tasteCheckTool(args: unknown, gate: Gate, ip: string) {
   const qloo = qlooFromEnv();
   // Only calls that would spend live Qloo quota are rate-limited, and they reserve their calls first
   // (about two per pick to resolve and score, plus the role pools and trend checks).
-  if (qloo.primarySource === "live") {
-    await admitOrThrow(gate);
-    if (!(await qloo.reserve(2 * a.picks.length + 12, qlooBudget({ fresh: true }, ip)))) throw new ToolError(QLOO_SPENT.message);
-  }
+  if (qloo.primarySource === "live") await reserveThenAdmit(qloo, 2 * a.picks.length + 12, qlooBudget({ fresh: true }, ip), gate);
   const r = await tasteCheck(a, { qloo }).finally(() => qloo.release());
   const text = [
     `Qloo taste check (${r.sources.join(", ")} data): ${r.metrics.hallucinations} not found in Qloo, ${r.metrics.misses} low-affinity, ${r.metrics.fading} fading, ${r.metrics.unscored} unscored, of ${r.metrics.picks}.${r.sources.includes("simulated") ? " Simulated data: the numbers are placeholders, not Qloo data." : ""}`,
@@ -108,9 +105,13 @@ async function tasteCheckTool(args: unknown, gate: Gate, ip: string) {
   return { content: [{ type: "text", text }], structuredContent: r };
 }
 
-async function admitOrThrow(gate: Gate) {
+/** As in /api/run: the Qloo budget first, so only a call that got its budget counts toward the rate limits and the daily cap. */
+async function reserveThenAdmit(qloo: QlooClient, calls: number, budget: ReserveOptions, gate: Gate) {
+  if (!(await qloo.reserve(calls, budget))) throw new ToolError(QLOO_SPENT.message);
   const g = await gate();
-  if (!g.ok) throw new ToolError(g.message);
+  if (g.ok) return;
+  await qloo.release();
+  throw new ToolError(g.message);
 }
 
 async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
@@ -123,10 +124,7 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
   let r;
   if (!lookup.result && recording && !request.fresh) r = recording;
   else {
-    if (!lookup.result && costsMoney(lookup.deps)) {
-      await admitOrThrow(gate);
-      if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, ip)))) throw new ToolError(QLOO_SPENT.message);
-    }
+    if (!lookup.result && costsMoney(lookup.deps)) await reserveThenAdmit(lookup.deps.qloo, loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, ip), gate);
     r = (await getOrRun(lookup, undefined, recording).finally(() => lookup.deps.qloo.release())).result;
   }
   const text = [

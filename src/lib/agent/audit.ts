@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { QlooClient, QlooSource } from "../qloo/client";
 import type { LLMProvider } from "../llm/types";
 import { BriefFields } from "./brief";
-import { extractPicks, MAX_AUDIT_CHARS, MAX_AUDIT_PICKS, MAX_AUDIT_SEARCHES, type Extraction } from "./extract";
+import { extractPicks, MAX_AUDIT_CHARS, type Extraction } from "./extract";
 import { metricsOf } from "./critic";
 import { tasteCheck, type TasteCheckResult } from "./tasteCheck";
 
@@ -21,12 +21,7 @@ export const AuditRequest = BriefFields.pick({ ages: true, gender: true })
   .strict();
 export type AuditRequest = z.infer<typeof AuditRequest>;
 
-/**
- * Live Qloo calls reserved for one audit (unspent ones go back): the unlabelled-name searches, about two
- * per pick to resolve and score, and up to 30 for the role pools, trend checks and, when the plan names a
- * city, ranking it among the US metros. tests/integration/audit.test.ts holds the sample plan to it.
- */
-export const AUDIT_CALL_ESTIMATE = MAX_AUDIT_SEARCHES + 2 * MAX_AUDIT_PICKS + 30;
+export { AUDIT_CALL_ESTIMATE } from "../config";
 
 export interface AuditResult extends TasteCheckResult {
   extraction: Omit<Extraction, "picks">;
