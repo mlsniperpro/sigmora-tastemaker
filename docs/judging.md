@@ -38,4 +38,4 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 
 ## Qloo as the grounding layer for any agent
 
-`POST /api/mcp` exposes the critic as an MCP tool (`taste_check`) and the whole agent as `plan_campaign`. See the README for a one-line `curl`.
+`POST /api/mcp` exposes the critic as MCP tools (`taste_check` for a pick list, `audit_plan` for any model's pasted plan) and the whole agent as `plan_campaign`. See the README for a one-line `curl`.

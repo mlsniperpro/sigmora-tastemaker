@@ -10,6 +10,11 @@ import { RunRequest } from "./agent/brief";
 import { formatRate, placeholderReason } from "./agent/evidence";
 import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
+import { AuditRequest, auditWithBudget } from "./agent/audit";
+import { NoSeedError } from "./agent/context";
+import { llmFromEnv } from "./llm";
+import { defaultCache } from "./qloo/cache";
+import { isQlooStop } from "./qloo/errors";
 import type { Receipt } from "./agent/types";
 import { loadConfig } from "./config";
 import { qlooBudget, qlooRefusal, type GuardResult } from "./guard";
@@ -40,6 +45,13 @@ const TOOLS = [
     description:
       "Score a list of cultural picks (artists, brands, shows, films, podcasts, venues, creators, cities) against an audience defined by what it already loves and its age buckets. Returns, per pick, a verdict (pass; miss; hallucination = not found in Qloo by a typed or an untyped search; fading; unscored = no Qloo score to judge by), Qloo affinity, the pass bar, explainability and the Qloo calls behind it, plus Qloo-preferred replacements for failures.",
     inputSchema: inputSchema(TasteCheckArgs),
+  },
+  {
+    name: "audit_plan",
+    title: "Audit any AI's campaign plan against an audience (Qloo)",
+    description:
+      "Paste a marketing plan written by any model or person, plus the audience (names it already loves, age buckets). Every cultural name in the text is found and checked by the Qloo critic: names Qloo can't find come back as hallucination, weak picks as miss with Qloo-preferred replacements. Identical audits are served from cache.",
+    inputSchema: inputSchema(AuditRequest),
   },
   {
     name: "plan_campaign",
@@ -142,8 +154,32 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
   };
 }
 
+async function auditPlanTool(args: unknown, gate: Gate, ip: string) {
+  const input = AuditRequest.parse(args);
+  let outcome;
+  try {
+    outcome = await auditWithBudget(input, { qloo: qlooFromEnv(), llm: llmFromEnv(), cache: defaultCache(), ip, gate });
+  } catch (err) {
+    if (err instanceof NoSeedError) throw new ToolError("None of the audience's names resolved in Qloo; try other names they love.");
+    if (isQlooStop(err)) throw new ToolError(`The audit ran out of Qloo budget or time (${err.message}).`);
+    throw err;
+  }
+  if (!outcome.ok) throw new ToolError(outcome.refusal.message);
+  const r = outcome.result;
+  const text = [
+    r.simulated
+      ? `${String(r.receipts.length)} names checked by the offline simulator (no Qloo key on this server): verdicts are placeholders, not Qloo data.`
+      : `Qloo audit: ${String(r.metrics.hallucinations)} not found in Qloo, ${String(r.metrics.misses)} low-affinity, ${String(r.metrics.fading)} fading, ${String(r.metrics.unscored)} unscored, of ${String(r.metrics.picks)}.${r.cached ? " (cached)" : ""}`,
+    ...r.receipts.map(receiptLine),
+    ...(r.suggestions.length ? ["Qloo-preferred replacements:", ...r.suggestions.map((x) => `- ${x.from} → ${x.to}: ${x.reason}`)] : []),
+    ...(r.extraction.unmatched?.length ? [`Not audited (no entity by that exact name): ${r.extraction.unmatched.join(", ")}`] : []),
+  ].join("\n");
+  return { content: [{ type: "text", text }], structuredContent: r };
+}
+
 async function callTool(name: string, args: unknown, gate: Gate, ip: string) {
   if (name === "taste_check") return tasteCheckTool(args, gate, ip);
+  if (name === "audit_plan") return auditPlanTool(args, gate, ip);
   if (name === "plan_campaign") return planCampaignTool(args, gate, ip);
   throw new RpcError(-32602, `Unknown tool "${name}"`);
 }

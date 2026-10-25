@@ -80,6 +80,7 @@ Every request is validated against a per-`filter.type` parameter allow-list befo
 Tastemaker is also an MCP server at `POST /api/mcp` (Streamable HTTP per the 2025-06-18 spec: stateless, one JSON-RPC message per POST, JSON responses). Two tools:
 
 - `taste_check`: give it an audience (`seeds`, `ages`, optional `gender` and `city`) and a list of picks (artists, brands, shows, films, podcasts, venues, creators, cities); get back a verdict per pick (pass, low affinity, not found in Qloo, fading, unscored), the Qloo affinity, explainability, the calls behind it, and Qloo-preferred replacements. Input schemas are generated from the same zod schemas the server enforces.
+- `audit_plan`: paste any model's campaign plan plus the audience; every cultural name in it is checked by the Qloo critic (the same audit as the "Audit any AI's plan" panel).
 - `plan_campaign`: the full agent, for a preset or a brief.
 
 ```bash
@@ -130,7 +131,7 @@ src/lib/llm/        LLM providers (scripted, OpenAI-compatible, Anthropic), chat
 src/lib/benchmark/  blind pairwise judge and benchmark aggregation (pure; scripts/benchmark.ts does the I/O)
 src/lib/agent/      brief, presets, run loop, context, critic, cities, run cache, taste check
 src/lib/publisher/  Ship: sandbox publisher and the Sigmora /v1 client
-src/lib/mcp.ts      MCP tools: taste_check, plan_campaign
+src/lib/mcp.ts      MCP tools: taste_check, audit_plan, plan_campaign
 src/app/api/        POST /api/run (NDJSON stream of trace steps + result), POST /api/ship, POST /api/mcp
 src/components/     the one-page UI
 benchmark/, scripts/  benchmark briefs, benchmark runner, fixture recorder, terminal demo, screenshots, video

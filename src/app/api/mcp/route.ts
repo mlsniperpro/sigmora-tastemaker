@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 }
 
 export function GET() {
-  return new Response("Tastemaker MCP endpoint: POST one JSON-RPC message (Streamable HTTP, stateless). Tools: taste_check, plan_campaign.", {
+  return new Response("Tastemaker MCP endpoint: POST one JSON-RPC message (Streamable HTTP, stateless). Tools: taste_check, audit_plan, plan_campaign.", {
     status: 405,
     headers: { Allow: "POST" },
   });

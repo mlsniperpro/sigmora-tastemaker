@@ -6,6 +6,8 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { CacheStore } from "../qloo/cache";
+import { qlooBudget, qlooRefusal, type GuardResult } from "../guard";
+import { AUDIT_CALL_ESTIMATE } from "../config";
 import type { QlooClient, QlooSource } from "../qloo/client";
 import type { LLMProvider } from "../llm/types";
 import { BriefFields } from "./brief";
@@ -70,4 +72,39 @@ export async function cachedAudit(cache: CacheStore, key: string): Promise<Audit
 export async function storeAudit(cache: CacheStore, key: string, r: AuditResult): Promise<void> {
   const degraded = r.metrics.unscored > 0 || r.extraction.fallback !== undefined;
   await cache.set(key, r, degraded ? DEGRADED_AUDIT_TTL : AUDIT_TTL);
+}
+
+/** No Qloo call is sent this long after an audit starts, so the reply beats a route's time limit. */
+export const AUDIT_DEADLINE_MS = 45_000;
+
+export type AuditOutcome = { ok: true; result: AuditResult } | { ok: false; refusal: Extract<GuardResult, { ok: false }> };
+
+/**
+ * One audit as a public endpoint runs it (/api/audit and MCP's audit_plan): an
+ * identical earlier audit is served first, spending nothing; otherwise the
+ * Qloo calls are reserved from the caller's share, and only then does the
+ * request count toward the rate limits (`gate`). The finished audit is cached.
+ */
+export async function auditWithBudget(
+  input: AuditRequest,
+  deps: { qloo: QlooClient; llm: LLMProvider; cache: CacheStore; ip: string; gate: () => Promise<GuardResult> },
+): Promise<AuditOutcome> {
+  const { qloo, llm, cache } = deps;
+  const key = auditKey(input, llm.id, qloo.primarySource);
+  const hit = await cachedAudit(cache, key);
+  if (hit) return { ok: true, result: hit };
+  const live = qloo.primarySource === "live";
+  if (live && !(await qloo.reserve(AUDIT_CALL_ESTIMATE, qlooBudget({ fresh: true }, deps.ip)))) return { ok: false, refusal: qlooRefusal(qloo.refusedBy) };
+  try {
+    if (live || !llm.scripted) {
+      const g = await deps.gate();
+      if (!g.ok) return { ok: false, refusal: g };
+    }
+    qloo.setDeadline(Date.now() + AUDIT_DEADLINE_MS);
+    const result = await auditPlan(input, { qloo, llm });
+    await storeAudit(cache, key, result);
+    return { ok: true, result };
+  } finally {
+    await qloo.release();
+  }
 }

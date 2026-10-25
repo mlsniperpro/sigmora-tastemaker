@@ -69,7 +69,7 @@ describe("MCP transport", () => {
 describe("MCP tools", () => {
   it("lists the tools", async () => {
     const res = await reply(rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }));
-    expect(res.result.tools.map((t) => t.name)).toEqual(["taste_check", "plan_campaign"]);
+    expect(res.result.tools.map((t) => t.name)).toEqual(["taste_check", "audit_plan", "plan_campaign"]);
   });
 
   it("taste_check flags invented, off-taste and wrong-city picks and suggests replacements", async () => {
@@ -129,6 +129,28 @@ describe("MCP tools", () => {
     const taste = must(res.result.tools[0]).inputSchema;
     expect(taste.required).toEqual(expect.arrayContaining(["seeds", "ages", "picks"]));
     expect(taste.properties.ages?.maxItems).toBe(6);
-    expect(res.result.tools[1]?.inputSchema.anyOf).toHaveLength(2);
+    const audit = must(res.result.tools.find((t) => t.name === "audit_plan")).inputSchema;
+    expect(audit.required).toEqual(expect.arrayContaining(["text", "seeds", "ages"]));
+    expect(res.result.tools.find((t) => t.name === "plan_campaign")?.inputSchema.anyOf).toHaveLength(2);
   });
 });
+
+describe("audit_plan", () => {
+  it("audits a pasted plan through MCP, labelled as simulated offline, and serves a repeat from cache", async () => {
+    const args = { text: "Collab targets: Ayra Starr, Lagos Velvet Collective\nBrand partners: Fenty Beauty", seeds: ["Tems", "Rema"], ages: ["25_to_29"] };
+    const first = await reply(rpc(call(21, "audit_plan", args)));
+    const out = first.result.structuredContent as unknown as { receipts: { name: string; verdict: string }[]; simulated: boolean; cached?: boolean };
+    expect(out.simulated).toBe(true);
+    expect(out.receipts.map((r) => r.name)).toEqual(["Ayra Starr", "Lagos Velvet Collective", "Fenty Beauty"]);
+    expect(first.result.content[0]?.text).toMatch(/offline simulator/);
+    const again = await reply(rpc(call(22, "audit_plan", args)));
+    expect((again.result.structuredContent as unknown as { cached?: boolean }).cached).toBe(true);
+  });
+
+  it("rejects bad arguments as a tool error, not a crash", async () => {
+    const bad = await reply(rpc(call(23, "audit_plan", { text: "short", seeds: [], ages: [] })));
+    expect(bad.result.isError).toBe(true);
+    expect(bad.result.content[0]?.text).toMatch(/Invalid arguments/);
+  });
+});
+
