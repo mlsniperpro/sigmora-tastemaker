@@ -367,6 +367,20 @@ describe("audit-6 regressions", () => {
     expect(r.warnings.join(" ")).toMatch(/couldn't load venues in Nowhereville/);
   });
 
+  it("a plan city whose venues Qloo can't load leaves the venues unchecked instead of failing (audit 7)", async () => {
+    const qloo = offline();
+    const insights = qloo.insights.bind(qloo);
+    vi.spyOn(qloo, "insights").mockImplementation((type, params) =>
+      type === "urn:entity:place" && params["filter.location.query"] === "Atlanta" ? Promise.reject(new HttpError("Qloo", 400, "/v2/insights")) : insights(type, params),
+    );
+    const r = await tasteCheck(
+      { seeds: ["Tems"], ages: ["25_to_29"], picks: [{ name: "Atlanta", type: "locality", role: "city" }, { name: "Tabernacle", type: "place", role: "venue" }] },
+      { qloo },
+    );
+    expect(r.receipts.find((x) => x.name === "Tabernacle")?.verdict).toBe("unscored");
+    expect(r.warnings.join(" ")).toMatch(/couldn't load venues in Atlanta/);
+  });
+
   it("a run cut short by the Qloo budget isn't cached as healthy for a day", async () => {
     // Live wire format (the run cap counts network calls), answered by the simulator.
     const fetchImpl = (async (u: string | URL) => {

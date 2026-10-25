@@ -91,6 +91,11 @@ const REGIONS = new Set(
   ["nigeria", "kenya", "ghana", "south africa", "uganda", "rwanda", "senegal", "tanzania", "usa", "united states", "uk", "united kingdom", "england", "canada", "france", "germany", "brazil", "mexico", "india", "japan", "australia", "california", "texas", "georgia", "new york state", "florida"].map(normName),
 );
 
+/** Cities that follow a venue ("Madison Square Garden, New York") rather than name another venue. */
+const CITIES = new Set(
+  ["new york", "nyc", "los angeles", "la", "chicago", "houston", "atlanta", "washington", "washington dc", "dc", "miami", "dallas", "seattle", "boston", "nashville", "minneapolis", "philadelphia", "san francisco", "detroit", "denver", "phoenix", "london", "paris", "berlin", "toronto", "lagos", "nairobi", "accra", "johannesburg", "kampala", "kigali", "dakar", "brooklyn"].map(normName),
+);
+
 /** Runs of spaces and tabs become one space before any scan (pasted text can hold thousands). */
 export const squashSpaces = (text: string) => text.replace(/[^\S\n]+/g, " ");
 
@@ -107,14 +112,25 @@ export function namesIn(value: string, role?: Role): string[] {
   const lead = plain.replace(/^\s*(?:think|like|e\.g\.|eg|ie|i\.e\.|such as|imagine)\s+/i, "");
   // "Ayra Starr — her alté edge fits" / "Insecure. It nails the tone"
   const head = lead.split(/\s[—–-]\s|\s*\(|:\s|\.\s|\s+because\s|\s+for\s+(?:its|their|the)\s/u)[0] ?? "";
-  const parts = head
+  const split = head
     // "/" splits only with spaces around it, so "AC/DC" stays one name; "feat" joins two artists.
     .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|meets|vs|x|feat|ft|featuring)\s+/u)
     .map((n) => n.trim().replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").trim());
+  // "Tyler, the Creator" / "Florence + the Machine": a lowercase "the …" part belongs to the name before it, as written.
+  const parts: string[] = [];
+  for (const n of split) {
+    const prev = parts.at(-1);
+    if (prev !== undefined && /^the\s/.test(n)) {
+      const from = head.indexOf(prev);
+      const to = head.indexOf(n, from + prev.length);
+      parts[parts.length - 1] = from >= 0 && to >= 0 ? head.slice(from, to + n.length) : `${prev} ${n}`;
+    } else parts.push(n);
+  }
   return (
     parts
-      // "Atlanta, GA" / "Lagos, Nigeria": the region after a city isn't another city.
+      // "Atlanta, GA" / "Lagos, Nigeria": the region after a city isn't another city; "Madison Square Garden, New York": nor is the city after a venue.
       .filter((n, i) => !(role === "city" && i > 0 && (/^[A-Z]{2,3}$/.test(n) || REGIONS.has(normName(n)))))
+      .filter((n, i) => !(role === "venue" && i > 0 && (/^[A-Z]{2,3}$/.test(n) || REGIONS.has(normName(n)) || CITIES.has(normName(n)))))
       .filter((n) => n.length >= 2 && n.length <= 60 && /^[\p{Lu}\p{N}]/u.test(n) && n.split(/\s+/).length <= 6 && !EMPTY.has(normName(n)) && !CALENDAR.test(n) && !PLACEHOLDER.test(n))
   );
 }
@@ -123,9 +139,18 @@ export function namesIn(value: string, role?: Role): string[] {
  * Pure: picks from labelled lines, in order, plus the prose left over (every
  * line that isn't a labelled pick line) for the proper-noun scan.
  */
-export function labelledPicks(text: string): { picks: NamedPick[]; prose: string } {
+/** Two adjacent names from one labelled line, joined back as written ("Earth, Wind & Fire"), in case the split broke one name. */
+export interface Join {
+  /** Indexes of the two fragments in `picks`. */
+  a: number;
+  b: number;
+  name: string;
+}
+
+export function labelledPicks(text: string): { picks: NamedPick[]; prose: string; joins: Join[] } {
   const picks: NamedPick[] = [];
   const prose: string[] = [];
+  const joins: Join[] = [];
   const seen = new Set<string>();
   for (const line of squashSpaces(text).split(/\r?\n/)) {
     const m = splitLabel(line);
@@ -135,14 +160,50 @@ export function labelledPicks(text: string): { picks: NamedPick[]; prose: string
       prose.push(line);
       continue;
     }
+    let prevIndex = -1;
+    let prevName = "";
     for (const name of names) {
       const key = `${spec.role}:${normName(name)}`;
       if (seen.has(key)) continue;
       seen.add(key);
       picks.push({ name, type: spec.type, role: spec.role });
+      const at = picks.length - 1;
+      // The two names exactly as the line wrote them together, separator and all.
+      const from = m?.value.indexOf(prevName) ?? -1;
+      const to = from >= 0 ? (m?.value.indexOf(name, from + prevName.length) ?? -1) : -1;
+      const joined = prevIndex >= 0 && from >= 0 && to >= 0 ? (m?.value.slice(from, to + name.length) ?? "") : "";
+      // Only where a split plausibly broke one name: a one-word side ("Earth, Wind & Fire", "Marks and Spencer")
+      // or a capitalised "The …" ("Tyler, The Creator"); two full names in a list aren't worth a search.
+      const plausible = !prevName.includes(" ") || !name.includes(" ") || /^The\s/.test(name);
+      if (joined && plausible && to - (from + prevName.length) <= 5) joins.push({ a: prevIndex, b: at, name: joined });
+      prevIndex = at;
+      prevName = name;
     }
   }
-  return { picks, prose: prose.join("\n") };
+  return { picks, prose: prose.join("\n"), joins };
+}
+
+/** At most this many joined names are looked up per text (out of MAX_AUDIT_SEARCHES). */
+export const MAX_JOIN_SEARCHES = 6;
+
+/**
+ * Puts back names the split broke: where Qloo knows two adjacent fragments joined, exactly as
+ * written ("Earth, Wind & Fire", "Marks and Spencer"), the joined name replaces them.
+ */
+export async function rejoin(qloo: QlooClient, picks: readonly NamedPick[], joins: readonly Join[]): Promise<NamedPick[]> {
+  const tried = joins.slice(0, MAX_JOIN_SEARCHES);
+  if (!tried.length) return [...picks];
+  const known = await knownNames(qloo, tried.map((j) => j.name), "");
+  const exact = new Set(known.picks.map((p) => normName(p.name)));
+  const drop = new Set<number>();
+  const replace = new Map<number, NamedPick>();
+  for (const j of tried) {
+    const first = picks[j.a];
+    if (!first || drop.has(j.a) || drop.has(j.b) || !exact.has(normName(j.name))) continue;
+    replace.set(j.a, { ...first, name: j.name });
+    drop.add(j.b);
+  }
+  return picks.flatMap((p, i) => (drop.has(i) ? [] : [replace.get(i) ?? p]));
 }
 
 export interface Extraction {
@@ -153,32 +214,42 @@ export interface Extraction {
   model?: string;
   /** More names than the cap were found; the first MAX_AUDIT_PICKS are audited. */
   capped: boolean;
+  /** Searches that failed (Qloo error, budget or time): their names went unchecked. */
+  failedSearches?: number;
   /** Scanner only: unlabelled capitalised phrases past the search cap, never looked up. */
   unsearched?: number;
   /** Why the model's list wasn't used, when it failed. */
   fallback?: string;
   /** Names the model listed that the text doesn't contain; never audited. */
   dropped?: string[];
+  /** Scanner only: names Qloo knows exactly, but as a type this audit doesn't check (a city in prose, a book). */
+  otherTypes?: { name: string; type: string }[];
   /** Scanner only: capitalised phrases in the prose that Qloo has no entity for by that exact name; not audited (from prose alone an invention can't be told from an ordinary phrase). */
   unmatched?: string[];
 }
 
 /** The deterministic scanner: labelled picks first, then unlabelled names Qloo knows exactly (searches capped). */
 export async function scanPicks(qloo: QlooClient, text: string, seeds: readonly string[]): Promise<Extraction> {
-  const { picks: labelled, prose } = labelledPicks(text);
+  const lines = labelledPicks(text);
+  const labelled = await rejoin(qloo, lines.picks, lines.joins);
+  const prose = lines.prose;
   const draft = { positioning: prose, hooks: [], script: "", captions: [], musicBrief: "", picks: labelled.map((p) => ({ ...p, rationale: "" })) };
   // The audience's own seeds are who the plan is for, not picks in it.
   const candidates = candidateMentions(draft, { subject: "", product: "", seeds: [...seeds], candidateCities: [] });
   // Most proper-noun runs aren't names Qloo knows ("Week", "Drop"), so the searches aren't cut to the picks' room.
-  const searched = labelled.length < MAX_AUDIT_PICKS ? candidates.slice(0, MAX_AUDIT_SEARCHES) : [];
+  // Joined-name lookups and prose searches share one search budget, so the audit's reservation holds.
+  const room = MAX_AUDIT_SEARCHES - Math.min(lines.joins.length, MAX_JOIN_SEARCHES);
+  const searched = labelled.length < MAX_AUDIT_PICKS ? candidates.slice(0, room) : [];
   const known = await knownNames(qloo, searched, "");
   // A failed search leaves its name unchecked, the same as one past the cap.
   const failed = [...known.failed.values()].reduce((n, names) => n + names.length, 0);
   const all = [...labelled, ...known.picks.map(({ name, type, role }) => ({ name, type, role }))];
   const failedNames = new Set([...known.failed.values()].flat());
   const found = new Set(known.picks.map((p) => normName(p.name)));
-  const unmatched = searched.filter((n) => !found.has(normName(n)) && !failedNames.has(n));
-  return { picks: all.slice(0, MAX_AUDIT_PICKS), by: "scanner", capped: all.length > MAX_AUDIT_PICKS, unsearched: candidates.length - searched.length + failed, unmatched };
+  const known2 = new Set(known.otherTypes.map((o) => normName(o.name)));
+  // Only plausible names are listed as not audited: two or more words, not an "A and B" chain (a lone capitalised word is usually ordinary English).
+  const unmatched = searched.filter((n) => !found.has(normName(n)) && !known2.has(normName(n)) && !failedNames.has(n) && n.split(/\s+/).length >= 2 && !/\s(?:and|&)\s/.test(n));
+  return { picks: all.slice(0, MAX_AUDIT_PICKS), by: "scanner", capped: all.length > MAX_AUDIT_PICKS, unsearched: candidates.length - searched.length + failed, failedSearches: failed, unmatched, otherTypes: known.otherTypes };
 }
 
 /** The model gets this long to list the names; past it, the scanner's list is used so the Qloo checks still have time. */
@@ -220,7 +291,9 @@ export async function extractPicks(text: string, opts: { qloo: QlooClient; llm: 
       const notes = dropped.length ? { dropped } : {};
       if (!kept.some((p) => !seeds.has(normName(p.name)))) return { ...(await scanPicks(opts.qloo, text, opts.seeds)), fallback: "the model listed no names from the text", ...notes };
       const seen = new Set<string>();
-      const picks = [...kept, ...labelledPicks(text).picks].filter((p) => {
+      const lines = labelledPicks(text);
+      const labelled = await rejoin(opts.qloo, lines.picks, lines.joins);
+      const picks = [...kept, ...labelled].filter((p) => {
         const k = `${p.role}:${normName(p.name)}`;
         if (seeds.has(normName(p.name)) || seen.has(k)) return false;
         seen.add(k);

@@ -63,7 +63,12 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
         const planCity = named.find((n) => ctx.candidates.city?.some((c) => sameName(c.name, n)));
         if (planCity && picks.some((p) => p.role === "venue")) {
           ctx.city = planCity;
-          await loadVenues(ctx, planCity);
+          // As with a fixed city: if Qloo can't place it, the venues go unchecked with the reason.
+          await loadVenues(ctx, planCity).catch((err: unknown) => {
+            if (isQlooStop(err)) throw err;
+            ctx.candidates.venue = [];
+            cityWarnings.push(`couldn't load venues in ${planCity} (${err instanceof Error ? err.message : String(err)})`);
+          });
         }
       }
     }

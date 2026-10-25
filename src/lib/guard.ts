@@ -82,6 +82,19 @@ export function guardResponse(g: Extract<GuardResult, { ok: false }>): Response 
   return Response.json({ error: g.message }, { status: g.status, headers: { "Retry-After": String(g.retryAfter) } });
 }
 
+/**
+ * Gives back what admit() counted, for an admitted request that then failed before spending anything
+ * (say, no audience name resolved), so such failures can't use up the day's run cap for everyone.
+ */
+export async function refundAdmission(req: Request, opts: { perIp?: boolean } = {}, counter: Counter = defaultCounter(), now = Date.now()): Promise<void> {
+  try {
+    await incrDaily(counter, "rl:runs", now, -1);
+    if (opts.perIp ?? true) await incrDaily(counter, `rl:ipday:${clientIp(req.headers)}`, now, -1);
+  } catch (err) {
+    console.warn(`[guard] couldn't refund an admission: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Admits a request that is about to spend money; free requests always pass. */
 export async function admit(req: Request, opts: { costs: boolean; perIp?: boolean }): Promise<GuardResult> {
   if (!opts.costs) return { ok: true };

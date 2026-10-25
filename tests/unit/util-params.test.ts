@@ -56,6 +56,15 @@ describe("sameName and numbers", () => {
     expect(sameName("Black Panther Wakanda Rising", "Black Panther: Wakanda Forever")).toBe(false);
     expect(sameName("Taylor Swift Reputation Tour", "Taylor Swift Eras Tour")).toBe(false);
     expect(sameName("Swift Taylor", "Taylor Swift")).toBe(false);
+    // Stylised spellings of the same name match (audit 7)…
+    for (const [a, b] of [["Pink", "P!nk"], ["Kesha", "Ke$ha"], ["NWA", "N.W.A."], ["REM", "R.E.M."], ["ACDC", "AC/DC"], ["Mr Beast", "MrBeast"], ["Mo", "Mø"], ["Aeon", "Æon"], ["Lukasz", "Łukasz"], ["Florence and the Machine", "Florence + the Machine"], ["Sinéad O'Connor", "Sinead O Connor"], ["The The", "the the"]]) {
+      expect(sameName(a ?? "", b ?? "")).toBe(true);
+    }
+    // …and different names still don't.
+    expect(sameName("Rema", "Remastered")).toBe(false);
+    expect(sameName("Nia Sol", "Nia Sol Tribute Band")).toBe(false);
+    expect(sameName("Grand Theft Auto VII", "Grand Theft Auto V")).toBe(false);
+    expect(sameName("The The", "FC")).toBe(false);
   });
   it("reads digits and roman numerals I–XXXIX, and nothing else", () => {
     expect([numeralValue("v"), numeralValue("vii"), numeralValue("iv"), numeralValue("ix"), numeralValue("xiv"), numeralValue("xxxix"), numeralValue("23")]).toEqual([5, 7, 4, 9, 14, 39, 23]);
@@ -93,20 +102,30 @@ describe("median", () => {
 });
 
 describe("isTitlePart", () => {
-  it("accepts a title with its subtitle or qualifier dropped, never a single word or a different name", () => {
+  it("accepts a title or its subtitle on its own, never a run inside a longer name", () => {
     expect(isTitlePart("Wakanda Forever", "Black Panther: Wakanda Forever")).toBe(true);
     expect(isTitlePart("The Daily Show", "The Daily Show with Trevor Noah")).toBe(true);
+    expect(isTitlePart("Stranger Things", "Stranger Things - Season 4")).toBe(true);
     expect(isTitlePart("Boy", "Burna Boy")).toBe(false);
     expect(isTitlePart("Burna Boy", "Burna Boy")).toBe(false);
-    expect(isTitlePart("Panther Wakanda", "Black Panther: Wakanda Forever")).toBe(true);
-    expect(isTitlePart("Forever Wakanda", "Black Panther: Wakanda Forever")).toBe(false);
+    // Audit 7: a run inside a longer name is another entity.
+    expect(isTitlePart("Panther Wakanda", "Black Panther: Wakanda Forever")).toBe(false);
+    expect(isTitlePart("Rema Dupe", "Rema Dupe Tribute Band")).toBe(false);
+    expect(isTitlePart("Los Angeles", "Los Angeles Lakers")).toBe(false);
+    expect(isTitlePart("Kendrick Lamar", "Kendrick Lamar Tribute")).toBe(false);
   });
-  test.prop([fc.array(fc.stringMatching(/^[a-z]{2,8}$/), { minLength: 2, maxLength: 6 }), fc.nat(5), fc.nat(5)])("any run of 2+ whole words of a longer title is a part of it", (words, i, n) => {
-    const start = i % (words.length - 1);
-    const part = words.slice(start, start + 2 + (n % (words.length - start - 1)));
-    fc.pre(normName(part.join(" ")) !== normName(words.join(" ")) && part.length >= 2);
-    expect(isTitlePart(part.join(" "), words.join(" "))).toBe(normName(part.join(" ")).split(" ").length >= 2);
-  });
+  test.prop([fc.array(fc.stringMatching(/^[a-z]{2,8}$/), { minLength: 2, maxLength: 4 }), fc.array(fc.stringMatching(/^[a-z]{2,8}$/), { minLength: 2, maxLength: 4 })])(
+    "each whole segment of 'Title: Subtitle' is a part; a strict run inside one segment never is",
+    (title, sub) => {
+      const t = title.join(" ");
+      const u = sub.join(" ");
+      fc.pre(normName(t).split(" ").length >= 2 && normName(u).split(" ").length >= 2 && normName(t) !== normName(u));
+      expect(isTitlePart(t, `${t}: ${u}`)).toBe(true);
+      expect(isTitlePart(u, `${t}: ${u}`)).toBe(true);
+      const run = title.slice(0, -1).join(" ");
+      if (normName(run).split(" ").length >= 2 && normName(run) !== normName(t)) expect(isTitlePart(run, `${t} ${u}`)).toBe(false);
+    },
+  );
 });
 
 describe("runKey", () => {

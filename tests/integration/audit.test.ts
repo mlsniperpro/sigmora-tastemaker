@@ -1,7 +1,7 @@
 /** POST /api/audit over the offline stack: validation, origin, the budget refusal path and a full offline audit. */
 import { describe, expect, it, vi } from "vitest";
 import { POST as audit } from "@/app/api/audit/route";
-import { AUDIT_CALL_ESTIMATE, auditPlan, type AuditResult } from "@/lib/agent/audit";
+import { AUDIT_CALL_ESTIMATE, AUDIT_TTL, DEGRADED_AUDIT_TTL, auditPlan, storeAudit, type AuditResult } from "@/lib/agent/audit";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { MemoryCache } from "@/lib/qloo/cache";
@@ -143,6 +143,24 @@ describe("/api/audit offline", () => {
     expect(again.cached).toBe(true);
     expect(again.receipts).toEqual(first.receipts);
     expect(reserve).not.toHaveBeenCalled();
+  });
+
+  it("runs concurrent identical audits once (single flight)", async () => {
+    const unique = { ...sample, text: `${sample.text}\nSingle-flight check: a sentence only this test sends.` };
+    const rs = await Promise.all([1, 2, 3].map(async () => (await (await audit(post(unique))).json()) as AuditResult));
+    expect(rs.filter((r) => r.cached === true)).toHaveLength(2);
+    expect(new Set(rs.map((r) => JSON.stringify(r.receipts))).size).toBe(1);
+  });
+
+  it("keeps a partial audit only briefly", async () => {
+    const ttls: number[] = [];
+    const cache = { get: () => Promise.resolve(undefined), set: (_k: string, _v: unknown, ttl: number) => (ttls.push(ttl), Promise.resolve()) };
+    const r = await auditPlan(sample, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+    await storeAudit(cache, "k", r, "simulated");
+    await storeAudit(cache, "k", { ...r, warnings: ["trend check failed"] }, "simulated");
+    await storeAudit(cache, "k", { ...r, extraction: { ...r.extraction, failedSearches: 2 } }, "simulated");
+    await storeAudit(cache, "k", r, "live");
+    expect(ttls).toEqual([AUDIT_TTL, DEGRADED_AUDIT_TTL, DEGRADED_AUDIT_TTL, DEGRADED_AUDIT_TTL]);
   });
 
   it("returns an empty audit, without a Qloo check, when the text names nothing", async () => {

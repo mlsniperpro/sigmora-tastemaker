@@ -260,3 +260,16 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] F15 (low) Reservations have no lease: a function killed by the platform mid-run leaks its unspent calls until the UTC day resets; normal timeouts are covered (runs end at 105 s of 120, audits at about 48 of 60)
 - [x] G1 Judge audit 5 (all medium/low) merged: the product above the fold (one-line source note, a launch map beside the diff card, a "Paste any AI's plan" entry point), browser-side audience validation, scripted-baseline labels, 12 px minimum text with an e2e check, a required "Who's launching", a distinct trend glyph, README `bias.trends` caveat, venue-outside-city notes
 - [x] G2 "Audit any AI's plan" is also an MCP tool (`audit_plan`), sharing one budgeted, cached code path with /api/audit (`auditWithBudget`), so any agent can have Qloo audit a plan (`mcp.test.ts`)
+
+## Re-audit 7 (2026-10-25, three lenses on 14951cf; partial at wind-down, see HANDOFF.md "Open audit findings")
+
+- [x] H1 (high, Qloo) Subtitle matching only on whole title segments of titled media ("Rema Dupe" is not "Rema Dupe Tribute Band") (`util-params.test.ts`)
+- [x] H2 (high, Qloo) Names a split would break are kept: the lowercase "the …" rule, Qloo-confirmed rejoining ("Earth, Wind & Fire"), venue cities dropped (`extract.test.ts`)
+- [x] H3 (medium) A spelling-blind second matching key accepts stylised spellings (P!nk, Ke$ha, N.W.A., AC/DC, Mø) and still rejects different names (`util-params.test.ts`)
+- [x] H4 (medium) Plan-city venue failures are contained in the taste check and the baseline audit (`failure-paths.test.ts`)
+- [x] H5 (medium) Partial audits are cached briefly; concurrent identical audits run once (`audit.test.ts`)
+- [x] H6 (medium) A run or audit that fails before spending (no audience name resolved) gives back its admission
+- [x] H7 (low) A lone UTF-16 surrogate is a 400 at the run, audit and MCP boundaries
+- [x] H8 (low) Run single flight: waiters don't inherit a network-specific (429) refusal
+- [x] H9 (low) Cache versions bumped for the matching change (`audit:v2`, run schema 5)
+- [P] H10 (high, judge) A blank first screen on a total live-Qloo failure: the fix (serve the labelled simulator run) is in HANDOFF.md next steps; a recording from `pnpm runs:record` (BLOCKED.md: QLOO_API_KEY) also covers it

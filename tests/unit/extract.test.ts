@@ -1,7 +1,7 @@
 /** Finding the cultural names in someone else's plan: labelled lines, the prose scan, and the model's list with its fallback. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { MAX_AUDIT_PICKS, MAX_AUDIT_SEARCHES, extractPicks, labelledPicks, namesIn, scanPicks } from "@/lib/agent/extract";
+import { MAX_AUDIT_PICKS, MAX_AUDIT_SEARCHES, MAX_JOIN_SEARCHES, extractPicks, labelledPicks, namesIn, rejoin, scanPicks } from "@/lib/agent/extract";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import type { ChatClient } from "@/lib/llm/chat";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
@@ -94,6 +94,25 @@ describe("labelled lines", () => {
     ]);
   });
 
+  it("keeps real names a split would break (audit 7)", async () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Collab targets: Tyler, the Creator, Ayra Starr")).toEqual(["collab:Tyler, the Creator", "collab:Ayra Starr"]);
+    expect(read("Featured artists: Florence + the Machine")).toEqual(["collab:Florence + the Machine"]);
+    expect(read("Venue: Madison Square Garden, New York")).toEqual(["venue:Madison Square Garden"]);
+    // A name Qloo knows joined back as written replaces its fragments; two full names in a list are left alone.
+    const q = offline();
+    const search = vi.spyOn(q, "search").mockImplementation((query: string) =>
+      Promise.resolve({
+        data: { results: query === "Earth, Wind & Fire" ? [{ name: "Earth, Wind & Fire", entity_id: "ewf", types: ["urn:entity:artist"] }] : [] },
+        meta: { path: "/search", params: {}, key: `k:${query}`, source: "simulated", cached: false, latencyMs: 0 },
+      } as unknown as Awaited<ReturnType<QlooClient["search"]>>),
+    );
+    const lines = labelledPicks("Collab targets: Earth, Wind & Fire, Ayra Starr, Ed Sheeran");
+    expect(lines.joins.map((j) => j.name)).toEqual(["Earth, Wind & Fire"]);
+    expect(names(await rejoin(q, lines.picks, lines.joins))).toEqual(["collab:Earth, Wind & Fire", "collab:Ayra Starr", "collab:Ed Sheeran"]);
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {
     for (const filler of [" ".repeat(3970), "\u00a0".repeat(4000), "a ".repeat(2000), ":".repeat(4000), "-".repeat(4000)]) {
       const started = performance.now();
@@ -145,7 +164,9 @@ describe("the deterministic scanner", () => {
     const e = await scanPicks(q, many, []);
     expect(e.picks).toHaveLength(MAX_AUDIT_PICKS);
     expect(e.capped).toBe(true);
-    expect(calls).toBe(0);
+    // Only the capped joined-name lookups run (in case a comma broke a name); no prose name is searched.
+    expect(calls).toBeLessThanOrEqual(MAX_JOIN_SEARCHES);
+    expect(e.unmatched).toEqual([]);
   });
 });
 

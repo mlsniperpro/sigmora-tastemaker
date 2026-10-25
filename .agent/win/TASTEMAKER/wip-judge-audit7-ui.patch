@@ -1,0 +1,520 @@
+diff --git a/e2e/judge-path.spec.ts b/e2e/judge-path.spec.ts
+index b79eb0c..5219dc0 100644
+--- a/e2e/judge-path.spec.ts
++++ b/e2e/judge-path.spec.ts
+@@ -81,7 +81,15 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
+ 
+   // The trace names Qloo surfaces and shows every parameter of a call on demand.
+   const trace = page.getByRole("region", { name: "Agent trace" });
+-  await expect(trace).toContainText(/\d+ Qloo calls · (1\d|[2-9]\d) Qloo surfaces/);
++  // Calls the offline simulator answered are called simulated, in the trace header and in the sticky bar.
++  if (simulated) {
++    await expect(trace).toContainText(/\d+ simulated calls · (1\d|[2-9]\d) Qloo surfaces exercised \(simulated\)/);
++    await expect(trace).not.toContainText(/\d+ Qloo calls/);
++    if ((page.viewportSize()?.width ?? 0) < 1024) await expect(page.getByRole("link", { name: /^Trace · \d+ simulated calls/ })).toBeVisible();
++  } else {
++    await expect(trace).toContainText(/\d+ Qloo calls · (1\d|[2-9]\d) Qloo surfaces/);
++    await expect(trace).not.toContainText("simulated calls");
++  }
+   await trace.getByRole("button", { name: /Qloo critic, pass 1/ }).click();
+   await expect(trace).toContainText("feature.explainability=true");
+   await expect(trace).toContainText("filter.results.entities=");
+@@ -181,10 +189,65 @@ test("a run permalink opens that exact run, in a fresh browser", async ({ page,
+   await other.close();
+ });
+ 
+-test("an unknown run permalink explains itself and offers the presets", async ({ page }) => {
++test("an unknown run permalink says so at the top and shows the hero preset instead of an empty page", async ({ page }) => {
+   await page.goto("/?run=doesnotexist1");
+-  await expect(page.getByRole("main").getByRole("alert")).toContainText("expired or never existed");
+-  await expect(page.getByRole("button", { name: "Indie artist: single launch" })).toBeEnabled();
++  const notice = page.getByRole("status").filter({ hasText: "expired or never existed" });
++  await expect(notice).toContainText("That shared run has expired or never existed; here's the hero preset instead.");
++  // At the top of the page, above the header and in the first viewport, not below the fold.
++  const box = await notice.boundingBox();
++  expect(box?.y ?? Infinity, "the notice is in the first viewport").toBeLessThan(page.viewportSize()?.height ?? 0);
++  expect(await page.getByRole("main").evaluate((m) => m.firstElementChild?.getAttribute("role"))).toBe("status");
++  // The hero preset loads on its own: a finished plan, its permalink, and the preset marked as the one shown.
++  await finished(page);
++  await expect(page).toHaveURL(/\?run=[a-z0-9]+$/);
++  expect(page.url()).not.toContain("doesnotexist1");
++  await expect(page.getByRole("button", { name: "Indie artist: single launch" })).toHaveAttribute("aria-pressed", "true");
++  await expect(page.getByText("Brief: Nia Sol")).toBeVisible();
++  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
++  await noHorizontalScroll(page);
++  // Picking something else clears the notice, which was about the link.
++  await page.getByRole("button", { name: "Sports club: new fan market" }).click();
++  await expect(notice).toHaveCount(0);
++  await finished(page);
++});
++
++test("Edit brief opens with the brief on screen, and the audit panel's audience follows it until edited", async ({ page }) => {
++  await page.goto("/?preset=indie-release");
++  await finished(page);
++  const bar = page.getByRole("form", { name: "Your own brief" });
++  await page.getByRole("button", { name: "Edit brief" }).click();
++  await expect(bar.getByLabel("Who's launching")).toHaveValue("Nia Sol");
++  await expect(bar.getByLabel(/Your audience already loves/)).toHaveValue("Tems, Rema, Asake");
++  await expect(bar.getByLabel(/Spotify artist \/ IMDb link/)).toHaveValue(/open\.spotify\.com\/artist\//);
++  await expect(bar.getByRole("button", { name: "25 to 29" })).toHaveAttribute("aria-pressed", "true");
++  await expect(bar.getByRole("button", { name: "24 & under" })).toHaveAttribute("aria-pressed", "false");
++  await bar.getByRole("button", { name: /More details/ }).click();
++  await expect(bar.getByLabel("What")).not.toHaveValue("");
++  await expect(bar.getByLabel("Goal")).not.toHaveValue("");
++
++  // Another run replaces the fields with its own brief.
++  await page.getByRole("button", { name: "Sports club: new fan market" }).click();
++  await finished(page);
++  await page.getByRole("button", { name: "Edit brief" }).click();
++  await expect(bar.getByLabel("Who's launching")).toHaveValue("Southbank FC");
++
++  // The audit panel's audience is the brief's, and follows it while untouched.
++  const panel = page.getByRole("region", { name: "Audit any AI's plan" });
++  const names = panel.getByLabel(/The audience already loves/);
++  await page.getByRole("link", { name: "Paste any AI's plan" }).click();
++  const seeds = await names.inputValue();
++  expect(seeds).not.toBe("");
++  expect(seeds).not.toContain("Tems");
++  await page.getByRole("button", { name: "Indie artist: single launch" }).click();
++  await finished(page);
++  await expect(names).toHaveValue("Tems, Rema, Asake");
++  await expect(panel.getByRole("button", { name: "25 to 29" })).toHaveAttribute("aria-pressed", "true");
++  // Once the reader has edited it, a new run leaves it alone.
++  await names.fill("Phoebe Bridgers");
++  await page.getByRole("button", { name: "Sports club: new fan market" }).click();
++  await finished(page);
++  await expect(names).toHaveValue("Phoebe Bridgers");
++  await noHorizontalScroll(page);
+ });
+ 
+ test("the city map draws real tiles, and falls back to the SVG map when the tile host is down", async ({ page }) => {
+@@ -316,7 +379,7 @@ test("the header's \"Paste any AI's plan\" opens the audit panel and lands on th
+ test("the toggle bar jumps to the trace below the desktop layout", async ({ page }) => {
+   await page.goto("/?preset=indie-release");
+   await finished(page);
+-  const jump = page.getByRole("link", { name: /^Trace · \d+ Qloo calls/ });
++  const jump = page.getByRole("link", { name: /^Trace · \d+ (Qloo|simulated) calls/ });
+   if ((page.viewportSize()?.width ?? 0) >= 1024) {
+     // On desktop the trace is the left rail, already in view, so there is nothing to jump to.
+     await expect(jump).toBeHidden();
+diff --git a/src/components/App.tsx b/src/components/App.tsx
+index 3d13542..6f97211 100644
+--- a/src/components/App.tsx
++++ b/src/components/App.tsx
+@@ -14,7 +14,7 @@ import { CampaignPack } from "./CampaignPack";
+ import { DiffCard } from "./DiffCard";
+ import { ShipBar } from "./ShipBar";
+ import { TasteMap } from "./TasteMap";
+-import { Trace } from "./Trace";
++import { callsLabel, callTally, Trace } from "./Trace";
+ import { useRun } from "./useRun";
+ 
+ /**
+@@ -56,8 +56,8 @@ function PlanToggle({
+   mode: "qloo" | "without";
+   setMode: (m: "qloo" | "without") => void;
+   result?: RunResult;
+-  /** Qloo calls in the trace so far. */
+-  calls: number;
++  /** Calls in the trace so far, and how many of them the offline simulator answered. */
++  calls: { calls: number; simulated: number };
+   onTrace: () => void;
+ }) {
+   const flagged = result && !result.baseline.unavailable ? result.baseline.receipts.filter((r) => r.verdict === "miss" || r.verdict === "hallucination").length : 0;
+@@ -77,7 +77,7 @@ function PlanToggle({
+               </>
+             )}
+           </p>
+-          {calls > 0 && (
++          {calls.calls > 0 && (
+             <a
+               href="#agent-trace"
+               onClick={(e) => {
+@@ -86,7 +86,7 @@ function PlanToggle({
+               }}
+               className="whitespace-nowrap text-meta font-medium text-violet hover:underline lg:hidden"
+             >
+-              Trace · {calls} Qloo calls ↓
++              Trace · {callsLabel(calls)} ↓
+             </a>
+           )}
+         </div>
+@@ -129,18 +129,27 @@ export function App() {
+   const [auditOpen, setAuditOpen] = useState(false);
+   // A shared `?b=` brief is someone else's text: it is shown, and runs (spending the demo's budget) only on a click.
+   const [shared, setShared] = useState(!initial.measure && !initial.runId && "brief" in initial.request ? initial.request : undefined);
++  // A `?run=` link the server doesn't know (or couldn't be asked about): the hero preset is shown instead, with this notice on top.
++  const [deadLink, setDeadLink] = useState<"gone" | "failed">();
+ 
+   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
+   useEffect(() => {
+     if (initial.measure) void requery(initial.measure);
+-    else if (initial.runId) void open(initial.runId);
+-    else if (!("brief" in initial.request)) void run(initial.request);
++    else if (initial.runId) {
++      void open(initial.runId).then((outcome) => {
++        // A dead link never leaves the page empty: say so, and show the hero preset.
++        if (outcome !== "gone" && outcome !== "failed") return;
++        setDeadLink(outcome);
++        setActivePreset(PRESETS[0].id);
++        void run({ preset: PRESETS[0].id });
++      });
++    } else if (!("brief" in initial.request)) void run(initial.request);
+   }, [initial, run, open, requery]);
+ 
+   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
+   const showForm = editing || (!result && !running);
+   const runSimulated = !!result && result.qloo.simulated > 0;
+-  const traceCalls = steps.reduce((n, s) => n + s.calls.length, 0);
++  const traceCalls = callTally(steps);
+   const openAudit = () => {
+     setAuditOpen(true);
+     // Once the panel's body is shown, so the scroll lands on the final layout and focus on the plan box.
+@@ -161,6 +170,16 @@ export function App() {
+ 
+   return (
+     <main className="mx-auto w-full max-w-[1400px] space-y-3 px-4 pb-5 pt-4 sm:px-6">
++      {deadLink && (
++        <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-fade/50 bg-fade/10 px-3 py-2 text-body text-ink">
++          <p className="min-w-0">
++            <strong className="font-semibold text-fade">{deadLink === "gone" ? "That shared run has expired or never existed;" : "That shared run couldn't be opened right now;"}</strong> here&apos;s the hero preset instead.
++          </p>
++          <button type="button" onClick={() => setDeadLink(undefined)} className="shrink-0 rounded-full border border-line px-3 py-1 text-meta text-ink hover:border-accent/60">
++            Dismiss
++          </button>
++        </div>
++      )}
+       <header className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
+         <Intro>{result && <RoiLine result={result} served={served} />}</Intro>
+         {/* The second way in: someone else's plan, checked by the same critic. The panel itself stays below the diff card. */}
+@@ -189,6 +208,7 @@ export function App() {
+               // Switching mid-run is allowed: the request in flight is cancelled.
+               onClick={() => {
+                 setActivePreset(p.id);
++                setDeadLink(undefined);
+                 setEditing(false);
+                 void run({ preset: p.id });
+               }}
+@@ -245,8 +265,11 @@ export function App() {
+         <div id="brief-form" hidden={!showForm}>
+           <BriefForm
+             busy={running}
++            // "Edit brief" starts from the brief on screen, not from empty fields.
++            current={result ? { id: result.id, brief: result.brief } : undefined}
+             onRun={(b) => {
+               setActivePreset(undefined);
++              setDeadLink(undefined);
+               setEditing(false);
+               void run({ brief: b });
+             }}
+diff --git a/src/components/AuditPanel.tsx b/src/components/AuditPanel.tsx
+index 1b85b7a..61f8410 100644
+--- a/src/components/AuditPanel.tsx
++++ b/src/components/AuditPanel.tsx
+@@ -14,6 +14,12 @@ const MAX_CHARS = 4000;
+ 
+ const DESCRIPTION = "Paste a campaign written by ChatGPT, Claude or anyone: Qloo checks every name in it against your audience.";
+ 
++/**
++ * Said above a simulated audit's results. The catalog's size isn't given: it lives in a server-only module
++ * (the browser never imports it, tests/unit/client-bundle.test.ts), and the audit's answer doesn't carry it.
++ */
++export const SIMULATED_CATALOG_NOTE = "Offline demo catalog (small): famous names may be missing or judged by placeholder data. A Qloo key gives real verdicts.";
++
+ const STRUCK: ReadonlySet<Verdict> = new Set(["miss", "hallucination"]);
+ const NAME_CLS: Record<Verdict, string> = { pass: "text-ink", miss: "text-miss line-through", hallucination: "text-invented line-through", fading: "text-fade", unscored: "text-muted" };
+ 
+@@ -102,6 +108,7 @@ export function AuditResults({ result }: { result: AuditResult }) {
+   const swap = (r: Receipt) => result.suggestions.find((s) => s.role === r.role && s.from.toLowerCase() === r.name.toLowerCase())?.to;
+   return (
+     <div className="space-y-2">
++      {result.simulated && <p className="text-meta leading-snug text-fade">{SIMULATED_CATALOG_NOTE}</p>}
+       <p className="text-body text-ink">
+         {result.simulated && <span className="mr-1.5 rounded bg-fade/15 px-1.5 py-0.5 text-caption font-medium text-fade">simulated data, not Qloo</span>}
+         {auditSummary(result)}
+@@ -143,6 +150,17 @@ export function AuditPanel({
+   const [text, setText] = useState("");
+   const [names, setNames] = useState(seeds.join(", "));
+   const [audienceAges, setAges] = useState<AgeBucket[]>([...ages]);
++  // The audience follows the brief on screen until the reader edits it (adjusting state while rendering, not in an effect).
++  const [edited, setEdited] = useState(false);
++  const briefAudience = `${seeds.join(", ")}|${ages.join(",")}`;
++  const [shownAudience, setShownAudience] = useState(briefAudience);
++  if (briefAudience !== shownAudience) {
++    setShownAudience(briefAudience);
++    if (!edited) {
++      setNames(seeds.join(", "));
++      setAges([...ages]);
++    }
++  }
+   const [busy, setBusy] = useState(false);
+   const [error, setError] = useState<string>();
+   const [problem, setProblem] = useState<ReturnType<typeof auditInputProblem>>();
+@@ -251,6 +269,7 @@ export function AuditPanel({
+               aria-describedby={problem?.field === "names" ? `${id}-problem` : undefined}
+               onChange={(e) => {
+                 setNames(e.target.value);
++                setEdited(true);
+                 if (problem?.field === "names") setProblem(undefined);
+               }}
+               placeholder="Tems, Rema, Asake"
+@@ -260,7 +279,10 @@ export function AuditPanel({
+             label="Audience ages"
+             options={AGE_BUCKETS}
+             selected={(a) => audienceAges.includes(a)}
+-            toggle={(a: AgeBucket) => setAges((xs) => (xs.includes(a) ? (xs.length > 1 ? xs.filter((x) => x !== a) : xs) : [...xs, a]))}
++            toggle={(a: AgeBucket) => {
++              setEdited(true);
++              setAges((xs) => (xs.includes(a) ? (xs.length > 1 ? xs.filter((x) => x !== a) : xs) : [...xs, a]));
++            }}
+             name={AGE_LABEL}
+           />
+           {problem && (
+diff --git a/src/components/BriefForm.tsx b/src/components/BriefForm.tsx
+index 3893f0e..f2e3fda 100644
+--- a/src/components/BriefForm.tsx
++++ b/src/components/BriefForm.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import { useId, useState } from "react";
+-import type { BriefInput } from "@/lib/agent/brief";
++import type { Brief, BriefInput } from "@/lib/agent/brief";
+ import { briefFormProblem, briefFromForm, type FormFields } from "@/lib/agent/briefForm";
+ import { AGE_BUCKETS, type AgeBucket } from "@/lib/vocab";
+ 
+@@ -29,12 +29,41 @@ export function Chips<T extends string>({ label, options, selected, toggle, name
+   );
+ }
+ 
+-/** The brief bar: who's launching, who the audience loves (names or a Spotify/IMDb link) and their ages up front; the rest on demand. */
+-export function BriefForm({ onRun, busy }: { onRun: (b: BriefInput) => void; busy: boolean }) {
++const EMPTY_FIELDS: FormFields = { family: "music", subject: "", product: "", seeds: "", link: "", vibe: "", ages: ["25_to_29", "30_to_34"], goal: "", city: "", compareTo: "" };
++
++/** A brief laid back into the form's fields (the reverse of `briefFromForm`), so it can be edited. */
++export function fieldsFromBrief(b: Brief): FormFields {
++  return {
++    family: b.family,
++    subject: b.subject,
++    product: b.product,
++    seeds: b.seeds.join(", "),
++    link: b.seedLinks[0] ?? "",
++    vibe: b.vibe ?? "",
++    ages: [...b.ages],
++    gender: b.gender,
++    goal: b.goal,
++    city: b.targetCity ?? "",
++    compareTo: b.compareTo ?? "",
++  };
++}
++
++/**
++ * The brief bar: who's launching, who the audience loves (names or a Spotify/IMDb link) and their ages up front; the rest on demand.
++ * `current` is the brief on screen: the fields start from it, and follow it whenever a different run is shown.
++ */
++export function BriefForm({ onRun, busy, current }: { onRun: (b: BriefInput) => void; busy: boolean; current?: { id: string; brief: Brief } }) {
+   const id = useId();
+-  const [f, setF] = useState<FormFields>({ family: "music", subject: "", product: "", seeds: "", link: "", vibe: "", ages: ["25_to_29", "30_to_34"], goal: "", city: "", compareTo: "" });
++  const [f, setF] = useState<FormFields>(current ? fieldsFromBrief(current.brief) : EMPTY_FIELDS);
+   const [more, setMore] = useState(false);
+   const [problem, setProblem] = useState<ReturnType<typeof briefFormProblem>>();
++  // Adjusting state while rendering (not in an effect): a new run on screen replaces the fields with its brief.
++  const [shownRun, setShownRun] = useState(current?.id);
++  if (current && current.id !== shownRun) {
++    setShownRun(current.id);
++    setF(fieldsFromBrief(current.brief));
++    setProblem(undefined);
++  }
+   const set = <K extends keyof FormFields>(k: K) => (v: FormFields[K]) => setF((x) => ({ ...x, [k]: v }));
+   const text = (k: "subject" | "product" | "seeds" | "link" | "vibe" | "goal" | "city" | "compareTo") => ({
+     id: `${id}-${k}`,
+@@ -56,7 +85,12 @@ export function BriefForm({ onRun, busy }: { onRun: (b: BriefInput) => void; bus
+         const bad = briefFormProblem(f);
+         setProblem(bad);
+         if (bad) document.getElementById(`${id}-${bad.field}`)?.focus();
+-        else onRun(briefFromForm(f));
++        else {
++          const brief = briefFromForm(f);
++          // The form has no field for the metros to compare, so an edited brief keeps the ones it came with.
++          const kept = current?.brief.candidateCities;
++          onRun(!brief.targetCity && kept?.length ? { ...brief, candidateCities: kept } : brief);
++        }
+       }}
+     >
+       <div className="grid gap-2 sm:grid-cols-2 sm:items-end lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+diff --git a/src/components/Trace.tsx b/src/components/Trace.tsx
+index 58b849e..fe228fe 100644
+--- a/src/components/Trace.tsx
++++ b/src/components/Trace.tsx
+@@ -72,6 +72,21 @@ function finishedAt(iso: string): string {
+   return `${hhmm} UTC on ${d.getUTCDate()} ${d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" })}`;
+ }
+ 
++/** The Qloo calls in a trace, how many of them the offline simulator answered, and how many distinct surfaces they exercised. */
++export function callTally(steps: readonly TraceStep[]) {
++  const calls = steps.flatMap((s) => s.calls);
++  return { calls: calls.length, simulated: calls.filter((c) => c.source === "simulated").length, surfaces: new Set(calls.map((c) => surfaceOf(c.key))).size };
++}
++
++/**
++ * "76 Qloo calls"; "76 simulated calls" when the offline simulator answered all of them (they are not Qloo's);
++ * "76 Qloo calls (12 simulated)" when it answered only some.
++ */
++export function callsLabel({ calls, simulated }: { calls: number; simulated: number }): string {
++  if (simulated === 0) return `${calls} Qloo calls`;
++  return simulated === calls ? `${calls} simulated calls` : `${calls} Qloo calls (${simulated} simulated)`;
++}
++
+ export function Trace({
+   steps,
+   running,
+@@ -98,14 +113,14 @@ export function Trace({
+   setCollapsed: (c: boolean) => void;
+   names?: ReadonlyMap<string, string>;
+ }) {
+-  const calls = steps.reduce((n, s) => n + s.calls.length, 0);
+-  const surfaces = new Set(steps.flatMap((s) => s.calls.map((c) => surfaceOf(c.key))));
++  const tally = callTally(steps);
++  const allSimulated = tally.calls > 0 && tally.simulated === tally.calls;
+   return (
+     <section id="agent-trace" tabIndex={-1} aria-label="Agent trace" className="scroll-mt-16 rounded-2xl border border-line bg-panel p-4 outline-none">
+       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2">
+         <h2 className="text-sm font-semibold tracking-wide text-ink">Agent trace</h2>
+         <span className="font-mono text-meta text-muted">
+-          {calls} Qloo calls · {surfaces.size} Qloo surfaces
++          {callsLabel(tally)} · {tally.surfaces} Qloo surfaces{allSimulated ? " exercised (simulated)" : ""}
+         </span>
+         <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="text-meta text-violet hover:underline">
+           {collapsed ? "Show steps" : "Hide steps"}
+diff --git a/src/components/useRun.ts b/src/components/useRun.ts
+index 3c480ca..8ed124e 100644
+--- a/src/components/useRun.ts
++++ b/src/components/useRun.ts
+@@ -95,17 +95,28 @@ export function useRun() {
+     [begin, end, show],
+   );
+ 
+-  /** Opens a finished run by id (a `?run=` permalink). */
++  /**
++   * Opens a finished run by id (a `?run=` permalink), and says how it went so the caller can decide what to show instead:
++   * "gone" = the server has no such run (expired or never existed), "failed" = it couldn't be asked,
++   * "aborted" = something newer took over the screen.
++   */
+   const open = useCallback(
+-    async (id: string) => {
++    async (id: string): Promise<"ok" | "gone" | "failed" | "aborted"> => {
+       const ctrl = begin();
+       try {
+         const res = await fetch(`/api/run?id=${encodeURIComponent(id)}`, { signal: ctrl.signal });
+         const body = (await res.json().catch(() => ({}))) as { result?: RunResult; error?: string };
+-        if (!res.ok || !body.result) throw new Error(body.error ?? `Couldn't open that run (${res.status})`);
++        if (!res.ok || !body.result) {
++          // Only a not-found answer means the link is dead; anything else is a failure to ask.
++          if (res.status === 404) return "gone";
++          throw new Error(body.error ?? `Couldn't open that run (${res.status})`);
++        }
+         show(body.result, { from: "cache" });
++        return "ok";
+       } catch (err) {
+-        if ((err as Error).name !== "AbortError") setError(`${(err as Error).message} Pick a preset to run it again.`);
++        if ((err as Error).name === "AbortError") return "aborted";
++        setError(`${(err as Error).message} Pick a preset to run it again.`);
++        return "failed";
+       } finally {
+         end(ctrl);
+       }
+diff --git a/tests/unit/components.test.tsx b/tests/unit/components.test.tsx
+index 6a7cb7d..07ec51b 100644
+--- a/tests/unit/components.test.tsx
++++ b/tests/unit/components.test.tsx
+@@ -1,11 +1,14 @@
+ /** Components rendered to HTML on the server: what a reader sees for each verdict and source. */
+ import { describe, expect, it } from "vitest";
+ import { renderToStaticMarkup } from "react-dom/server";
+-import { AuditPanel, AuditResults, audienceNames, auditInputProblem, auditSummary, friendlyAuditError } from "@/components/AuditPanel";
++import { AuditPanel, AuditResults, SIMULATED_CATALOG_NOTE, audienceNames, auditInputProblem, auditSummary, friendlyAuditError } from "@/components/AuditPanel";
+ import { CampaignPack } from "@/components/CampaignPack";
+ import { ReceiptChip, TrendMark } from "@/components/Receipt";
+ import { TasteMap } from "@/components/TasteMap";
+-import { Trace } from "@/components/Trace";
++import { BriefForm, fieldsFromBrief } from "@/components/BriefForm";
++import { callsLabel, callTally, Trace } from "@/components/Trace";
++import { Brief } from "@/lib/agent/brief";
++import { briefFromForm } from "@/lib/agent/briefForm";
+ import { auditPlan } from "@/lib/agent/audit";
+ import { metricsOf } from "@/lib/agent/critic";
+ import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
+@@ -286,3 +289,73 @@ describe("audit panel notes", () => {
+     expect(model).toMatch(/also listed Taylor Swift, which your text doesn't contain, so it wasn't audited/);
+   });
+ });
++
++describe("Trace header", () => {
++  const header = (steps: RunResult["trace"]) => text(renderToStaticMarkup(<Trace steps={steps} running={false} pending={[]} collapsed setCollapsed={() => undefined} />));
++  /** The trace with its first `only` calls (all of them by default) answered by `source`. */
++  const asSource = (steps: RunResult["trace"], source: "live" | "simulated", only = Infinity): RunResult["trace"] => {
++    let n = 0;
++    return steps.map((s) => ({ ...s, calls: s.calls.map((c) => ({ ...c, source: n++ < only ? source : c.source })) }));
++  };
++
++  it("calls a simulated run's calls simulated, with the surfaces they exercised", async () => {
++    const run = await heroRun();
++    expect(run.qloo.simulated).toBeGreaterThan(0);
++    const tally = callTally(run.trace);
++    expect(tally.simulated).toBe(tally.calls);
++    const html = header(run.trace);
++    expect(html).toContain(`${String(tally.calls)} simulated calls · ${String(tally.surfaces)} Qloo surfaces exercised (simulated)`);
++    expect(html).not.toMatch(/\d+ Qloo calls/);
++    // The sticky bar uses the same label.
++    expect(callsLabel(tally)).toBe(`${String(tally.calls)} simulated calls`);
++  });
++  it("keeps 'Qloo calls' for answers that came from Qloo, and says how many were simulated when only some were", async () => {
++    const run = await heroRun();
++    const live = asSource(run.trace, "live");
++    const tally = callTally(live);
++    expect(header(live)).toContain(`${String(tally.calls)} Qloo calls · ${String(tally.surfaces)} Qloo surfaces`);
++    expect(header(live)).not.toMatch(/simulated/);
++    const some = asSource(live, "simulated", 3);
++    const mixed = callTally(some);
++    expect(mixed.simulated).toBe(3);
++    expect(callsLabel(mixed)).toBe(`${String(mixed.calls)} Qloo calls (3 simulated)`);
++    expect(header(some)).not.toContain("exercised (simulated)");
++  });
++});
++
++describe("audit results on a simulated result", () => {
++  const audited = () => auditPlan({ text: AUDIT_SAMPLE, ...AUDIT_SAMPLE_AUDIENCE }, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
++  it("says above the results that the catalog is a small offline one, and not on Qloo data", async () => {
++    const sim = await audited();
++    const html = text(renderToStaticMarkup(<AuditResults result={sim} />));
++    expect(html.trimStart()).toMatch(/^Offline demo catalog \(small\): famous names may be missing or judged by placeholder data\. A Qloo key gives real verdicts\./);
++    expect(html.indexOf("Offline demo catalog")).toBeLessThan(html.indexOf("names found and checked"));
++    // No catalog size it didn't count.
++    expect(SIMULATED_CATALOG_NOTE).not.toMatch(/\d/);
++    const live = { ...sim, simulated: false, receipts: sim.receipts.map((x) => ({ ...x, source: "live" as const })) };
++    expect(text(renderToStaticMarkup(<AuditResults result={live} />))).not.toContain("Offline demo catalog");
++  });
++});
++
++describe("BriefForm from the current run", () => {
++  it("lays a brief back into the form's fields and reads it out again unchanged", () => {
++    for (const p of PRESETS) {
++      const back = briefFromForm(fieldsFromBrief(Brief.parse(p.brief)));
++      expect(back).toMatchObject({ family: p.brief.family, subject: p.brief.subject, product: p.brief.product, seeds: p.brief.seeds, ages: p.brief.ages, goal: p.brief.goal });
++      expect(back.targetCity).toBe(p.brief.targetCity);
++      expect(back.compareTo).toBe(p.brief.compareTo);
++      expect(back.vibe).toBe(p.brief.vibe);
++    }
++  });
++  it("starts with the run's subject, seeds and link instead of empty fields", () => {
++    const hero = Brief.parse(PRESETS[0].brief);
++    const html = renderToStaticMarkup(<BriefForm busy={false} onRun={() => undefined} current={{ id: "abc", brief: hero }} />);
++    expect(html).toContain(`value="${hero.subject}"`);
++    expect(html).toContain(`value="${hero.seeds.join(", ")}"`);
++    expect(html).toContain(`value="${hero.seedLinks[0] ?? ""}"`);
++    // Ages are the run's, not the form's defaults.
++    expect(html.match(/aria-pressed="true"/g)).toHaveLength(hero.ages.length);
++    const empty = renderToStaticMarkup(<BriefForm busy={false} onRun={() => undefined} />);
++    expect(empty).not.toContain(`value="${hero.subject}"`);
++  });
++});

@@ -14,6 +14,9 @@ import { ROLE_SPEC, ROLES, type Brief, type PickType, type Role } from "./brief"
 import type { Driver } from "./types";
 import { isTitlePart, normName, sameName } from "./util";
 
+/** Entity types whose titles carry subtitles, where a plan may name just the title or the subtitle. */
+const TITLED: ReadonlySet<string> = new Set(["movie", "tv_show", "podcast", "video_game", "book"]);
+
 /** Types /v2/trending takes as filter.type (its documented enum) among the ones we pick. */
 export const TREND_TYPES: readonly EntityType[] = ["artist", "brand", "movie", "person", "place", "podcast", "tv_show"];
 /** Trend readings are fetched for this many top candidates per fading-checked role (one /v2/trending call each; the grounding shows 6). */
@@ -217,7 +220,8 @@ export async function resolveByName(qloo: QlooClient, name: string, opts: { type
   const r = await qloo.search(name, opts.types, opts.take ?? 5);
   const exact = r.data.results.find((e) => sameName(e.name, name));
   // `titlePart`: also accept a hit whose title contains the whole name ("Wakanda Forever" → "Black Panther: Wakanda Forever").
-  const part = exact || !opts.titlePart ? undefined : r.data.results.find((e) => isTitlePart(name, e.name));
+  // Only titled media have subtitles; a person, brand, place or artist never matches on part of a name.
+  const part = exact || !opts.titlePart ? undefined : r.data.results.find((e) => entityTypesOf(e).some((t) => TITLED.has(t)) && isTitlePart(name, e.name));
   const hit = exact ?? part ?? (opts.acceptTop ? r.data.results[0] : undefined);
   return { hit, partOf: part?.name, key: r.meta.key, source: r.meta.source };
 }

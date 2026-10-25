@@ -105,7 +105,7 @@ export interface Metrics {
 }
 
 /** Bump when RunResult's shape changes; cache keys carry it, so an older deploy's entries are never served. */
-export const RUN_SCHEMA_VERSION = 4;
+export const RUN_SCHEMA_VERSION = 5;
 
 export interface RunResult {
   id: string;

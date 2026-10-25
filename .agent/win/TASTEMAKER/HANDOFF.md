@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, resumed 2026-10-25 12:52 UTC; this file is current as of each push)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-25 ~14:15 UTC)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -40,16 +40,35 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (2026-10-25 ~14:00 UTC)
-- **Pushed head:** 14951cf, with audit rounds 3–6 fixed (WIN-CHECKLIST sections C–G).
-  - lint and typecheck clean;
-  - 451 tests;
-  - 22 e2e (including a no-text-under-12-px check);
-  - demo 76/60/76 calls.
-- **Round 7 of the three-lens audit** (Sonnet subagents, read-only, each in its own scratch worktree) is running on 14951cf. Its findings are not yet in.
-- **Soak on 14951cf** is running in the session scratchpad. Earlier soaks were clean on b190264, af4f11a and 9da7b26 (100k deep pass plus 60 seeded rounds each).
-- **Drafts in the session scratchpad** (not in the repo, so a new session redoes them): `break-it.draft.md`, `breakit-notes.md` (fresh clone of af4f11a: install, demo 76, 431/431 tests, GET / 200, /api/run streams, MCP answers) and `pr-body-now.md`.
-- **PR #1 body** was updated at ~14:00 UTC.
+## In flight at wind-down (2026-10-25 ~14:15 UTC)
+- **Pushed with this handoff:** the round-7 fixes, verified locally (lint and typecheck clean, `pnpm test` 457 passed; e2e NOT re-run on this exact commit).
+  - The Qloo lens's two highs: subtitle matching only on whole title segments of titled media; Qloo-confirmed rejoining of names a split broke, plus the lowercase "the …" rule and dropping venue cities.
+  - A spelling-blind second matching key (P!nk, Ke$ha, N.W.A., AC/DC, Mø …).
+  - Plan-city venue failures contained (tasteCheck and the baseline audit).
+  - Other-type hits kept out of "unmatched"; that list now shows only plausible names; "-style" suffixes stripped.
+  - Lone UTF-16 surrogates rejected with a 400 (run, audit, MCP).
+  - Partial audits cached briefly (failed searches, warnings, fallback sources).
+  - Audit single flight.
+  - Run single flight: waiters don't inherit 429 refusals.
+  - Admissions refunded when a run or audit fails before spending (NoSeed).
+  - Cache versions bumped (`audit:v2`, `RUN_SCHEMA_VERSION` 5).
+  - The MCP `audit_plan` tool (pushed earlier in a5b3314).
+- **WIP patch, not applied:** `.agent/win/TASTEMAKER/wip-judge-audit7-ui.patch` is the uncommitted work of a stopped UI agent, a diff against a5b3314 limited to src/components, e2e and tests/unit/components.test.tsx. It is UNTESTED. Its goals were judge-audit-7 items:
+  1. a dead `?run=` permalink shows a top message and loads the hero preset;
+  2. "simulated" in the trace header and the sticky bar;
+  3. an offline-catalog note in the audit panel;
+  4. Edit brief and the audit audience prefilled from the current brief.
+  Apply it with `git apply --3way`, review, test (including `rm -rf .next` before e2e), then delete the patch.
+- **Soak on 14951cf:** done (100k deep pass plus 60 seeded rounds, results in the old session scratchpad, so treat it as unrecorded). Redo it on the final commit.
+
+## Open audit findings (round 7, not yet fixed)
+- **Judge H1 (high):** a total live-Qloo failure (wrong key, or a host error on every call) leaves a blank first screen, because `fixtures/runs/recorded.json` is `{}` and there is no last run. Fix: when a whole preset run fails with no recording or cache, serve the labelled offline-simulator run of that preset with a banner ("Live Qloo unavailable: offline simulator"), never mixed with live data; also map raw errors like "fetch failed" to a human message at the top.
+- **Judge M3:** `.agent/` and `docs/PLAYBOOK.md` (judge-by-judge tactics) will be public when the repo goes public. Owner decision; it's listed in BLOCKED.md. The gate needs `.agent/` tracked.
+- **Judge L7:** the panel UI doesn't yet render `extraction.otherTypes` ("Qloo knows X as a <type>, which this audit doesn't check").
+- **Security M3, partly open:** the sample audit has no recorded fallback for when its budget is refused. Fix: record the sample audit with the key (extend `pnpm runs:record`) and serve it, labelled, on refusal.
+- **Security L6:** a refusal memo can go stale if a refund lands between `incr` and `memo.set` (it lasts at most 60 s); MCP admissions aren't refunded on NoSeed.
+- **Security L7:** add a short in-memory negative cache for KV misses (cost only).
+- Earlier accepted `[-]` decisions are in WIN-CHECKLIST.
 
 ## Next steps, in order
 1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).
@@ -61,12 +80,6 @@
    - the live-stub failure-injection tests.
 3. Write `.agent/win/TASTEMAKER/reaudit.md` (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT`). Both are still stale: they name 3b25d12. Commit, push, and run the gate until it prints PASS.
 4. Update the PR body (status, Decisions, Self-review, load), then post the final status comment.
-
-## Open audit findings (not fixed)
-- Accepted as decisions, already marked `[-]` in WIN-CHECKLIST:
-  - C11: per-instance counters for rate limits during a KV outage. Budgets fail closed.
-  - D7: the per-instance Qloo throttle.
-  - C39: a non-budget error in the grounded critic's first pass still fails the run; presets then fall back to their recording or last run.
 
 ## Key decisions (why)
 - **Qloo is the critic inside the loop.**

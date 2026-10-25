@@ -11,6 +11,7 @@ import { AUDIT_CALL_ESTIMATE } from "../config";
 import type { QlooClient, QlooSource } from "../qloo/client";
 import type { LLMProvider } from "../llm/types";
 import { BriefFields } from "./brief";
+import { NoSeedError } from "./context";
 import { extractPicks, MAX_AUDIT_CHARS, squashSpaces, type Extraction } from "./extract";
 import { metricsOf } from "./critic";
 import { tasteCheck, type TasteCheckResult } from "./tasteCheck";
@@ -57,7 +58,7 @@ export const DEGRADED_AUDIT_TTL = 60 * 10;
 /** Cache key for an audit: the input as audited (spaces squashed), the model and the Qloo source. SHA-256, so no input can collide with another. */
 export function auditKey(input: AuditRequest, llmId: string, source: string): string {
   const norm = { ...input, text: squashSpaces(input.text).trim() };
-  return `audit:v1:${createHash("sha256").update(JSON.stringify([norm, llmId, source])).digest("base64url")}`;
+  return `audit:v2:${createHash("sha256").update(JSON.stringify([norm, llmId, source])).digest("base64url")}`;
 }
 
 const CachedAudit = z.object({ receipts: z.array(z.unknown()), metrics: z.object({ picks: z.number() }).loose(), extraction: z.object({ by: z.string() }).loose() }).loose();
@@ -68,14 +69,26 @@ export async function cachedAudit(cache: CacheStore, key: string): Promise<Audit
   return CachedAudit.safeParse(v).success ? { ...(v as AuditResult), cached: true } : undefined;
 }
 
-/** Keeps a finished audit; a degraded one (picks unscored, or the model's list failed) is kept briefly so it is redone soon. */
-export async function storeAudit(cache: CacheStore, key: string, r: AuditResult): Promise<void> {
-  const degraded = r.metrics.unscored > 0 || r.extraction.fallback !== undefined;
+/** Keeps a finished audit; a degraded one is kept briefly so it is redone soon. */
+export async function storeAudit(cache: CacheStore, key: string, r: AuditResult, primary: string): Promise<void> {
+  // Anything partial (unscored picks, failed searches, warnings, the model's list not used, answers from a fallback source) is redone soon.
+  const degraded = r.metrics.unscored > 0 || r.extraction.fallback !== undefined || (r.extraction.failedSearches ?? 0) > 0 || r.warnings.length > 0 || r.sources.some((x) => x !== primary);
   await cache.set(key, r, degraded ? DEGRADED_AUDIT_TTL : AUDIT_TTL);
 }
 
 /** No Qloo call is sent this long after an audit starts, so the reply beats a route's time limit. */
 export const AUDIT_DEADLINE_MS = 45_000;
+
+export interface AuditDeps {
+  qloo: QlooClient;
+  llm: LLMProvider;
+  cache: CacheStore;
+  ip: string;
+  /** Counts the request toward the rate limits and the daily cap (after its budget is reserved). */
+  gate: () => Promise<GuardResult>;
+  /** Gives back what `gate` counted, when the audit then fails before spending anything. */
+  refund?: () => Promise<void>;
+}
 
 export type AuditOutcome = { ok: true; result: AuditResult } | { ok: false; refusal: Extract<GuardResult, { ok: false }> };
 
@@ -87,22 +100,47 @@ export type AuditOutcome = { ok: true; result: AuditResult } | { ok: false; refu
  */
 export async function auditWithBudget(
   input: AuditRequest,
-  deps: { qloo: QlooClient; llm: LLMProvider; cache: CacheStore; ip: string; gate: () => Promise<GuardResult> },
+  deps: AuditDeps,
 ): Promise<AuditOutcome> {
   const { qloo, llm, cache } = deps;
   const key = auditKey(input, llm.id, qloo.primarySource);
   const hit = await cachedAudit(cache, key);
   if (hit) return { ok: true, result: hit };
+  // Single flight per input on this instance: concurrent identical audits share the first one's result
+  // (or a refusal that isn't about the first caller's own network).
+  const pending = auditsInFlight.get(key);
+  if (pending) {
+    const shared = await pending;
+    if (shared.ok || shared.refusal.status !== 429) return shared.ok ? { ok: true, result: { ...shared.result, cached: true } } : shared;
+  }
+  const run = runAudit(input, deps, key);
+  if (!pending) {
+    auditsInFlight.set(key, run);
+    void run.finally(() => auditsInFlight.delete(key)).catch(() => undefined);
+  }
+  return run;
+}
+
+/** Audits running on this instance, by key. */
+const auditsInFlight = new Map<string, Promise<AuditOutcome>>();
+
+async function runAudit(input: AuditRequest, deps: AuditDeps, key: string): Promise<AuditOutcome> {
+  const { qloo, llm, cache } = deps;
   const live = qloo.primarySource === "live";
   if (live && !(await qloo.reserve(AUDIT_CALL_ESTIMATE, qlooBudget({ fresh: true }, deps.ip)))) return { ok: false, refusal: qlooRefusal(qloo.refusedBy) };
   try {
-    if (live || !llm.scripted) {
+    const counted = live || !llm.scripted;
+    if (counted) {
       const g = await deps.gate();
       if (!g.ok) return { ok: false, refusal: g };
     }
     qloo.setDeadline(Date.now() + AUDIT_DEADLINE_MS);
-    const result = await auditPlan(input, { qloo, llm });
-    await storeAudit(cache, key, result);
+    const result = await auditPlan(input, { qloo, llm }).catch(async (err: unknown) => {
+      // Nothing to audit against (no audience name resolved): the request cost nothing, so it doesn't count.
+      if (counted && err instanceof NoSeedError) await deps.refund?.();
+      throw err;
+    });
+    await storeAudit(cache, key, result, qloo.primarySource);
     return { ok: true, result };
   } finally {
     await qloo.release();

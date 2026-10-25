@@ -75,3 +75,6 @@ Each call below is built from Qloo's docs plus notes from other entrants who ran
 | 15 | `bias.trends` on artist / tv_show / movie / podcast discovery | We send `QLOO_BIAS_TRENDS` (default `medium`; values `low`/`medium`/`high` assumed, since no public doc lists them). Compare results with and without it; if it's silently dropped (identical lists) or empties results, set `QLOO_BIAS_TRENDS=off` | `context.ts` `discoveryParams` |
 | 16 | `diversify.by=subtype` on the `urn:tag` taste-vocabulary call (the documented use; `QLOO_DIVERSIFY=off` stops it) | Tags vary in subtype and the list stays non-empty. It is no longer sent on brand or place discovery, where no documented value applies | `context.ts`, `params.ts` |
 | 17 | Nairobi coverage (probe) | `/search?query=Nairobi&types=urn:entity:locality`, places in Nairobi. Pass means a Nairobi preset can be added (P2) | `scripts/record-fixtures.ts` |
+
+## Before making the repo public (owner decision)
+- [ ] `docs/PLAYBOOK.md` holds judge-by-judge tactics and `.agent/` holds the session tooling and hand-off notes. Both become public with the repo. The win gate needs `.agent/` tracked until submission. Decide whether to trim the playbook or move both out before flipping the repo to public.

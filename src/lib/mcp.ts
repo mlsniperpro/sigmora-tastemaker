@@ -19,7 +19,7 @@ import type { Receipt } from "./agent/types";
 import { loadConfig } from "./config";
 import { qlooBudget, qlooRefusal, type GuardResult } from "./guard";
 import { qlooFromEnv, type QlooClient, type ReserveOptions } from "./qloo/client";
-import { formatZodIssues } from "./zod";
+import { MALFORMED_TEXT, formatZodIssues, hasLoneSurrogate } from "./zod";
 
 export const SUPPORTED_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -178,6 +178,7 @@ async function auditPlanTool(args: unknown, gate: Gate, ip: string) {
 }
 
 async function callTool(name: string, args: unknown, gate: Gate, ip: string) {
+  if (hasLoneSurrogate(args)) throw new ToolError(MALFORMED_TEXT);
   if (name === "taste_check") return tasteCheckTool(args, gate, ip);
   if (name === "audit_plan") return auditPlanTool(args, gate, ip);
   if (name === "plan_campaign") return planCampaignTool(args, gate, ip);

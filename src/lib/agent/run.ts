@@ -38,7 +38,6 @@ import {
   type Ctx,
   type Discovery,
 } from "./context";
-import { isQlooStop } from "../qloo/errors";
 import { unlistedMentions, type Mentions } from "./mentions";
 import { SCRIPTED_BASELINE } from "./evidence";
 import { Tracer } from "./trace";
@@ -323,8 +322,9 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           const own: Ctx = { ...ctx, city: ownCity, candidates: { ...ctx.candidates } };
           if (ownCity && normName(ownCity) !== normName(ctx.city ?? "") && base.draft.picks.some((p) => p.role === "venue")) {
             // Out of Qloo budget or time: no venue pool, so that venue comes back unscored.
-            await loadVenues(own, ownCity).catch((err: unknown) => {
-              if (!isQlooStop(err)) throw err;
+            // Out of Qloo budget or time, or a city Qloo can't place (a 400): no venue pool, so that venue comes back unscored,
+            // and the baseline comparison still stands.
+            await loadVenues(own, ownCity).catch(() => {
               own.candidates.venue = [];
             });
           }

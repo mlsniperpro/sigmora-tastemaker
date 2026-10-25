@@ -55,18 +55,51 @@ const canonical = (normed: string) =>
 export function sameName(a: string, b: string): boolean {
   const x = normName(a);
   const y = normName(b);
-  if (!x || !y) return false;
-  return x === y || canonical(x) === canonical(y);
+  // Names made only of filler ("The The") compare as written.
+  if (!x || !y) return !x && !y && a.trim().toLowerCase() === b.trim().toLowerCase() && a.trim() !== "";
+  if (x === y || canonical(x) === canonical(y)) return true;
+  const cx = compactKey(a);
+  return cx.length >= 2 && cx === compactKey(b);
+}
+
+/** Letters NFKD doesn't decompose. */
+const FOLD: Record<string, string> = { ø: "o", æ: "ae", œ: "oe", ß: "ss", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i" };
+
+/**
+ * A second, spelling-blind key: stylised symbols read as letters ("P!nk", "Ke$ha"), "&" and "+" as
+ * "and", filler dropped, and every space and punctuation mark gone ("N.W.A." = "NWA", "AC/DC" = "ACDC",
+ * "MrBeast" = "Mr Beast", "Mø" = "Mo"). Words still have to be the same words, in the same order.
+ */
+export function compactKey(s: string): string {
+  const folded = s
+    .toLowerCase()
+    .replace(/(?<=\p{L})[$](?=\p{L})/gu, "s")
+    .replace(/(?<=\p{L})!(?=\p{L})/gu, "i")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[øæœßłđðþı]/g, (c) => FOLD[c] ?? c)
+    .replace(/[&+]/g, " and ");
+  return folded
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t && t !== "the" && t !== "fc")
+    .map((t) => {
+      const n = numeralValue(t);
+      return n === undefined ? t : `#${String(n)}`;
+    })
+    .join("");
 }
 
 /**
- * Is `short` a full title with a subtitle or qualifier dropped ("Wakanda Forever" in "Black Panther:
- * Wakanda Forever")? Two or more whole words, in order. A single word ("Boy") never counts.
+ * Is `short` one part of a title with a subtitle or qualifier: the title or the subtitle on its own,
+ * around a colon, a spaced dash or "with" ("Wakanda Forever" in "Black Panther: Wakanda Forever",
+ * "The Daily Show" in "The Daily Show with Trevor Noah")? The part must be a whole
+ * segment, matched like sameName, and at least two words; a run inside a longer name never counts
+ * ("Rema Dupe" is not "Rema Dupe Tribute Band", "Los Angeles" is not "Los Angeles Lakers").
  */
 export function isTitlePart(short: string, full: string): boolean {
-  const s = normName(short);
-  const f = normName(full);
-  return s.split(" ").length >= 2 && s !== f && ` ${f} `.includes(` ${s} `);
+  const segments = full.split(/\s*:\s+|\s+[-–—]\s+|\s+with\s+/u).map((x) => x.trim()).filter(Boolean);
+  if (segments.length < 2 || normName(short).split(" ").length < 2) return false;
+  return segments.some((seg) => sameName(seg, short));
 }
 
 export function median(xs: number[]): number {

@@ -81,7 +81,8 @@ export function candidateMentions(
   };
   for (const m of text.matchAll(RUN)) {
     // "Nia Sol's" is Nia Sol.
-    const run = m[0].replace(/['’]s$/u, "").replace(/[.'’-]+$/, "").trim();
+    // "Stranger Things-style" is Stranger Things.
+    const run = m[0].replace(/['’]s$/u, "").replace(/-(?:style|esque|like|inspired|type|vibes?)$/iu, "").replace(/[.'’-]+$/, "").trim();
     const words = run.split(/\s+/);
     const opener = atSentenceStart(text, m.index);
     if (opener && words.length > 1) {
@@ -111,6 +112,8 @@ export interface Mentions {
 export interface Known {
   /** The names Qloo knows by exactly that name, each as a pick in the role its Qloo type fills. */
   picks: PlanPick[];
+  /** Names Qloo knows exactly, but as a type no pick role covers (a locality in prose, a book). */
+  otherTypes: { name: string; type: string }[];
   /** Searches that failed (out of budget or time, or any Qloo error): names per reason. */
   failed: Map<string, string[]>;
 }
@@ -123,6 +126,7 @@ export interface Known {
  */
 export async function knownNames(qloo: QlooClient, names: readonly string[], rationale: string): Promise<Known> {
   const failed = new Map<string, string[]>();
+  const otherTypes: { name: string; type: string }[] = [];
   const found = await Promise.all(
     names.map(async (name) => {
       const found = await resolveByName(qloo, name, { take: 3 }).catch((err: unknown) => {
@@ -134,10 +138,14 @@ export async function knownNames(qloo: QlooClient, names: readonly string[], rat
       if (!hit || !sameName(hit.name, name)) return [];
       const type = entityTypesOf(hit).find((t): t is PickType => t in ROLE_FOR);
       const role = type ? ROLE_FOR[type] : undefined;
-      return type && role ? [{ name, type, role, rationale }] : [];
+      if (!type || !role) {
+        otherTypes.push({ name, type: entityTypesOf(hit)[0] ?? "entity" });
+        return [];
+      }
+      return [{ name, type, role, rationale }];
     }),
   );
-  return { picks: found.flat(), failed };
+  return { picks: found.flat(), failed, otherTypes };
 }
 
 /** Unlisted names that Qloo knows by exactly that name, as picks for the critic to check (searches capped). */

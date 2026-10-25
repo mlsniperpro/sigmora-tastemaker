@@ -1,9 +1,11 @@
 import { after } from "next/server";
+import { MALFORMED_TEXT, hasLoneSurrogate } from "@/lib/zod";
 import { cachedRun, costsMoney, getOrRun, isInFlight, lastRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById, type Lookup, type ResolvedRequest } from "@/lib/agent/runCache";
 import type { RunEvent, Served } from "@/lib/agent/types";
 import { loadConfig } from "@/lib/config";
 import { isOwnerRequest } from "@/lib/publisher";
-import { admit, clientIp, floodGuard, guardResponse, qlooBudget, qlooRefusal, type GuardResult } from "@/lib/guard";
+import { admit, clientIp, floodGuard, guardResponse, qlooBudget, qlooRefusal, refundAdmission, type GuardResult } from "@/lib/guard";
+import { NoSeedError } from "@/lib/agent/context";
 import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 
 // A live run is throttled to the Qloo key's rate (the hero preset makes ~76 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
@@ -66,6 +68,7 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ error: "Body must be JSON" }, { status: 400 });
   }
+  if (hasLoneSurrogate(json)) return Response.json({ error: MALFORMED_TEXT }, { status: 400 });
   const request = resolveRunRequest(json);
   if (!request.ok) return Response.json({ error: request.error }, { status: request.status });
 
@@ -82,7 +85,10 @@ export async function POST(req: Request) {
   let settle: ((r: typeof refusal) => void) | undefined;
   if (!lookup.result && !isInFlight(lookup.key) && costsMoney(lookup.deps)) {
     const pending = admissions.get(lookup.key);
-    if (pending) refusal = await pending;
+    const shared = pending ? await pending : undefined;
+    // A leader refused for its own network (its share or per-IP limit: a 429) says nothing about this caller, who is admitted on its own.
+    if (pending && shared?.status !== 429) refusal = shared;
+    else if (pending) refusal = isInFlight(lookup.key) ? undefined : await admitNewRun(req, request, lookup);
     else {
       admissions.set(lookup.key, new Promise((resolve) => (settle = resolve)));
       try {
@@ -110,8 +116,16 @@ export async function POST(req: Request) {
     return ndjson((send) => Promise.resolve(replay(fallback, served, send)), { "X-Run-Cache": served.from });
   }
   const owner = isOwnerRequest(req.headers);
+  // Only the request that was admitted (the leader of a new paid run) has anything to give back.
+  const admitted = settle !== undefined && !refusal;
   const work = async (send: (e: RunEvent) => void) => {
-    const out = await getOrRun(lookup, send, recording).finally(() => lookup.deps.qloo.release());
+    const out = await getOrRun(lookup, send, recording)
+      .catch(async (err: unknown) => {
+        // No audience name resolved: the run spent nothing, so it doesn't count toward the limits.
+        if (admitted && err instanceof NoSeedError) await refundAdmission(req, { perIp: !request.presetId || request.fresh });
+        throw err;
+      })
+      .finally(() => lookup.deps.qloo.release());
     // The owner was served this run from their own brief, so it may ship to real channels.
     if (owner) await markOwnerRun(out.result.id, lookup.deps.cache);
     return out;
