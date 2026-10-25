@@ -10,6 +10,12 @@ export function placeholderReason(result: Pick<RunResult, "qloo" | "llm">): stri
   return reasons.length ? `This run used ${reasons.join(" and ")}, so its rates are placeholders and are not shown.` : undefined;
 }
 
+/**
+ * What the plan without Qloo is when the model is scripted: the stand-in has one fixed plan per kind of
+ * launch, whatever the brief's seeds, so a custom brief's baseline isn't an answer to that brief.
+ */
+export const SCRIPTED_BASELINE = "Scripted stand-in: a fixed sample plan for this category, not a model's answer to your brief.";
+
 /** A rate as a whole percent, or "—" when there is no honest rate to show (too few picks judged). */
 export const formatRate = (rate: number | null): string => (rate === null ? "—" : `${Math.round(rate * 100)}%`);
 

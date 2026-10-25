@@ -1,4 +1,5 @@
 /** The critic on its own: score arbitrary picks against an audience (used by MCP). */
+import { isQlooStop } from "../qloo/errors";
 import { sameName } from "./util";
 import { qlooFromEnv, type QlooClient, type QlooSource } from "../qloo/client";
 import type { Pick as PlanPick, Replacement } from "../llm/types";
@@ -38,11 +39,19 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
     const audience: Audience = { ages: input.ages, gender: input.gender, targetCity: input.city };
     const ctx = makeCtx(audience, qloo, await resolveSeeds(qloo, { seeds: input.seeds, seedLinks: [] }), { ...opts, discovery: discoveryFromConfig(), sim: watch.sim });
     const picks: PlanPick[] = input.picks.map((p) => ({ ...p, rationale: "" }));
+    const cityWarnings: string[] = [];
     // Only the candidate pools these picks need (thresholds and replacements come from them).
     await loadCulture(ctx, [...new Set(picks.map((p) => p.role))]);
     if (input.city) {
       ctx.city = input.city;
-      if (picks.some((p) => p.role === "venue")) await loadVenues(ctx, input.city);
+      if (picks.some((p) => p.role === "venue")) {
+        // Qloo answers 400 when it can't place the city: the venues go unchecked (and say why) instead of failing the check.
+        await loadVenues(ctx, input.city).catch((err: unknown) => {
+          if (isQlooStop(err)) throw err;
+          ctx.candidates.venue = [];
+          cityWarnings.push(`couldn't load venues in ${input.city ?? ""} (${err instanceof Error ? err.message : String(err)})`);
+        });
+      }
     } else {
       // No fixed market: rank the named cities alongside the default US metros, so a city pick is judged by rank.
       const named = picks.filter((p) => p.role === "city").map((p) => p.name);
@@ -64,7 +73,7 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
       metrics: metricsOf(receipts),
       suggestions: chooseReplacements(ctx, picks, receipts, new Set(), { cut: cut !== undefined }),
       sources: [...sources],
-      warnings: cut ? [...warnings, `cut short: ${cut}`] : warnings,
+      warnings: [...cityWarnings, ...warnings, ...(cut ? [`cut short: ${cut}`] : [])],
     };
   } finally {
     unobserve();

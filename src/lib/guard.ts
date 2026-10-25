@@ -65,6 +65,18 @@ export const QLOO_SPENT: Extract<GuardResult, { ok: false }> = {
   retryAfter: 3600,
 };
 
+/** The refusal for a reserve() that said no, worded for the share that ran out (QlooClient.refusedBy). */
+export function qlooRefusal(refusedBy: string | undefined): Extract<GuardResult, { ok: false }> {
+  const still = "Presets, permalinks and cached runs still load.";
+  if (refusedBy?.startsWith("ip:")) {
+    return { ...QLOO_SPENT, status: 429, message: `Your network has used today's share of live Qloo calls (the demo's daily quota is small and shared fairly). ${still}` };
+  }
+  if (refusedBy?.startsWith("preset:")) return { ...QLOO_SPENT, message: `This preset has used today's live re-runs. ${still}` };
+  if (refusedBy === "pool:custom") return { ...QLOO_SPENT, message: `Today's live Qloo budget for new briefs and audits is spent. ${still}` };
+  if (refusedBy === "store") return { ...QLOO_SPENT, message: `The Qloo budget can't be checked right now, so no new live run starts. ${still}`, retryAfter: 60 };
+  return QLOO_SPENT;
+}
+
 /** The HTTP response for a refused request. */
 export function guardResponse(g: Extract<GuardResult, { ok: false }>): Response {
   return Response.json({ error: g.message }, { status: g.status, headers: { "Retry-After": String(g.retryAfter) } });

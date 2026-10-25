@@ -40,6 +40,7 @@ import {
 } from "./context";
 import { isQlooStop } from "../qloo/errors";
 import { unlistedMentions, type Mentions } from "./mentions";
+import { SCRIPTED_BASELINE } from "./evidence";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
 import { newRunId, normName, sameName } from "./util";
@@ -307,7 +308,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           id: "baseline",
           title: "Same model, no Qloo access (baseline, drafted in parallel)",
           status: "err" in base ? "error" : "done",
-          detail: "err" in base ? base.err.message : `${base.draft.picks.length} cultural picks`,
+          detail: "err" in base ? base.err.message : `${base.draft.picks.length} cultural picks${llm.scripted ? `. ${SCRIPTED_BASELINE}` : ""}`,
           ms: base.ms,
           model: llm.label,
         });

@@ -61,3 +61,22 @@ describe("e2e: a refused cold preset shows its last finished run", () => {
     }
   }, 60_000);
 });
+
+describe("e2e: a burst of clicks on one cold preset shares one run", () => {
+  it("joins the run in flight instead of reserving budget for each request", async () => {
+    vi.stubEnv("QLOO_API_KEY", "qloo-secret");
+    vi.stubEnv("QLOO_BASE_URL", QLOO);
+    vi.stubEnv("QLOO_MODE", "live");
+    vi.stubEnv("QLOO_RPS", "50");
+    // Room for exactly one cold run of this preset today.
+    vi.stubEnv("QLOO_PRESET_DAILY_CALLS", "80");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", stubQloo());
+    const { POST } = await import("@/app/api/run/route");
+    const req = (ip: string) => new Request("http://tm.example/api/run", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip }, body: JSON.stringify({ preset: "dtc-city" }) });
+    const responses = await Promise.all(["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4"].map((ip) => POST(req(ip))));
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const results = await Promise.all(responses.map(async (r) => must((await readStream(r)).result, "result").id));
+    expect(new Set(results).size).toBe(1);
+  }, 60_000);
+});

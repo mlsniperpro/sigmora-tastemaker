@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import { ROLE_LABEL, ROLES } from "@/lib/vocab";
 import type { PlanSide, Receipt, Verdict } from "@/lib/agent/types";
-import { annotation } from "@/lib/agent/evidence";
+import { SCRIPTED_BASELINE, annotation } from "@/lib/agent/evidence";
 import { ReceiptChip, VERDICT_STYLE, isSimulated, receiptNote } from "./Receipt";
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -48,7 +48,7 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
  * answers came from the offline simulator, so verdicts are labelled simulated and
  * carry no numbers (receipts with a source of their own say so themselves).
  */
-export function CampaignPack({ side, mode, runSimulated = false }: { side: PlanSide; mode: "qloo" | "without"; runSimulated?: boolean }) {
+export function CampaignPack({ side, mode, runSimulated = false, scripted = false }: { side: PlanSide; mode: "qloo" | "without"; runSimulated?: boolean; scripted?: boolean }) {
   const { draft, receipts } = side;
   if (side.unavailable) {
     return (
@@ -65,6 +65,8 @@ export function CampaignPack({ side, mode, runSimulated = false }: { side: PlanS
         <h2 className="text-sm font-semibold tracking-wide text-ink">{mode === "qloo" ? "Campaign pack" : "Campaign pack — without Qloo"}</h2>
         <span className="text-meta text-muted">{mode === "qloo" ? "every pick carries a receipt" : runSimulated ? "same model, no Qloo access; audited by the simulator" : "same model, no Qloo access; audited by Qloo"}</span>
       </header>
+      {/* The scripted model has one plan per kind of launch, whatever the brief says. */}
+      {mode === "without" && scripted && <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">{SCRIPTED_BASELINE}</p>}
 
       <Block title="Positioning">
         <p className="text-lead leading-relaxed text-ink">

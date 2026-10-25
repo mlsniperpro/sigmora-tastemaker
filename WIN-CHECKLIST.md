@@ -240,3 +240,22 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] E7 (low) The audit reserves 80 calls, held by a worst-case plan in a live-wire test (`audit.test.ts`)
 - [x] E8 (low) MCP `taste_check` and `plan_campaign` reserve the Qloo budget before counting toward the rate limits (as /api/run and /api/audit)
 - [x] E9 The e2e assertion for the new sandbox wording is fixed (af4f11a's e2e run predated the wording change)
+
+## Re-audit 6 (2026-10-25, Qloo depth and security on 9da7b26; judge-audit-5 UI items merged)
+
+- [x] F1 (high) Name matching is exact: equal after normalising case, accents, punctuation, "the", "F.C." and numerals; no token-overlap rule, so "Black Panther Wakanda Rising" never verifies as "Black Panther: Wakanda Forever" (`util-params.test.ts`)
+- [x] F2 (medium) The scanner reads values the way a person would: "Dr. Dre", "feat.", "Atlanta, GA", "Lagos, Nigeria", and placeholders ("Our agency", "N/A for now", "Coming soon", "Season 1") aren't picks (`extract.test.ts`)
+- [x] F3 (medium) Prose names Qloo has no entity for are listed as "not audited" in the panel, not silently skipped; looser label grammar ("Top 3 creators", "Venue (primary)", "Podcast appearances", "Producer") (`extract.test.ts`, `components.test.tsx`)
+- [x] F4 (medium) Model path: placeholders never become picks (shared value rules)
+- [x] F5 (medium) A run with unscored picks isn't cached as healthy for a day (`failure-paths.test.ts`)
+- [x] F6 (medium) A fixed audit city Qloo can't place leaves the venues unchecked with the reason, instead of failing the audit (`failure-paths.test.ts`)
+- [x] F7 (low) The panel says which model-listed names weren't in the text, and when an audit was served from cache
+- [-] F8 (low) The model call past the 12 s extraction cut-off isn't aborted: it ends at its own `LLM_TIMEOUT_MS` and costs one model call; the audit doesn't wait for it
+- [x] F9 (low) A refusal names the share that ran out (your network's share, this preset's re-runs, the custom pool, or the store) (`qlooRefusal`)
+- [x] F10 (low) BLOCKED.md lists `filter.location.query` + `filter.results.entities` as a live call to verify (row 10)
+- [x] F11 (high, security) Identical audits are served from cache before any budget is reserved, so the one-click sample can always be repeated (`audit.test.ts`)
+- [x] F12 (medium) A bad env value fails the build (`next.config.ts` runs `loadConfig`), so the last good deploy keeps serving; `.env.example` and BLOCKED.md match the defaults
+- [x] F13 (medium) A burst of cold requests for one brief shares one run: single-flight admission per brief, waiters join or share the refusal (`stub-live-fallback.test.ts`)
+- [x] F14 (medium/low) A share that just refused is refused again for 60 s without a store round trip (keyed by cap and day, cleared by refunds) (`client.test.ts`)
+- [-] F15 (low) Reservations have no lease: a function killed by the platform mid-run leaks its unspent calls until the UTC day resets; normal timeouts are covered (runs end at 105 s of 120, audits at about 48 of 60)
+- [x] G1 Judge audit 5 (all medium/low) merged: the product above the fold (one-line source note, a launch map beside the diff card, a "Paste any AI's plan" entry point), browser-side audience validation, scripted-baseline labels, 12 px minimum text with an e2e check, a required "Who's launching", a distinct trend glyph, README `bias.trends` caveat, venue-outside-city notes

@@ -12,7 +12,7 @@ import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
 import { loadConfig } from "./config";
-import { QLOO_SPENT, qlooBudget, type GuardResult } from "./guard";
+import { qlooBudget, qlooRefusal, type GuardResult } from "./guard";
 import { qlooFromEnv, type QlooClient, type ReserveOptions } from "./qloo/client";
 import { formatZodIssues } from "./zod";
 
@@ -107,7 +107,7 @@ async function tasteCheckTool(args: unknown, gate: Gate, ip: string) {
 
 /** As in /api/run: the Qloo budget first, so only a call that got its budget counts toward the rate limits and the daily cap. */
 async function reserveThenAdmit(qloo: QlooClient, calls: number, budget: ReserveOptions, gate: Gate) {
-  if (!(await qloo.reserve(calls, budget))) throw new ToolError(QLOO_SPENT.message);
+  if (!(await qloo.reserve(calls, budget))) throw new ToolError(qlooRefusal(qloo.refusedBy).message);
   const g = await gate();
   if (g.ok) return;
   await qloo.release();

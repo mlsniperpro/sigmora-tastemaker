@@ -26,6 +26,11 @@ try {
   await desktop.goto(`${base}/?preset=indie-release`);
   await ready(desktop);
   await desktop.screenshot({ path: `${out}/desktop.png` });
+  // Element shots scroll the page, and the pinned With / Without Qloo bar would then cover the top of the panel.
+  await desktop.addStyleTag({ content: ".sticky { position: static !important; }" });
+  // The tile map draws after the page is ready: wait for it, or for the SVG map it falls back to.
+  await desktop.locator('[data-testid="tile-map"][data-ready="true"], svg[aria-label="Audience demand across the US"]').first().waitFor({ timeout: 30_000 });
+  await desktop.waitForTimeout(1500);
   await desktop.getByRole("region", { name: "Taste Map" }).screenshot({ path: `${out}/tastemap.png` });
   await desktop.getByRole("group", { name: "Plan view" }).getByRole("button", { name: "Without Qloo" }).click();
   await desktop.getByRole("heading", { name: "Campaign pack — without Qloo" }).waitFor();

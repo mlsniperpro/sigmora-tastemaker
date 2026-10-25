@@ -1,7 +1,7 @@
 /** Components rendered to HTML on the server: what a reader sees for each verdict and source. */
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AuditPanel, AuditResults, auditSummary } from "@/components/AuditPanel";
+import { AuditPanel, AuditResults, audienceNames, auditInputProblem, auditSummary, friendlyAuditError } from "@/components/AuditPanel";
 import { CampaignPack } from "@/components/CampaignPack";
 import { ReceiptChip, TrendMark } from "@/components/Receipt";
 import { TasteMap } from "@/components/TasteMap";
@@ -13,6 +13,7 @@ import { FADING_BELOW } from "@/lib/vocab";
 import { must } from "../must";
 import { RoiLine } from "@/components/App";
 import { DiffCard, worstMisses } from "@/components/DiffCard";
+import { SourceBanner } from "@/components/SourceBanner";
 import { DEFAULT_CRITIC } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
@@ -45,8 +46,14 @@ describe("DiffCard", () => {
     const html = text(renderToStaticMarkup(<DiffCard result={await heroRun()} mode="qloo" />));
     expect(html).not.toMatch(/\d+%/);
     expect(html).not.toMatch(/\d\.\d\d/);
-    expect(html).toMatch(/simulated Qloo data and a scripted stand-in model/);
-    expect(html).toMatch(/Same model, no Qloo — of 10 picks flagged/);
+    // Why, in one line at the top: both sources named, and that the numbers are withheld.
+    expect(html).toMatch(/^ ?Simulated Qloo data · Scripted model\. No Qloo or LLM key on this deployment: .*not Qloo data.* so numbers are not shown\./);
+    // No count and no "—" stand-in for one: the sides say what was checked.
+    expect(html).not.toContain("—");
+    expect(html).toMatch(/Same model, no Qloo 10 picks audited; counts not shown\./);
+    expect(html).toMatch(/With the Qloo critic · shown below 10 picks after the critic; counts not shown\./);
+    // The scripted baseline is one fixed plan per category, and says so.
+    expect(html).toContain("Scripted stand-in: a fixed sample plan for this category, not a model's answer to your brief.");
     expect(html).toContain("Simulated: not in catalog");
     expect(html).not.toContain("Not found in Qloo");
   });
@@ -65,6 +72,9 @@ describe("DiffCard", () => {
     // The after-critic rate is labelled as circular, with the bar the critic actually uses.
     expect(html).toContain(`the higher of ${DEFAULT_CRITIC.minAffinity} and ${DEFAULT_CRITIC.missRatio} × their median affinity`);
     expect(html).toMatch(/near zero by construction/);
+    // A real model answered the brief: no scripted-baseline label, and no source line.
+    expect(html).not.toContain("Scripted stand-in");
+    expect(html).not.toMatch(/Simulated Qloo data|Scripted model/);
     const noBase = text(renderToStaticMarkup(<DiffCard result={{ ...live, baseline: { ...live.baseline, unavailable: "LLM 529" } }} mode="qloo" />));
     expect(noBase).toMatch(/isn.t available on this run \(LLM 529\)/);
   });
@@ -116,6 +126,14 @@ describe("CampaignPack highlighting", () => {
     expect(struck.filter((s) => s === "TEMS" || s === "Tems").length).toBeGreaterThanOrEqual(2);
     expect(struck).not.toContain("Temsy");
   });
+  it("labels the scripted model's plan without Qloo as a fixed sample, not an answer to the brief", () => {
+    const side = { draft, receipts: [receipt({ verdict: "miss", affinity: 0.1 })] };
+    const label = "Scripted stand-in: a fixed sample plan for this category, not a model's answer to your brief.";
+    expect(text(renderToStaticMarkup(<CampaignPack side={side} mode="without" scripted />))).toContain(label);
+    expect(text(renderToStaticMarkup(<CampaignPack side={side} mode="without" />))).not.toContain("Scripted stand-in");
+    // The plan with Qloo is the critic's output, so it isn't labelled.
+    expect(text(renderToStaticMarkup(<CampaignPack side={side} mode="qloo" scripted />))).not.toContain("Scripted stand-in");
+  });
   it("says so when the plan without Qloo couldn't be drafted", () => {
     const html = text(renderToStaticMarkup(<CampaignPack side={{ draft, receipts: [], unavailable: "LLM 529" }} mode="without" />));
     expect(html).toMatch(/isn.t available on this run \(LLM 529\)/);
@@ -157,10 +175,12 @@ describe("TrendMark", () => {
   it("uses the critic's fading bar and shows the reading as a percent change", () => {
     expect(FADING_BELOW).toBe(DEFAULT_CRITIC.fadingBelow);
     // Just above the bar: steady, not cooling (the old chip called anything under -0.1 cooling).
-    expect(mark(FADING_BELOW + 0.5)).toBe("→ steady −2.5%");
-    expect(mark(-0.5)).toBe("→ steady −0.5%");
+    expect(mark(FADING_BELOW + 0.5)).toBe("· steady −2.5%");
+    expect(mark(-0.5)).toBe("· steady −0.5%");
     expect(mark(FADING_BELOW - 1.2)).toBe("↘ fading −4.2%");
     expect(mark(-FADING_BELOW + 1)).toBe("↗ rising +4.0%");
+    // "→" means "replaced by" next to a pick (→ Victony), so no trend reading uses it.
+    for (const t of [-9, FADING_BELOW, -0.5, 0, 0.5, 9]) expect(mark(t)).not.toContain("→");
     const html = renderToStaticMarkup(<TrendMark trend={-4.2} simulated={false} />);
     expect(html).toMatch(/population_percent_delta: −4\.2%; the critic marks a pick fading below −3\.0%/);
     expect(html).not.toMatch(/velocity/);
@@ -210,11 +230,59 @@ describe("AuditResults", () => {
   it("explains an audit that found no names", () => {
     expect(auditSummary({ receipts: [], metrics: metricsOf([]), simulated: true })).toMatch(/No cultural names found/);
   });
+  it("checks the form in the browser, in words, before anything is sent", () => {
+    const plan = "Collab targets: Ayra Starr, Victony. Venue: The Masquerade.";
+    expect(auditInputProblem({ text: plan, names: " , " })).toEqual({ field: "names", message: "Name at least one artist or brand your audience loves." });
+    expect(auditInputProblem({ text: plan, names: "" })?.field).toBe("names");
+    expect(auditInputProblem({ text: "   too short    ", names: "Tems" })).toEqual({ field: "text", message: "Paste at least a sentence or two of the plan." });
+    expect(auditInputProblem({ text: plan, names: "A, B, C, D, E, F" })).toEqual({ field: "names", message: "Name up to 5 artists or brands your audience loves (you gave 6)." });
+    expect(auditInputProblem({ text: plan, names: "Tems, , Rema, Tems" })).toBeUndefined();
+    expect(audienceNames("Tems, , Rema, Tems ")).toEqual(["Tems", "Rema"]);
+  });
+  it("never shows the server's schema text for a 400", () => {
+    const schema = "seeds: Too small: expected array to have >=1 items";
+    expect(friendlyAuditError(400, schema)).toBe("Name at least one artist or brand your audience loves.");
+    expect(friendlyAuditError(400, "text: Paste at least a sentence or two of the plan")).toMatch(/^Paste at least/);
+    expect(friendlyAuditError(400, "ages: Too small")).toMatch(/age range/);
+    for (const e of [schema, "body: Unrecognized key: \"x\"", "Body must be JSON", undefined]) expect(friendlyAuditError(400, e)).not.toMatch(/Too small|expected|Unrecognized|body:/);
+    // Other statuses already carry a sentence for people.
+    expect(friendlyAuditError(422, "None of the audience's names resolved in Qloo; try other names they love.")).toMatch(/^None of the audience/);
+    expect(friendlyAuditError(502)).toMatch(/The audit failed \(502\)/);
+  });
   it("starts closed, with the sample one click away", () => {
     const html = renderToStaticMarkup(<AuditPanel seeds={["Tems"]} ages={["25_to_29"]} />);
     expect(html).toMatch(/aria-expanded="false"/);
     expect(html).toMatch(/hidden=""/);
     expect(text(html)).toContain("Audit any AI's plan");
     expect(text(html)).toContain("Try a sample plan");
+  });
+});
+
+describe("SourceBanner", () => {
+  it("says where the numbers came from in one line, naming each placeholder source", async () => {
+    const run = await heroRun();
+    const html = renderToStaticMarkup(<SourceBanner result={run} />);
+    expect(html.match(/<p[ >]/g)).toHaveLength(1);
+    expect(text(html).trim()).toMatch(/^Simulated Qloo data · Scripted model\. No Qloo or LLM key on this deployment: answers come from an offline simulator .*\(not Qloo data\) and drafts from a deterministic stand-in, so numbers are not shown\.$/);
+    // Live Qloo with the scripted model: only the model is named, and only the miss counts are withheld.
+    const liveQloo = { ...run, qloo: { ...run.qloo, live: run.qloo.calls, simulated: 0 } };
+    expect(text(renderToStaticMarkup(<SourceBanner result={liveQloo} />)).trim()).toBe("Scripted model. No LLM key is set: drafts come from a deterministic stand-in, not a model, so miss counts are not shown.");
+    // Replayed answers and a real model: the replay is counted, nothing is hidden.
+    const replayed = { ...run, llm: { ...run.llm, scripted: false }, qloo: { ...run.qloo, replay: 70, live: run.qloo.calls - 70, simulated: 0 } };
+    expect(text(renderToStaticMarkup(<SourceBanner result={replayed} />)).trim()).toBe(`Replayed Qloo responses. 70 of ${String(run.qloo.calls)} answers are recorded live hackathon API responses, served from fixtures.`);
+    // All live with a real model: nothing to say.
+    expect(renderToStaticMarkup(<SourceBanner result={asLive(run)} />)).toBe("");
+  });
+});
+
+describe("audit panel notes", () => {
+  it("names the prose phrases not audited, the model's names not in the text, and cached results", async () => {
+    const { extractionNote } = await import("@/components/AuditPanel");
+    const base = { receipts: [], metrics: { picks: 0, judged: 0, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: null }, suggestions: [], sources: [], warnings: [], simulated: false };
+    const note = extractionNote({ ...base, cached: true, extraction: { by: "scanner", capped: false, unmatched: ["Zorvana Blake", "Kelvin Quartz"] } });
+    expect(note).toMatch(/Not audited, because no entity has that exact name: Zorvana Blake, Kelvin Quartz/);
+    expect(note).toMatch(/identical earlier audit, so no Qloo calls were spent/);
+    const model = extractionNote({ ...base, extraction: { by: "model", model: "m", capped: false, dropped: ["Taylor Swift"] } });
+    expect(model).toMatch(/also listed Taylor Swift, which your text doesn't contain, so it wasn't audited/);
   });
 });

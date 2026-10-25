@@ -9,7 +9,7 @@ const pct = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
 
 function Panel({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-line bg-panel-2/60 p-3">
+    <div className="rounded-xl border border-line bg-panel-2/60 p-2.5 sm:p-3">
       <h3 className="text-meta font-semibold uppercase tracking-wider text-muted">{title}</h3>
       {sub && <p className="mb-2 text-caption text-muted/80">{sub}</p>}
       {children}
@@ -65,7 +65,7 @@ const py = (lat: number) => ((50 - lat) / 26) * H;
 
 /** Tiles unless they're switched off (NEXT_PUBLIC_MAP_TILES=off) or fail to load; then the SVG map below. */
 function CityMap({ result }: { result: RunResult }) {
-  const located = useMemo(() => result.cities.filter((c): c is typeof c & { lat: number; lon: number } => c.lat !== undefined && c.lon !== undefined), [result.cities]);
+  const located = useMemo(() => locatedCities(result), [result]);
   const cells = useMemo(() => (result.heatmap.length ? result.heatmap : located.map((c) => ({ lat: c.lat, lon: c.lon, affinity: c.affinity }))), [result.heatmap, located]);
   const [tiles, setTiles] = useState(process.env.NEXT_PUBLIC_MAP_TILES !== "off");
   const noTiles = useCallback(() => setTiles(false), []);
@@ -87,33 +87,92 @@ function CityMap({ result }: { result: RunResult }) {
   return <SvgCityMap result={result} cells={cells} located={located} />;
 }
 
-function SvgCityMap({ result, cells, located }: { result: RunResult; cells: readonly HeatCell[]; located: readonly MapCity[] }) {
+/** Whether a map label at this longitude reads leftward: in the East (it would leave the drawing) or the centre. */
+const leftward = (lon: number) => px(lon) > W * 0.7 || (px(lon) > W * 0.3 && px(lon) < W * 0.5);
+
+/** The located top metros, in rank order. */
+const locatedCities = (result: RunResult) => result.cities.filter((c): c is typeof c & { lat: number; lon: number } => c.lat !== undefined && c.lon !== undefined);
+
+/** Dots sized by affinity on the stylized US outline, with the top metros labelled; no network, no WebGL. */
+function UsDots({
+  result,
+  cells,
+  located,
+  className = "h-auto w-full",
+  label = "Audience demand across the US",
+  labelSize = 12,
+}: {
+  result: RunResult;
+  cells: readonly HeatCell[];
+  located: readonly MapCity[];
+  className?: string;
+  label?: string;
+  /** In viewBox units: a smaller drawing needs larger units for the same on-screen size. */
+  labelSize?: number;
+}) {
   const plain = result.qloo.simulated > 0;
   const max = Math.max(...cells.map((p) => p.affinity), 0.01);
-  const winner = result.cities[0];
   // Draw weakest first so the strongest cells sit on top.
   const ordered = [...cells].sort((a, b) => a.affinity - b.affinity);
   return (
+    <svg viewBox={`0 0 ${W} ${H}`} className={className} role="img" aria-label={label}>
+      <polygon points={US.map(([lo, la]) => `${px(lo)},${py(la)}`).join(" ")} className="fill-panel-2 stroke-line" strokeWidth={1} />
+      {ordered.map((p, i) => (
+        <circle key={i} cx={px(p.lon)} cy={py(p.lat)} r={2 + (p.affinity / max) * 7} className="fill-violet/40 stroke-bg" strokeWidth={1}>
+          {!plain && <title>{`affinity ${p.affinity.toFixed(2)}`}</title>}
+        </circle>
+      ))}
+      {located.slice(0, 4).map((c, i) => (
+        <g key={c.name}>
+          <circle cx={px(c.lon)} cy={py(c.lat)} r={i === 0 ? 5 : 3} className={i === 0 ? "fill-accent stroke-bg" : "fill-ink stroke-bg"} strokeWidth={1.5} />
+          {/* East-coast labels run leftward so they stay inside the drawing, and so do central ones, clear of the South-East's. */}
+          <text
+            x={px(c.lon) + (leftward(c.lon) ? -7 : 7)}
+            y={py(c.lat) - 6}
+            textAnchor={leftward(c.lon) ? "end" : "start"}
+            className={i === 0 ? "fill-accent" : "fill-ink"}
+            style={{ fontSize: labelSize, fontWeight: i === 0 ? 600 : 400 }}
+          >
+            {i + 1}. {c.name}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function SvgCityMap({ result, cells, located }: { result: RunResult; cells: readonly HeatCell[]; located: readonly MapCity[] }) {
+  const winner = result.cities[0];
+  return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Audience demand across the US">
-        <polygon points={US.map(([lo, la]) => `${px(lo)},${py(la)}`).join(" ")} className="fill-panel stroke-line" strokeWidth={1} />
-        {ordered.map((p, i) => (
-          <circle key={i} cx={px(p.lon)} cy={py(p.lat)} r={2 + (p.affinity / max) * 7} className="fill-violet/40 stroke-bg" strokeWidth={1}>
-            {!plain && <title>{`affinity ${p.affinity.toFixed(2)}`}</title>}
-          </circle>
-        ))}
-        {located.slice(0, 4).map((c, i) => (
-          <g key={c.name}>
-            <circle cx={px(c.lon)} cy={py(c.lat)} r={i === 0 ? 5 : 3} className={i === 0 ? "fill-accent stroke-bg" : "fill-ink stroke-bg"} strokeWidth={1.5} />
-            <text x={px(c.lon) + 7} y={py(c.lat) - 6} className="fill-ink" style={{ fontSize: 12 }}>
-              {c.name}
-            </text>
-          </g>
-        ))}
-      </svg>
+      {/* 13 units: the drawing is a little narrower than its viewBox at phone width, and labels stay at 12 px or more. */}
+      <UsDots result={result} cells={cells} located={located} labelSize={13} />
       <p className="mt-1 text-meta text-muted">
         {result.heatmap.length ? `${result.heatmap.length} urn:heatmap cells; size = affinity.` : "Metro affinity."} Labels: top metros
         {winner ? `, ${winner.name} first` : ""} (ranked by {result.citiesRankedBy}). Outline is stylized.
+      </p>
+    </div>
+  );
+}
+
+/** Whether the run ranked metros to launch in (not a fixed market), with at least one on the map. */
+export const hasLaunchMap = (result: RunResult) => (result.citiesRankedBy === "locality" || result.citiesRankedBy === "heatmap") && locatedCities(result).length > 0;
+
+/**
+ * The launch decision at a glance, for the first screen on desktop: the ranked metros on the stylized
+ * outline, no values (the Taste Map below has the tiles, the numbers and the full ranking).
+ */
+export function LaunchMap({ result }: { result: RunResult }) {
+  const located = locatedCities(result);
+  const cells = result.heatmap.length ? result.heatmap : located.map((c) => ({ lat: c.lat, lon: c.lon, affinity: c.affinity }));
+  const top = result.cities.slice(0, 3).map((c) => c.name);
+  return (
+    <div className="min-w-0">
+      <h3 className="text-meta font-semibold text-ink">Where to launch</h3>
+      <UsDots result={result} cells={cells} located={located} className="mt-1 h-40 w-full" labelSize={15} label={`Where to launch: ${top.join(", ")}, ranked by audience affinity`} />
+      <p className="mt-1 text-meta leading-snug text-muted">
+        Ranked by {result.citiesRankedBy === "heatmap" ? "the urn:heatmap cells around each metro" : "audience affinity (urn:entity:locality)"}
+        {result.qloo.simulated > 0 ? " in the simulator" : ""}. Stylized outline; the Taste Map has the full map.
       </p>
     </div>
   );
@@ -158,16 +217,17 @@ function AffinityWeb({ result }: { result: RunResult }) {
   const plain = result.qloo.simulated > 0;
   const web = affinityWeb(result);
   if (!web.picks.length || !web.inputs.length) return null;
-  const W = 320;
+  // Sized so the 12-unit labels draw at 12 px or more at phone width (the panel is ~314 px wide at 390), and capped on desktop.
+  const W = 300;
   const ROW = 24;
   const H = Math.max(web.picks.length, web.inputs.length) * ROW + 8;
-  const xIn = 92;
-  const xPick = 176;
+  const xIn = 88;
+  const xPick = 158;
   const yPick = (i: number) => 14 + i * ROW;
   const yIn = (i: number) => 14 + ((web.picks.length - 1) * ROW * (i + 0.5)) / web.inputs.length;
   const max = Math.max(...web.edges.map((e) => e.weight), 0.01);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Cross-domain affinity web: which seed drove which pick">
+    <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto h-auto w-full max-w-[360px]" role="img" aria-label="Cross-domain affinity web: which seed drove which pick">
       {web.edges.map((e, i) => (
         <path
           key={i}
@@ -182,8 +242,8 @@ function AffinityWeb({ result }: { result: RunResult }) {
       {web.inputs.map((n, i) => (
         <g key={n}>
           <circle cx={xIn} cy={yIn(i)} r={5} className="fill-accent" />
-          <text x={xIn - 9} y={yIn(i)} textAnchor="end" dominantBaseline="middle" className="fill-ink" style={{ fontSize: 11 }}>
-            {n.length > 13 ? `${n.slice(0, 12)}…` : n}
+          <text x={xIn - 9} y={yIn(i)} textAnchor="end" dominantBaseline="middle" className="fill-ink" style={{ fontSize: 12 }}>
+            {n.length > 11 ? `${n.slice(0, 10)}…` : n}
           </text>
         </g>
       ))}
@@ -192,9 +252,9 @@ function AffinityWeb({ result }: { result: RunResult }) {
           <circle cx={xPick} cy={yPick(i)} r={4.5} className={p.verdict === "pass" ? "fill-pass" : p.verdict === "fading" ? "fill-fade" : "fill-miss"}>
             <title>{`${p.name} (${TYPE_LABEL[p.type] ?? p.type})${plain ? "" : `: affinity ${p.affinity?.toFixed(2) ?? "—"}`}`}</title>
           </circle>
-          <text x={xPick + 9} y={yPick(i)} dominantBaseline="middle" className="fill-ink" style={{ fontSize: 11 }}>
-            {p.name.length > 16 ? `${p.name.slice(0, 15)}…` : p.name}
-            <tspan className="fill-muted" style={{ fontSize: 11.5 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
+          <text x={xPick + 9} y={yPick(i)} dominantBaseline="middle" className="fill-ink" style={{ fontSize: 12 }}>
+            {p.name.length > 12 ? `${p.name.slice(0, 11)}…` : p.name}
+            <tspan className="fill-muted" style={{ fontSize: 12 }}>{` ${TYPE_LABEL[p.type] ?? p.type}`}</tspan>
           </text>
         </g>
       ))}
@@ -211,7 +271,7 @@ export function TasteMap({ result }: { result: RunResult }) {
   const plain = result.qloo.simulated > 0;
   const gap = result.positioning.slice(0, 6);
   return (
-    <section aria-label="Taste Map" className="space-y-3 rounded-2xl border border-line bg-panel p-4">
+    <section aria-label="Taste Map" className="space-y-3 rounded-2xl border border-line bg-panel p-3 sm:p-4">
       <header className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
         <h2 className="text-sm font-semibold tracking-wide text-ink">
           Taste Map

@@ -10,6 +10,7 @@ import type { Choice, Draft, DraftInput } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooBudgetError } from "@/lib/qloo/errors";
 import { QlooClient } from "@/lib/qloo/client";
+import { receiptNote } from "@/components/Receipt";
 import { must } from "../must";
 
 const qloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
@@ -260,6 +261,30 @@ describe("agent loop: failure paths", () => {
     // Its pass bar comes from New York's venue pool, loaded in the audit step, not from the grounded city's.
     const audit = must(r.trace.find((s) => s.id === "audit"));
     expect(audit.calls.some((c) => c.path === "/v2/insights" && c.key.includes("urn%3Aentity%3Aplace") && c.key.includes("filter.location.query=New%20York"))).toBe(true);
+  });
+
+  it("says a venue isn't in the launch city, and that nothing there could replace it, when the city returns no venues", async () => {
+    // Boise: a fixed market where the venue search comes back empty, so the scripted plan's New York venue can't be swapped.
+    const brief = Brief.parse({ ...must(PRESETS[0]).brief, candidateCities: undefined, targetCity: "Boise", seeds: ["Phoebe Bridgers"] });
+    const simulated = await runTastemaker(brief, deps());
+    expect(simulated.trace.find((s) => s.id === "venues")?.detail).toBe("No venues returned");
+    const sim = must(simulated.grounded.receipts.find((x) => x.role === "venue"));
+    expect(sim).toMatchObject({ name: "Madison Square Garden", verdict: "miss", outOfCity: "Boise" });
+    expect(sim.note).toBe("Not in Boise (the offline simulator's location filter doesn't return it there), and the offline simulator returned no venues there to replace it.");
+    // The UI shows that note on simulated data too, not the generic "scored below the pass bar".
+    expect(receiptNote(sim, true)).toBe(sim.note);
+    expect(receiptNote({ verdict: "miss", note: "Affinity 0.10 is below the 0.25 bar." }, true)).toMatch(/below the pass bar .* offline simulator/);
+
+    // The same run over live-shaped answers names Qloo.
+    const fetchImpl = async (url: URL) => {
+      const { simulate } = await import("@/lib/qloo/sim/simulator");
+      return Response.json(simulate(url.pathname as never, Object.fromEntries(url.searchParams)));
+    };
+    const live = new QlooClient({ apiKey: "k", cache: new MemoryCache(), fixtures: {}, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const r = await runTastemaker(brief, { qloo: live, llm: new DeterministicLLM() });
+    const venue = must(r.grounded.receipts.find((x) => x.role === "venue"));
+    expect(venue).toMatchObject({ verdict: "miss", outOfCity: "Boise", note: "Not in Boise (Qloo's location filter doesn't return it there), and Qloo returned no venues there to replace it." });
+    expect(venue.note).not.toMatch(/bar/);
   });
 
   it("keeps a finished grounded plan when the baseline draft fails, and marks the comparison unavailable", async () => {

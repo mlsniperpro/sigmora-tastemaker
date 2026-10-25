@@ -181,6 +181,16 @@ function judge(ctx: Ctx, r: Resolved): Receipt {
   const warning = scored?.explainabilityWarning;
   const scoredBase = { ...base, affinity, threshold, poolMedian, poolRank, trend, drivers: scored?.drivers ?? [], calls, source: scored?.source ?? r.source, ...(warning ? { explainabilityWarning: warning } : {}) };
 
+  // Outside the plan's city, a venue misses whatever it scores. With no venues there either, nothing can
+  // replace it, so the note says so rather than leaving the reader to wonder why it was kept.
+  if (venue && !venue.ok) {
+    const city = ctx.city ?? "the launch city";
+    const who = ctx.sim.on ? "the offline simulator" : "Qloo";
+    const filter = `${who === "Qloo" ? "Qloo's" : "the offline simulator's"} location filter doesn't return it there`;
+    const note = pool.length ? `Not in ${city}: ${filter}.` : `Not in ${city} (${filter}), and ${who} returned no venues there to replace it.`;
+    return { ...scoredBase, verdict: "miss", outOfCity: city, note };
+  }
+
   if (affinity === undefined && spec.scoreFromPool && threshold !== undefined) {
     return { ...scoredBase, verdict: "miss", note: "Not among the candidates Qloo ranked for this audience." };
   }
@@ -191,7 +201,6 @@ function judge(ctx: Ctx, r: Resolved): Receipt {
   }
   if (affinity === undefined) return { ...scoredBase, verdict: "unscored", note: "Qloo returned no affinity for it with this audience, so it can't be judged." };
   if (venueError !== undefined) return { ...scoredBase, verdict: "unscored", note: `Qloo couldn't check that it's in ${ctx.city ?? "the launch city"} (the location filter failed: ${venueError}), so it can't be judged.` };
-  if (venue && !venue.ok) return { ...scoredBase, verdict: "miss", note: `Not in ${ctx.city ?? "the launch city"}: Qloo's location filter doesn't return it there.` };
   if (threshold === undefined) return { ...scoredBase, verdict: "unscored", note: `Affinity ${affinity.toFixed(2)}, but Qloo returned no candidates for this role to set a bar from.` };
   if (affinity < threshold) return { ...scoredBase, verdict: "miss", note: `Affinity ${affinity.toFixed(2)} is below the ${threshold.toFixed(2)} bar for this audience.` };
   if (spec.checkFading && trend !== undefined && isFading(ctx, r.entityId)) {

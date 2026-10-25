@@ -39,8 +39,9 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Type scale for dense UI text (Tailwind's text-xs is 12px and up). Nothing smaller than caption: labels, chips and ids use meta. */
-  --text-caption: 11px;
+  /* Type scale for dense UI text. Nothing on the page is smaller than 12px (e2e/judge-path.spec.ts checks it at 390 px):
+     caption is for eyebrows, legends and ids, set apart by weight, case or colour rather than by size. */
+  --text-caption: 12px;
   --text-meta: 12px;
   --text-body-sm: 12.5px;
   --text-body: 13px;

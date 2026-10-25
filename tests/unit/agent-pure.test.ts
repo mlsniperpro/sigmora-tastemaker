@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { Brief } from "@/lib/agent/brief";
-import { briefFromForm } from "@/lib/agent/briefForm";
+import { briefFormProblem, briefFromForm } from "@/lib/agent/briefForm";
 import { FOLD_RADIUS_KM, foldHeatmap, haversineKm, topCells } from "@/lib/agent/cities";
 import { parseSeedLinks, resolvedType, signalAges, signalFor } from "@/lib/agent/context";
 import { placeholderReason } from "@/lib/agent/evidence";
@@ -158,10 +158,23 @@ describe("NdjsonParser", () => {
 });
 
 describe("briefFromForm", () => {
+  const blank = { family: "music", subject: " ", product: "", seeds: "", link: " ", vibe: "", ages: ["25_to_29"], goal: "", city: " ", compareTo: "" } as const;
+  it("asks for who's launching instead of inventing a name, then for an audience", () => {
+    const fields = { ...blank, ages: [...blank.ages] };
+    expect(briefFormProblem({ ...fields, seeds: "Tems" })).toEqual({ field: "subject", message: "Say who's launching: the artist, brand or club the plan is for." });
+    expect(briefFormProblem({ ...fields, subject: "Kofi Vale", seeds: " , " })).toEqual({ field: "seeds", message: "Name at least one artist or brand your audience loves, or paste a Spotify artist or IMDb link." });
+    expect(briefFormProblem({ ...fields, subject: "Kofi Vale", link: "open.spotify.com/artist/x" })).toMatchObject({ field: "link" });
+    expect(briefFormProblem({ ...fields, subject: "Kofi Vale", seeds: "Tems" })).toBeUndefined();
+    expect(briefFormProblem({ ...fields, subject: "Kofi Vale", link: "https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq" })).toBeUndefined();
+    // No stand-in name reaches the copy: a blank subject stays blank, and the server refuses it.
+    const b = briefFromForm({ ...fields, seeds: "Tems" });
+    expect(b.subject).toBe("");
+    expect(Brief.safeParse(b).success).toBe(false);
+  });
   it("trims, de-duplicates and caps seeds, and fills defaults", () => {
-    const b = briefFromForm({ family: "music", subject: " ", product: "", seeds: "Tems, Rema,,Tems, A, B, C, D", link: " ", vibe: "", ages: ["25_to_29"], goal: "", city: " ", compareTo: "" });
+    const b = briefFromForm({ family: "music", subject: " Kofi Vale ", product: "", seeds: "Tems, Rema,,Tems, A, B, C, D", link: " ", vibe: "", ages: ["25_to_29"], goal: "", city: " ", compareTo: "" });
     expect(b.seeds).toEqual(["Tems", "Rema", "A", "B", "C"]);
-    expect(b.subject).toBe("My launch");
+    expect(b.subject).toBe("Kofi Vale");
     expect(b.seedLinks).toEqual([]);
     expect(b.vibe).toBeUndefined();
     expect(b.targetCity).toBeUndefined();

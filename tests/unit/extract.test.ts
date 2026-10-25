@@ -77,6 +77,23 @@ describe("labelled lines", () => {
     expect(namesIn("Insecure x Atlanta vs. The Bear")).toEqual(["Insecure", "Atlanta", "The Bear"]);
   });
 
+  it("reads real-world values the way a person would (audit 6 cases)", () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Collab targets: Dr. Dre, Wizkid, Davido")).toEqual(["collab:Dr Dre", "collab:Wizkid", "collab:Davido"]);
+    expect(read("Featured artists: Burna Boy feat. Ayra Starr")).toEqual(["collab:Burna Boy", "collab:Ayra Starr"]);
+    expect(read("Launch city: Atlanta, GA")).toEqual(["city:Atlanta"]);
+    expect(read("Host city: Lagos, Nigeria")).toEqual(["city:Lagos"]);
+    expect(read("Brand partners: Our agency, Legal team")).toEqual([]);
+    expect(read("Collabs: N/A for now\nFilm: Coming soon\nSeries: Season 1")).toEqual([]);
+    expect(read("Top 3 creators: Issa Rae, Druski\nVenue (primary): Echostage\nPodcast appearances: Rap Radar\nProducer: Kaytranada")).toEqual([
+      "presenter:Issa Rae",
+      "presenter:Druski",
+      "venue:Echostage",
+      "podcast:Rap Radar",
+      "collab:Kaytranada",
+    ]);
+  });
+
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {
     for (const filler of [" ".repeat(3970), "\u00a0".repeat(4000), "a ".repeat(2000), ":".repeat(4000), "-".repeat(4000)]) {
       const started = performance.now();
@@ -174,6 +191,13 @@ describe("the model's list", () => {
     const partial = await extractPicks(text, { qloo: offline(), llm: new LiveLLM(chat('{"picks":[{"name":"Taylor Swift","type":"artist","role":"collab"}]}')), seeds: [] });
     expect(partial.by).toBe("model");
     expect(names(partial.picks)).toEqual(["collab:Taylor Swift", "collab:Ayra Starrr", "collab:Zorblax Quinn"]);
+  });
+
+  it("lists the prose names Qloo has no entity for, so the panel can say they weren't audited", async () => {
+    const e = await extractPicks("Tour with Zorvana Blake and Kelvin Quartz, then Ayra Starr joins.", { qloo: offline(), llm: new DeterministicLLM(), seeds: [] });
+    expect(e.unmatched).toContain("Zorvana Blake");
+    expect(e.unmatched).toContain("Kelvin Quartz");
+    expect(e.unmatched).not.toContain("Ayra Starr");
   });
 
   it("falls back to the scanner when the model is too slow", async () => {

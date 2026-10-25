@@ -41,8 +41,11 @@ export const isSimulated = (r: Pick<Receipt, "source">, runSimulated = false) =>
 /** The chip label for a verdict, honest about simulated data. */
 export const verdictLabel = (verdict: Verdict, simulated: boolean) => (simulated ? SIMULATED_LABEL[verdict] : VERDICT_STYLE[verdict].label);
 
-/** The one-line note for a pick; a simulated one gets words with no placeholder numbers. */
-export const receiptNote = (r: Pick<Receipt, "verdict" | "note">, simulated: boolean) => (simulated ? SIMULATED_NOTE[r.verdict] : r.note);
+/**
+ * The one-line note for a pick; a simulated one gets words with no placeholder numbers. A pick outside the
+ * launch city keeps its own note (words only, naming the city), since "scored below the bar" would be wrong.
+ */
+export const receiptNote = (r: Pick<Receipt, "verdict" | "note" | "outOfCity">, simulated: boolean) => (simulated && !r.outOfCity ? SIMULATED_NOTE[r.verdict] : r.note);
 
 /** A signed percent change, e.g. "−4.2%" or "+1.2%". */
 const percentChange = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}%`;
@@ -62,7 +65,7 @@ export function TrendMark({ trend, simulated }: { trend?: number; simulated: boo
     : `Newest weekly /v2/trending population_percent_delta: ${percentChange(trend)}; ${bar}`;
   return (
     <span className={up ? "text-pass" : down ? "text-fade" : "text-muted"} title={title}>
-      {up ? "↗ rising" : down ? "↘ fading" : "→ steady"}
+      {up ? "↗ rising" : down ? "↘ fading" : "· steady"}
       {!simulated && <span className="font-mono"> {percentChange(trend)}</span>}
     </span>
   );

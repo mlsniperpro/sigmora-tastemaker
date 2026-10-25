@@ -32,7 +32,7 @@ export const MAX_AUDIT_CHARS = 4000;
 const LABELS: { re: RegExp; role: Role; type: PickType }[] = [
   { re: /\bpodcasts?\b/i, role: "podcast", type: "podcast" },
   { re: /\bcity\b|\bcities\b/i, role: "city", type: "locality" },
-  { re: /\bcollabs?\b|\bcollaborators?\b|\bfeat(?:ures?|uring)?\b|\bartists?\b|\bmusicians?\b|\bduets?\b|\bsupport acts?\b/i, role: "collab", type: "artist" },
+  { re: /\bcollabs?\b|\bcollaborat(?:ors?|ions?)\b|\bfeat(?:ures?|uring)?\b|\bartists?\b|\bmusicians?\b|\bduets?\b|\bsupport acts?\b|\bproducers?\b|\bdjs?\b/i, role: "collab", type: "artist" },
   { re: /\bsponsors?\b|\bbrands?\b|\bpartners?\b/i, role: "sponsor", type: "brand" },
   { re: /\bvenues?\b|\bpop-?ups?\b/i, role: "venue", type: "place" },
   { re: /\bpresenters?\b|\bhosts?\b|\bcreators?\b|\binfluencers?\b|\bambassadors?\b|\bface of\b/i, role: "presenter", type: "person" },
@@ -43,17 +43,18 @@ const LABELS: { re: RegExp; role: Role; type: PickType }[] = [
 /** Every word a pick label may contain: role nouns and qualifiers. Anything else ("voice", "KPIs", "market") makes the line prose. */
 const LABEL_WORDS = new Set(
   (
-    "podcast podcasts pitch pitches city cities collab collabs collaborator collaborators feat feature features featuring artist artists musician musicians duet duets support act acts " +
+    "podcast podcasts pitch pitches appearance appearances city cities collab collabs collaborator collaborators collaboration collaborations feat feature features featuring artist artists musician musicians duet duets support act acts producer producers dj djs " +
     "sponsor sponsors brand brands partner partners venue venues pop-up pop-ups popup popups presenter presenters host hosts creator creators influencer influencers ambassador ambassadors face of " +
     "film films movie movies reference references tv show shows series touchstone touchstones " +
-    "target targets potential suggested proposed key primary secondary launch first featured guest guests lead main hero recommended top possible priority shortlist cultural culture hook hooks " +
+    "target targets potential suggested proposed key primary secondary launch first featured guest guests lead main hero recommended top possible priority shortlist cultural culture hook hooks option options pick picks name names list " +
     "and & / - the a for to our"
   ).split(" "),
 );
 
 /** The role a label names, or undefined when it isn't purely a pick label. */
 export function labelRole(label: string): (typeof LABELS)[number] | undefined {
-  const words = label.toLowerCase().split(/[\s/]+/).filter(Boolean);
+  // "Top 3 creators", "Venue (primary)": numbers and brackets qualify a label without changing its role.
+  const words = label.toLowerCase().replace(/[()]/g, " ").split(/[\s/]+/).filter((w) => w && !/^\d+$/.test(w));
   if (!words.length || !words.every((w) => LABEL_WORDS.has(w))) return undefined;
   return LABELS.find((l) => l.re.test(label));
 }
@@ -71,7 +72,7 @@ export function splitLabel(line: string): { label: string; value: string } | und
     .replace(/\*\*|__/g, "")
     .replace(/^\s*(?:[-*•>]+|\d{1,2}[.)])?\s*/u, "")
     .trim();
-  if (!/^[A-Za-z][A-Za-z /&'-]{1,40}$/.test(label)) return undefined;
+  if (!/^[A-Za-z][A-Za-z0-9 /&'()-]{1,40}$/.test(label)) return undefined;
   const value = line.slice(colon + 1).replace(/^\s*(?:\*\*|__)?/, "").trim();
   return value ? { label, value } : undefined;
 }
@@ -82,25 +83,40 @@ const EMPTY = new Set(["tbd", "tba", "tbc", "pending", "none", "n/a", "na", "var
 /** Days, months and times of day fill schedule slots, never name a cultural entity. */
 const CALENDAR = /^(?:mon|tues|wednes|thurs|fri|satur|sun)day|^(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|^(?:weekend|weekday|morning|evening|night|tonight|today|tomorrow)s?\b/i;
 
+/** Slot fillers that aren't names: "Our agency", "Legal team", "N/A for now", "Coming soon", "Season 1". */
+const PLACEHOLDER = /^(?:our|my|your|their|his|her|its|an?)\s|\bteam$|^coming soon\b|^season\s+\d|^n\/?a\b|^tb[acd]\b|^none\b|^various\b|^for now\b/i;
+
+/** Countries and regions that follow a city ("Lagos, Nigeria") rather than name another one. */
+const REGIONS = new Set(
+  ["nigeria", "kenya", "ghana", "south africa", "uganda", "rwanda", "senegal", "tanzania", "usa", "united states", "uk", "united kingdom", "england", "canada", "france", "germany", "brazil", "mexico", "india", "japan", "australia", "california", "texas", "georgia", "new york state", "florida"].map(normName),
+);
+
 /** Runs of spaces and tabs become one space before any scan (pasted text can hold thousands). */
 export const squashSpaces = (text: string) => text.replace(/[^\S\n]+/g, " ");
 
 /** The names in one labelled line's value: up to the first explanation, split on commas, semicolons, "and", "or", "+" and " / ". */
-export function namesIn(value: string): string[] {
+export function namesIn(value: string, role?: Role): string[] {
   // Markdown links keep their text; asides in brackets go: "Fenty Beauty (inclusive shade range); Coors Light".
   const plain = value
     .replace(/\*\*|__|`/g, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\s*\([^)]*\)/g, "");
-  // "Ayra Starr — her alté edge fits" / "Insecure. It nails the tone"
+    .replace(/\s*\([^)]*\)/g, "")
+    // "Dr. Dre", "Burna Boy feat. Ayra Starr": an abbreviation's dot doesn't end the sentence.
+    .replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|Vol|Pt|feat|ft|vs)\.\s/g, "$1 ");
   // "think Stranger Things meets Euphoria": a lead-in like "think" or "like" isn't part of a name.
-  const lead = plain.replace(/^\s*(?:think|like|e\.g\.|eg|ie|i\.e\.|such as|imagine)\s+/i, "").replace(/\bvs\.\s/g, "vs ");
+  const lead = plain.replace(/^\s*(?:think|like|e\.g\.|eg|ie|i\.e\.|such as|imagine)\s+/i, "");
+  // "Ayra Starr — her alté edge fits" / "Insecure. It nails the tone"
   const head = lead.split(/\s[—–-]\s|\s*\(|:\s|\.\s|\s+because\s|\s+for\s+(?:its|their|the)\s/u)[0] ?? "";
-  return head
-    // "/" splits only with spaces around it, so "AC/DC" stays one name.
-    .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|meets|vs|x)\s+/u)
-    .map((n) => n.trim().replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").trim())
-    .filter((n) => n.length >= 2 && n.length <= 60 && /^[\p{Lu}\p{N}]/u.test(n) && n.split(/\s+/).length <= 6 && !EMPTY.has(normName(n)) && !CALENDAR.test(n));
+  const parts = head
+    // "/" splits only with spaces around it, so "AC/DC" stays one name; "feat" joins two artists.
+    .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|meets|vs|x|feat|ft|featuring)\s+/u)
+    .map((n) => n.trim().replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").trim());
+  return (
+    parts
+      // "Atlanta, GA" / "Lagos, Nigeria": the region after a city isn't another city.
+      .filter((n, i) => !(role === "city" && i > 0 && (/^[A-Z]{2,3}$/.test(n) || REGIONS.has(normName(n)))))
+      .filter((n) => n.length >= 2 && n.length <= 60 && /^[\p{Lu}\p{N}]/u.test(n) && n.split(/\s+/).length <= 6 && !EMPTY.has(normName(n)) && !CALENDAR.test(n) && !PLACEHOLDER.test(n))
+  );
 }
 
 /**
@@ -114,7 +130,7 @@ export function labelledPicks(text: string): { picks: NamedPick[]; prose: string
   for (const line of squashSpaces(text).split(/\r?\n/)) {
     const m = splitLabel(line);
     const spec = m ? labelRole(m.label) : undefined;
-    const names = spec && m ? namesIn(m.value) : [];
+    const names = spec && m ? namesIn(m.value, spec.role) : [];
     if (!spec || !names.length) {
       prose.push(line);
       continue;
@@ -143,6 +159,8 @@ export interface Extraction {
   fallback?: string;
   /** Names the model listed that the text doesn't contain; never audited. */
   dropped?: string[];
+  /** Scanner only: capitalised phrases in the prose that Qloo has no entity for by that exact name; not audited (from prose alone an invention can't be told from an ordinary phrase). */
+  unmatched?: string[];
 }
 
 /** The deterministic scanner: labelled picks first, then unlabelled names Qloo knows exactly (searches capped). */
@@ -157,7 +175,10 @@ export async function scanPicks(qloo: QlooClient, text: string, seeds: readonly 
   // A failed search leaves its name unchecked, the same as one past the cap.
   const failed = [...known.failed.values()].reduce((n, names) => n + names.length, 0);
   const all = [...labelled, ...known.picks.map(({ name, type, role }) => ({ name, type, role }))];
-  return { picks: all.slice(0, MAX_AUDIT_PICKS), by: "scanner", capped: all.length > MAX_AUDIT_PICKS, unsearched: candidates.length - searched.length + failed };
+  const failedNames = new Set([...known.failed.values()].flat());
+  const found = new Set(known.picks.map((p) => normName(p.name)));
+  const unmatched = searched.filter((n) => !found.has(normName(n)) && !failedNames.has(n));
+  return { picks: all.slice(0, MAX_AUDIT_PICKS), by: "scanner", capped: all.length > MAX_AUDIT_PICKS, unsearched: candidates.length - searched.length + failed, unmatched };
 }
 
 /** The model gets this long to list the names; past it, the scanner's list is used so the Qloo checks still have time. */

@@ -3,6 +3,32 @@ import { expect, test, type Page } from "@playwright/test";
 
 const finished = (page: Page) => expect(page.getByRole("region", { name: "Campaign pack" })).toBeVisible();
 
+/**
+ * Every visible text node in the page's main element that is smaller than 12 px: its computed font size,
+ * or for SVG text the size it is drawn at (computed size × the drawing's scale). Screen-reader-only text
+ * (clipped to 1 px) isn't drawn, so it isn't counted.
+ */
+async function textBelow12px(page: Page) {
+  return page.evaluate(() => {
+    const main = document.querySelector("main");
+    if (!main) throw new Error("no main element");
+    const small: string[] = [];
+    const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const text = n.textContent?.trim();
+      const el = n.parentElement;
+      if (!text || !el || !el.checkVisibility({ checkOpacity: true, visibilityProperty: true })) continue;
+      const box = el.getBoundingClientRect();
+      if (box.width <= 1 || box.height <= 1) continue;
+      const computed = parseFloat(getComputedStyle(el).fontSize);
+      const scale = el instanceof SVGGraphicsElement ? (el.getScreenCTM()?.a ?? 1) : 1;
+      const size = computed * scale;
+      if (size < 11.95) small.push(`${size.toFixed(1)}px <${el.tagName.toLowerCase()}> "${text.slice(0, 40)}"`);
+    }
+    return small;
+  });
+}
+
 async function noHorizontalScroll(page: Page) {
   const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
   expect(scroll, "page scrolls sideways at 390 px").toBeLessThanOrEqual(client);
@@ -29,7 +55,18 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   await expect(diff).toContainText("not shown");
   await expect(diff).not.toContainText("%");
   const top = await diff.boundingBox();
-  expect(top?.y ?? Infinity, "the diff card starts in the first viewport").toBeLessThan(page.viewportSize()?.height ?? 0);
+  const fold = page.viewportSize()?.height ?? 0;
+  expect(top?.y ?? Infinity, "the diff card starts in the first viewport").toBeLessThan(fold);
+  // The scripted model's plan without Qloo is the same for every brief of a kind, and says so.
+  await expect(diff).toContainText("Scripted stand-in: a fixed sample plan for this category, not a model's answer to your brief.");
+  if ((page.viewportSize()?.width ?? 0) >= 1024) {
+    // On desktop the product is on the first screen: where to launch beside the diff, and the three columns below it.
+    await expect(diff.getByRole("img", { name: /^Where to launch: / })).toBeInViewport();
+    for (const name of ["Agent trace", "Taste Map", "Campaign pack"]) {
+      const box = await page.getByRole("region", { name }).boundingBox();
+      expect(box?.y ?? Infinity, `${name} starts in the first viewport`).toBeLessThan(fold - 120);
+    }
+  }
   // The plain model's worst picks, struck through with their notes.
   await expect(diff.locator(".line-through").first()).toBeVisible();
   if (simulated) await expect(diff).not.toContainText(/Not found in Qloo|\d\.\d\d/);
@@ -73,6 +110,7 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   await view.getByRole("button", { name: "Without Qloo" }).click();
   await expect(view.getByRole("button", { name: "Without Qloo" })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("heading", { name: "Campaign pack — without Qloo" })).toBeVisible();
+  await expect(pack).toContainText("Scripted stand-in: a fixed sample plan for this category");
   // Failures are annotated inline, not only on hover; simulated verdicts say so and print no numbers.
   if (simulated) {
     await expect(pack.getByText("Simulated: not in catalog").first()).toBeVisible();
@@ -95,10 +133,34 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   // Ship goes to the labeled sandbox: a real schedule, nothing posted.
   await page.getByRole("button", { name: "Schedule with Sigmora" }).click();
   const ship = page.getByRole("region", { name: "Ship" });
-  await expect(ship).toContainText("nothing posted");
+  await expect(ship).toContainText("Sandbox: schedule computed, nothing posted.");
   await expect(ship.getByRole("listitem").first()).toContainText("sandbox");
 
   expect(errors).toEqual([]);
+});
+
+test("no text on the judge path is smaller than 12 px at phone width", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  expect(await textBelow12px(page), "first load").toEqual([]);
+
+  // A receipt opened (its GET URLs), the plan without Qloo, the brief form with its details, and an audit's results.
+  const pack = page.getByRole("region", { name: "Campaign pack" });
+  await pack.getByRole("button", { expanded: false }).first().click();
+  await expect(pack.getByText(/^GET /).first()).toBeVisible();
+  expect(await textBelow12px(page), "receipt open").toEqual([]);
+  await page.getByRole("group", { name: "Plan view" }).getByRole("button", { name: "Without Qloo" }).click();
+  await expect(page.getByRole("heading", { name: "Campaign pack — without Qloo" })).toBeVisible();
+  expect(await textBelow12px(page), "without Qloo").toEqual([]);
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  await page.getByRole("form", { name: "Your own brief" }).getByRole("button", { name: /More details/ }).click();
+  expect(await textBelow12px(page), "brief form").toEqual([]);
+  const panel = page.getByRole("region", { name: "Audit any AI's plan" });
+  await page.getByRole("link", { name: "Paste any AI's plan" }).click();
+  await panel.getByRole("button", { name: "Try a sample plan" }).click();
+  await expect(panel.getByRole("region", { name: "Audit results" }).getByRole("listitem").first()).toBeVisible();
+  expect(await textBelow12px(page), "audit results").toEqual([]);
 });
 
 test("a run permalink opens that exact run, in a fresh browser", async ({ page, browser }) => {
@@ -142,6 +204,25 @@ test("the city map draws real tiles, and falls back to the SVG map when the tile
   await down.close();
 });
 
+test("a custom brief asks for who's launching instead of inventing a name", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const runs: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/run")) runs.push(r.url());
+  });
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  const bar = page.getByRole("form", { name: "Your own brief" });
+  await bar.getByLabel(/Your audience already loves/).fill("Phoebe Bridgers, boygenius");
+  await bar.getByRole("button", { name: "Plan & taste-check" }).click();
+  await expect(bar.getByRole("alert")).toHaveText("Say who's launching: the artist, brand or club the plan is for.");
+  await expect(bar.getByLabel("Who's launching")).toBeFocused();
+  await expect(bar.getByLabel("Who's launching")).toHaveAttribute("aria-invalid", "true");
+  expect(runs).toEqual([]);
+  await expect(page.getByText(/My launch/)).toHaveCount(0);
+  await noHorizontalScroll(page);
+});
+
 test("a custom brief from the brief bar: a Spotify link alone, a fixed city and a comparable", async ({ page }) => {
   await page.goto("/?preset=indie-release");
   await finished(page);
@@ -150,8 +231,8 @@ test("a custom brief from the brief bar: a Spotify link alone, a fixed city and 
   await expect(bar).toBeHidden();
   await page.getByRole("button", { name: "Edit brief" }).click();
   await bar.getByLabel(/Spotify artist \/ IMDb link/).fill("https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq");
-  await bar.getByRole("button", { name: /More details/ }).click();
   await bar.getByLabel("Who's launching").fill("Kofi Vale");
+  await bar.getByRole("button", { name: /More details/ }).click();
   await bar.getByLabel(/^City/).fill("Atlanta");
   await bar.getByLabel(/Position against/).fill("Burna Boy");
   await bar.getByRole("button", { name: "Plan & taste-check" }).click();
@@ -185,6 +266,18 @@ test("audit any AI's plan: the sample plan in one click, every name with a verdi
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(panel.getByRole("button", { name: "Try a sample plan" })).toBeHidden();
   await toggle.click();
+  // An audience of only commas is caught in the browser, in words, before anything is sent.
+  const audits: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/audit")) audits.push(r.url());
+  });
+  await panel.getByLabel("The plan, as the AI wrote it").fill("Collab targets: Ayra Starr, Victony. Venue: The Masquerade.");
+  await panel.getByLabel(/The audience already loves/).fill(" , ");
+  await panel.getByRole("button", { name: "Audit every name" }).click();
+  await expect(panel.getByRole("alert")).toHaveText("Name at least one artist or brand your audience loves.");
+  await expect(panel.getByLabel(/The audience already loves/)).toBeFocused();
+  await expect(panel).not.toContainText(/Too small|expected array/);
+  expect(audits).toEqual([]);
   await panel.getByRole("button", { name: "Try a sample plan" }).click();
   await expect(panel.getByLabel("The plan, as the AI wrote it")).toHaveValue(/Collab targets: Ayra Starr/);
   const results = panel.getByRole("region", { name: "Audit results" });
@@ -202,6 +295,21 @@ test("audit any AI's plan: the sample plan in one click, every name with a verdi
   // Each verdict chip opens its receipt, as in the pack.
   await results.getByRole("button", { expanded: false }).first().click();
   await expect(results.getByRole("button", { expanded: true }).first()).toBeVisible();
+  await noHorizontalScroll(page);
+});
+
+test("the header's \"Paste any AI's plan\" opens the audit panel and lands on the plan box", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const cta = page.getByRole("link", { name: "Paste any AI's plan" });
+  await expect(cta).toBeInViewport();
+  const panel = page.getByRole("region", { name: "Audit any AI's plan" });
+  await expect(panel.getByRole("button", { name: /Audit any AI's plan/ })).toHaveAttribute("aria-expanded", "false");
+  await cta.click();
+  await expect(panel.getByRole("button", { name: /Audit any AI's plan/ })).toHaveAttribute("aria-expanded", "true");
+  const box = panel.getByLabel("The plan, as the AI wrote it");
+  await expect(box).toBeFocused();
+  await expect(box).toBeInViewport();
   await noHorizontalScroll(page);
 });
 

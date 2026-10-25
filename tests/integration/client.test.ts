@@ -190,6 +190,25 @@ describe("QlooClient: live", () => {
     expect([await incrDaily(counter, "qloo-calls", Date.now(), 0), await incrDaily(counter, "qloo-scope:pool:custom", Date.now(), 0)]).toEqual([3, 3]);
   });
 
+  it("refuses a just-spent share again without asking the store, until a refund makes room", async () => {
+    const f = vi.fn(async () => ok(results));
+    const store = new MemoryCounter();
+    const incr = vi.spyOn(store, "incr");
+    const daily = { counter: store, cap: 400 };
+    const pool = { scopes: [{ key: "pool:custom", cap: 100 }] };
+    const a = client(f, { daily });
+    expect(await a.reserve(80, pool)).toBe(true);
+    expect(await client(f, { daily }).reserve(80, pool)).toBe(false);
+    const before = incr.mock.calls.length;
+    const refused = client(f, { daily });
+    expect(await refused.reserve(80, pool)).toBe(false);
+    expect(refused.refusedBy).toBe("pool:custom");
+    expect(incr.mock.calls.length).toBe(before);
+    // A refund to that share clears the memo: the next reservation is asked for real, and fits.
+    await a.release();
+    expect(await client(f, { daily }).reserve(80, pool)).toBe(true);
+  });
+
   it("fails closed when the budget store is down: no run starts, nothing half-taken stays taken", async () => {
     const f = vi.fn(async () => ok(results));
     const store = new MemoryCounter();

@@ -12,7 +12,7 @@ A **Without Qloo** toggle shows the plan the same model writes with no Qloo acce
 
 ![Tastemaker: agent trace, Taste Map and campaign pack with receipts](docs/screenshots/desktop.png)
 
-_Screenshot from an offline run (`pnpm screenshots`): the banner says the Qloo data is simulated, and the first-screen diff card hides its counts, as it does on any simulated or scripted run._
+_Screenshot from an offline run (`pnpm screenshots`): the one-line source note at the top of the diff card says the Qloo data is simulated and the model scripted, and the card hides its counts, as it does on any simulated or scripted run. On desktop, where to launch sits beside it, and the trace, Taste Map and pack start on the first screen._
 
 ## Why it matters
 
@@ -28,7 +28,7 @@ Open the demo and click a preset:
 
 Then flip **Without Qloo**, and click any receipt chip to see the Qloo call behind it.
 
-**Audit any AI's plan.** Open the panel under the diff card, paste a campaign that ChatGPT, Claude or anyone wrote (up to 4,000 characters), or click **Try a sample plan**, and the same Qloo critic judges every cultural name in it against the audience: names Qloo can't find, low-affinity and fading picks, each with a receipt and a Qloo-preferred replacement. With a live model configured, the model lists the names (`LiveLLM.extract`); offline, a deterministic scanner takes every name on a labelled line ("Collab targets: …"), invented ones included, plus other names Qloo knows by that exact name (`src/lib/agent/extract.ts`, `POST /api/audit`).
+**Audit any AI's plan.** Click **Paste any AI's plan →** at the top of the page (or open the panel under the diff card), paste a campaign that ChatGPT, Claude or anyone wrote (up to 4,000 characters), or click **Try a sample plan**, and the same Qloo critic judges every cultural name in it against the audience: names Qloo can't find, low-affinity and fading picks, each with a receipt and a Qloo-preferred replacement. With a live model configured, the model lists the names (`LiveLLM.extract`); offline, a deterministic scanner takes every name on a labelled line ("Collab targets: …"), invented ones included, plus other names Qloo knows by that exact name (`src/lib/agent/extract.ts`, `POST /api/audit`).
 
 ## How the agent works
 
@@ -51,7 +51,7 @@ resolve seeds ─► who over-indexes ─► taste vocabulary ─► cross-domai
          rate become the next run's seeds (signal.interests.entities)
 ```
 
-Discovery leans toward what's rising (`bias.trends` on artist, TV, film and podcast candidates), and the taste vocabulary is spread across tag subtypes (`diversify.by=subtype` on `urn:tag`, its documented use). Trend-biased pools are re-scored with plain affinity, so the critic's pass bar and the pick scores are on the same scale, and scoring calls never carry either parameter.
+Discovery is set to lean toward what's rising (`bias.trends` on artist, TV, film and podcast candidates; sent by default, but unverified on the hackathon host until the key lands, see [BLOCKED.md](BLOCKED.md) #15), and the taste vocabulary is spread across tag subtypes (`diversify.by=subtype` on `urn:tag`, its documented use). Trend-biased pools are re-scored with plain affinity, so the critic's pass bar and the pick scores are on the same scale, and scoring calls never carry either parameter.
 
 The same model also drafts with no Qloo context; the critic audits that plan without fixing it, which powers the Without Qloo view and the Culture Miss Rate.
 

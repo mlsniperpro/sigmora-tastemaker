@@ -106,6 +106,20 @@ function normalize(params: QlooParams): QlooParams {
 
 let sharedThrottle: Throttle | undefined;
 
+/** How long a share that refused a reservation is refused again without asking the store. */
+export const SPENT_MEMO_MS = 60_000;
+const memos = new WeakMap<Counter, Map<string, number>>();
+/** Per counter (so separate stores never share a memo): "share|cap|day" → refused-until (epoch ms). Bounded, and cleared by refunds. */
+function spentMemo(counter: Counter): Map<string, number> {
+  let m = memos.get(counter);
+  if (!m) {
+    m = new Map();
+    memos.set(counter, m);
+  }
+  if (m.size > 5000) for (const [k, until] of m) if (until <= Date.now()) m.delete(k);
+  return m;
+}
+
 export interface ReserveOptions {
   /**
    * Daily shares the calls also count against, each with its own cap: a pool
@@ -129,6 +143,8 @@ export class QlooClient {
   /** Calls already paid for out of today's budget by reserve(), not yet spent. */
   private prepaid = 0;
   private reservation: { at: number; scopes: { name: string; cap: number }[] } | undefined;
+  /** Which daily share refused the last reserve() ("qloo-calls" for the whole day), or undefined when it didn't refuse. */
+  refusedBy: string | undefined;
   /** The shares calls past the reservation are charged to (kept after release, for a client that keeps calling). */
   private shares: { name: string; cap: number }[] = [];
   /** Epoch ms after which no call is sent (set per job by setDeadline). */
@@ -289,6 +305,16 @@ export class QlooClient {
     if (!daily || this.primarySource !== "live" || calls <= 0) return true;
     const at = Date.now();
     const counters = [{ name: "qloo-calls", cap: daily.cap }, ...(opts.scopes ?? []).map((s) => ({ name: `qloo-scope:${s.key}`, cap: s.cap }))];
+    // A share that refused moments ago is refused again without a round trip, so a flood of refused requests costs the store nothing.
+    const memo = spentMemo(daily.counter);
+    const day = new Date(at).toISOString().slice(0, 10);
+    // Keyed by the share's cap and the UTC day too: a new day or a bigger cap is asked afresh.
+    const memoKey = (c: { name: string; cap: number }) => `${c.name}|${String(c.cap)}|${day}`;
+    const recent = counters.find((c) => (memo.get(memoKey(c)) ?? 0) > at);
+    if (recent) {
+      this.refusedBy = recent.name.replace(/^qloo-scope:/, "");
+      return false;
+    }
     const taken: string[] = [];
     try {
       for (const c of counters) {
@@ -296,11 +322,14 @@ export class QlooClient {
         taken.push(c.name);
         if (n > c.cap) {
           await this.giveBack(taken, at, calls);
+          memo.set(memoKey(c), at + SPENT_MEMO_MS);
+          this.refusedBy = c.name.replace(/^qloo-scope:/, "");
           return false;
         }
       }
     } catch (err) {
       console.error(`[qloo] budget store unavailable, refusing the run: ${err instanceof Error ? err.message : String(err)}`);
+      this.refusedBy = "store";
       await this.giveBack(taken, at, calls);
       return false;
     }
@@ -324,6 +353,9 @@ export class QlooClient {
   private async giveBack(names: readonly string[], at: number, calls: number) {
     const daily = this.opts.daily;
     if (!daily) return;
+    // Calls handed back may make room again: drop the refusal memo for these shares.
+    const memo = spentMemo(daily.counter);
+    for (const key of memo.keys()) if (names.some((n) => key.startsWith(`${n}|`))) memo.delete(key);
     for (const name of names) {
       try {
         await incrDaily(daily.counter, name, at, -calls);

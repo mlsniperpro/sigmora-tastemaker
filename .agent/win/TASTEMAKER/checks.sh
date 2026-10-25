@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 pnpm install --frozen-lockfile
+# Every check runs against the current sources, never a stale Next build cache.
+rm -rf .next
 pnpm lint
 pnpm typecheck
 pnpm test

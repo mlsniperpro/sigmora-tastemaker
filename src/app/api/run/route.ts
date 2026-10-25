@@ -1,9 +1,9 @@
 import { after } from "next/server";
-import { cachedRun, costsMoney, getOrRun, lastRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById, type Lookup, type ResolvedRequest } from "@/lib/agent/runCache";
+import { cachedRun, costsMoney, getOrRun, isInFlight, lastRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById, type Lookup, type ResolvedRequest } from "@/lib/agent/runCache";
 import type { RunEvent, Served } from "@/lib/agent/types";
 import { loadConfig } from "@/lib/config";
 import { isOwnerRequest } from "@/lib/publisher";
-import { QLOO_SPENT, admit, clientIp, floodGuard, guardResponse, qlooBudget, type GuardResult } from "@/lib/guard";
+import { admit, clientIp, floodGuard, guardResponse, qlooBudget, qlooRefusal, type GuardResult } from "@/lib/guard";
 import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 
 // A live run is throttled to the Qloo key's rate (the hero preset makes ~76 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
@@ -76,8 +76,33 @@ export async function POST(req: Request) {
   if (!lookup.result && recording && !request.fresh) {
     return ndjson((send) => Promise.resolve(replay(recording, { from: "recording" }, send)), { "X-Run-Cache": "recording" });
   }
-  const refusal = !lookup.result && costsMoney(lookup.deps) ? await admitNewRun(req, request, lookup) : undefined;
+  // Single flight per brief on this instance: the first cold request is admitted (budget, limits) and starts the run;
+  // concurrent ones wait for that and join it, spending nothing, or share its refusal.
+  let refusal: Extract<GuardResult, { ok: false }> | undefined;
+  let settle: ((r: typeof refusal) => void) | undefined;
+  if (!lookup.result && !isInFlight(lookup.key) && costsMoney(lookup.deps)) {
+    const pending = admissions.get(lookup.key);
+    if (pending) refusal = await pending;
+    else {
+      admissions.set(lookup.key, new Promise((resolve) => (settle = resolve)));
+      try {
+        refusal = await admitNewRun(req, request, lookup);
+      } catch (err) {
+        // Never leave waiters hanging: they get a refusal, this request the error.
+        admissions.delete(lookup.key);
+        settle?.(qlooRefusal("store"));
+        throw err;
+      }
+      // Released below, once this request's run is in flight (or refused), so the waiters see it.
+    }
+  }
+  const done = () => {
+    if (!settle) return;
+    admissions.delete(lookup.key);
+    settle(refusal);
+  };
   if (refusal) {
+    done();
     // A refused run shows the preset's recording, else this brief's last finished run, labelled with why.
     const fallback = recording ?? (await lastRun(lookup));
     if (!fallback) return guardResponse(refusal);
@@ -91,8 +116,14 @@ export async function POST(req: Request) {
     if (owner) await markOwnerRun(out.result.id, lookup.deps.cache);
     return out;
   };
-  return ndjson(work, { "X-Run-Cache": lookup.result ? "hit" : "miss" });
+  const res = ndjson(work, { "X-Run-Cache": lookup.result ? "hit" : "miss" });
+  // ndjson starts the work synchronously, so the run is in flight now: waiters join it.
+  done();
+  return res;
 }
+
+/** Admissions in progress, by brief key: concurrent cold requests for one brief wait for the first one's outcome. */
+const admissions = new Map<string, Promise<Extract<GuardResult, { ok: false }> | undefined>>();
 
 /**
  * Admits a new paid run, or says why not. Its Qloo calls are reserved first
@@ -101,7 +132,7 @@ export async function POST(req: Request) {
  * refused requests can't use up the cap for everyone.
  */
 async function admitNewRun(req: Request, request: Extract<ResolvedRequest, { ok: true }>, lookup: Lookup): Promise<Extract<GuardResult, { ok: false }> | undefined> {
-  if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, clientIp(req.headers))))) return QLOO_SPENT;
+  if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, clientIp(req.headers))))) return qlooRefusal(lookup.deps.qloo.refusedBy);
   // Presets skip the per-IP limits so the one-click demo always works ("Re-run live" doesn't); they still count toward the daily cap.
   const g = await admit(req, { costs: true, perIp: !request.presetId || request.fresh });
   if (g.ok) return undefined;

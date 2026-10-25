@@ -39,6 +39,11 @@ export interface Receipt {
   note: string;
   /** When the critic replaced this pick: what it replaced. */
   replaced?: { name: string; verdict: Verdict; affinity?: number };
+  /**
+   * A location-bound pick the location filter doesn't place in the plan's city: that city. Its note says so
+   * in words only (no placeholder numbers), so it is shown as is on simulated data too.
+   */
+  outOfCity?: string;
 }
 
 export interface TraceStep {

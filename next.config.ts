@@ -1,4 +1,9 @@
 import type { NextConfig } from "next";
+import { loadConfig } from "./src/lib/config";
+
+// Validate the environment at build time: a bad value (say, budget shares that can't fit one run) fails
+// the deploy, and the last good deploy keeps serving, instead of every request failing at runtime.
+loadConfig(process.env);
 
 /** OpenFreeMap serves the map style, tiles, glyphs and sprites. */
 const TILES = "https://tiles.openfreemap.org";

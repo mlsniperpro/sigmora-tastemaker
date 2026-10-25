@@ -10,7 +10,7 @@
 2. **Click a receipt chip** in the Campaign pack. It shows the affinity, the pass bar, the explainability split across the seed entities, the trend, and the exact `GET` behind it. "Replaced" picks show what the critic threw out.
 3. **Flip "Without Qloo".** Same model, no Qloo access. Invented entities are pink, low-affinity picks red and struck through, fading references amber. The diff card at the top shows both sides for this run: what the plain model would have shipped, with its worst picks struck through, next to what the Qloo critic changed.
 
-Then try the other two presets, or "Your own brief" (paste names your audience loves, or a Spotify/IMDb link). To see Qloo audit another AI's work, open **Audit any AI's plan** under the diff card and click **Try a sample plan**, or paste a plan from any chatbot.
+Then try the other two presets, or "Your own brief" (paste names your audience loves, or a Spotify/IMDb link). To see Qloo audit another AI's work, click **Paste any AI's plan →** at the top of the page (it opens **Audit any AI's plan** under the diff card) and click **Try a sample plan**, or paste a plan from any chatbot.
 
 ## Where each Qloo surface fires
 
@@ -34,7 +34,7 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 - `src/lib/qloo/params.ts`: per-`filter.type` parameter allow-lists; invalid requests throw outside production (Qloo drops unknown params silently).
 - `src/lib/qloo/client.ts`: hackathon host + `X-Api-Key`, server-side only; throttled under the key's rate limit; bounded retries with backoff; per-run and daily call budgets; normalized-request cache (memory + optional Redis REST); record/replay fixtures; every call labeled `live` / `replay` / `simulated`, with the fallback reason when a live call fails.
 - `src/lib/agent/run.ts` (the loop) and `src/lib/agent/critic.ts` (the critic). Name matching rejects fuzzy search hits for invented names (`sameName`); swaps the model ignores are enforced.
-- Data-source honesty: if the deployment has no key, a banner says the data is simulated, and no benchmark number is quoted (see `docs/evidence-status.md`).
+- Data-source honesty: if the deployment has no key, a one-line note at the top of the diff card says the data is simulated (and the model scripted, when it is), and no benchmark number is quoted (see `docs/evidence-status.md`). The scripted model's plan without Qloo is labelled as a fixed sample plan for the category, not an answer to the brief.
 
 ## Qloo as the grounding layer for any agent
 

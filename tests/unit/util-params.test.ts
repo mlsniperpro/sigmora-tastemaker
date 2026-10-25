@@ -52,6 +52,10 @@ describe("sameName and numbers", () => {
     expect(sameName("Blink-182", "Blink 182")).toBe(true);
     expect(sameName("Washington, DC", "Washington DC")).toBe(true);
     expect(sameName("The Civil Wars", "Civil Wars")).toBe(true);
+    // Near-names are different entities: an invented sequel or tour never borrows the real one's verdict.
+    expect(sameName("Black Panther Wakanda Rising", "Black Panther: Wakanda Forever")).toBe(false);
+    expect(sameName("Taylor Swift Reputation Tour", "Taylor Swift Eras Tour")).toBe(false);
+    expect(sameName("Swift Taylor", "Taylor Swift")).toBe(false);
   });
   it("reads digits and roman numerals I–XXXIX, and nothing else", () => {
     expect([numeralValue("v"), numeralValue("vii"), numeralValue("iv"), numeralValue("ix"), numeralValue("xiv"), numeralValue("xxxix"), numeralValue("23")]).toEqual([5, 7, 4, 9, 14, 39, 23]);

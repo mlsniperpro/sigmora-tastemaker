@@ -13,7 +13,6 @@ import { Intro } from "./Intro";
 import { CampaignPack } from "./CampaignPack";
 import { DiffCard } from "./DiffCard";
 import { ShipBar } from "./ShipBar";
-import { SourceBanner } from "./SourceBanner";
 import { TasteMap } from "./TasteMap";
 import { Trace } from "./Trace";
 import { useRun } from "./useRun";
@@ -126,6 +125,8 @@ export function App() {
   const [traceCollapsed, setTraceCollapsed] = useState(false);
   // The brief form folds into a one-line summary once there is a run to look at.
   const [editing, setEditing] = useState(false);
+  // "Paste any AI's plan" in the header opens the audit panel further down.
+  const [auditOpen, setAuditOpen] = useState(false);
   // A shared `?b=` brief is someone else's text: it is shown, and runs (spending the demo's budget) only on a click.
   const [shared, setShared] = useState(!initial.measure && !initial.runId && "brief" in initial.request ? initial.request : undefined);
 
@@ -140,6 +141,14 @@ export function App() {
   const showForm = editing || (!result && !running);
   const runSimulated = !!result && result.qloo.simulated > 0;
   const traceCalls = steps.reduce((n, s) => n + s.calls.length, 0);
+  const openAudit = () => {
+    setAuditOpen(true);
+    // Once the panel's body is shown, so the scroll lands on the final layout and focus on the plan box.
+    requestAnimationFrame(() => {
+      document.getElementById("audit")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.querySelector<HTMLTextAreaElement>("#audit textarea")?.focus({ preventScroll: true });
+    });
+  };
   const jumpToTrace = () => {
     setTraceCollapsed(false);
     // After the expanded steps render, so the scroll lands on the final layout.
@@ -151,14 +160,25 @@ export function App() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-[1400px] space-y-4 px-4 pb-5 pt-5 sm:px-6">
-      <header>
+    <main className="mx-auto w-full max-w-[1400px] space-y-3 px-4 pb-5 pt-4 sm:px-6">
+      <header className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
         <Intro>{result && <RoiLine result={result} served={served} />}</Intro>
+        {/* The second way in: someone else's plan, checked by the same critic. The panel itself stays below the diff card. */}
+        <a
+          href="#audit"
+          onClick={(e) => {
+            e.preventDefault();
+            openAudit();
+          }}
+          className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-violet/60 bg-violet/10 px-4 py-1.5 text-body font-semibold text-violet hover:bg-violet/20 lg:self-end lg:py-2"
+        >
+          Paste any AI&apos;s plan <span aria-hidden>→</span>
+        </a>
       </header>
 
       <PlanToggle mode={mode} setMode={setMode} result={result} calls={traceCalls} onTrace={jumpToTrace} />
 
-      <section aria-label="Brief" className="space-y-2 rounded-2xl border border-line bg-panel p-3 sm:p-4">
+      <section aria-label="Brief" className="space-y-2 rounded-2xl border border-line bg-panel p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-caption uppercase tracking-wider text-muted">Try a preset</span>
           {PRESETS.map((p) => (
@@ -253,10 +273,9 @@ export function App() {
       )}
       {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">{error}</div>}
       {result && <DiffCard result={result} mode={mode} />}
-      {result && <SourceBanner result={result} />}
-      <AuditPanel seeds={result?.brief.seeds ?? AUDIT_SAMPLE_AUDIENCE.seeds} ages={result?.brief.ages ?? AUDIT_SAMPLE_AUDIENCE.ages} />
+      <AuditPanel seeds={result?.brief.seeds ?? AUDIT_SAMPLE_AUDIENCE.seeds} ages={result?.brief.ages ?? AUDIT_SAMPLE_AUDIENCE.ages} open={auditOpen} setOpen={setAuditOpen} />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1.1fr)]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="order-3 min-w-0 lg:sticky lg:top-16 lg:order-1 lg:max-h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto">
           <Trace
             steps={steps}
@@ -273,7 +292,7 @@ export function App() {
         </div>
         <div className="order-2 min-w-0">{result ? <TasteMap result={result} /> : <Placeholder running={running} label="Taste Map" />}</div>
         <div className="order-1 min-w-0 scroll-mt-16 lg:order-3">
-          {side ? <CampaignPack side={side} mode={mode} runSimulated={runSimulated} /> : <Placeholder running={running} label="Campaign pack" />}
+          {side ? <CampaignPack side={side} mode={mode} runSimulated={runSimulated} scripted={!!result?.llm.scripted} /> : <Placeholder running={running} label="Campaign pack" />}
         </div>
       </div>
 

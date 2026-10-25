@@ -134,6 +134,17 @@ describe("/api/audit offline", () => {
     expect(calls).toBeLessThanOrEqual(AUDIT_CALL_ESTIMATE);
   });
 
+  it("serves an identical audit from cache, labelled, before any budget is reserved", async () => {
+    const unique = { ...sample, text: `${sample.text}\nCache check: a sentence only this test sends.` };
+    const first = (await (await audit(post(unique))).json()) as AuditResult;
+    expect(first.cached).toBeUndefined();
+    const reserve = vi.spyOn(QlooClient.prototype, "reserve");
+    const again = (await (await audit(post({ ...unique, text: `  ${unique.text.replace(/ /g, "   ")}  ` }))).json()) as AuditResult;
+    expect(again.cached).toBe(true);
+    expect(again.receipts).toEqual(first.receipts);
+    expect(reserve).not.toHaveBeenCalled();
+  });
+
   it("returns an empty audit, without a Qloo check, when the text names nothing", async () => {
     const res = await audit(post({ ...sample, text: "we will post every day and grow the audience organically over time" }));
     expect(res.status).toBe(200);

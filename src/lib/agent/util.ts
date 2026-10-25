@@ -33,34 +33,30 @@ export function numeralValue(token: string): number | undefined {
   return tens + units;
 }
 
-/** A name's tokens with every numeral written one way ("ii" and "2" both become "#2"). */
-const canonTokens = (normed: string) =>
-  new Set(
-    normed.split(" ").map((t) => {
+/** A name's tokens, in order, with every numeral written one way ("ii" and "2" both become "#2"). */
+const canonical = (normed: string) =>
+  normed
+    .split(" ")
+    .map((t) => {
       const n = numeralValue(t);
-      return n === undefined ? t : `#${n}`;
-    }),
-  );
-
-/** The set of numbers in a name, as one comparable string ("" when there are none). */
-const numeralKey = (tokens: ReadonlySet<string>) => [...tokens].filter((t) => t.startsWith("#")).sort().join(",");
+      return n === undefined ? t : `#${String(n)}`;
+    })
+    .join(" ");
 
 /**
  * Is a search hit the entity the model named? Search is fuzzy and will
- * happily return *something* for an invented name, so we require the names
- * to agree before accepting a hit.
+ * happily return *something* for an invented name, so the names must be the
+ * same: equal after normalising case, accents, punctuation, "the", "F.C." and
+ * how numerals are written ("Boyz II Men" is "Boyz 2 Men"). Nothing looser:
+ * "Black Panther Wakanda Rising" is not "Black Panther: Wakanda Forever", and
+ * "Grand Theft Auto VII" is not "Grand Theft Auto V". (Subtitles dropped from
+ * a real title are handled separately, by isTitlePart.)
  */
 export function sameName(a: string, b: string): boolean {
   const x = normName(a);
   const y = normName(b);
   if (!x || !y) return false;
-  if (x === y) return true;
-  const tx = canonTokens(x);
-  const ty = canonTokens(y);
-  // Sequel and edition numbers must agree exactly: "Grand Theft Auto VII" is not "Grand Theft Auto V".
-  if (numeralKey(tx) !== numeralKey(ty)) return false;
-  const inter = [...tx].filter((t) => ty.has(t)).length;
-  return inter / Math.max(tx.size, ty.size) >= 0.75;
+  return x === y || canonical(x) === canonical(y);
 }
 
 /**

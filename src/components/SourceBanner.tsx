@@ -2,36 +2,37 @@
 
 import type { RunResult } from "@/lib/agent/types";
 
-/** Says plainly where this run's numbers came from, including any live failure that forced a fallback. */
-export function SourceBanner({ result }: { result: RunResult }) {
+/**
+ * Where this run's numbers came from, in one line: what was simulated, replayed or scripted (in bold), then
+ * why and what that hides. Includes any live failure that forced a fallback. Nothing when every Qloo answer
+ * was live and a real model drafted the plan.
+ */
+export function SourceBanner({ result, className = "" }: { result: RunResult; className?: string }) {
   const q = result.qloo;
   const fellBack = q.fallbacks.length > 0;
-  const allLive = q.live + q.cached === q.calls;
-  if (allLive && !result.llm.scripted) return null;
+  const simulated = !fellBack && q.simulated > 0;
+  const replayed = !fellBack && !simulated && q.replay > 0;
+  const scripted = result.llm.scripted;
+  if (!fellBack && !simulated && !replayed && !scripted) return null;
+
+  const labels = [
+    ...(fellBack ? [`Live Qloo failed for ${q.fallbackCalls} of ${q.calls} calls`] : []),
+    ...(simulated ? ["Simulated Qloo data"] : []),
+    ...(replayed ? ["Replayed Qloo responses"] : []),
+    ...(scripted ? ["Scripted model"] : []),
+  ];
+  const keyless = simulated && scripted ? "No Qloo or LLM key on this deployment: " : simulated ? "No Qloo key on this deployment: " : scripted && !fellBack && !replayed ? "No LLM key is set: " : "";
+  const parts = [
+    ...(fellBack ? [`those answers are recorded live responses, each labeled in the trace (${q.fallbacks.map((f) => f.reason).join("; ")})`] : []),
+    ...(simulated ? ["answers come from an offline simulator in Qloo's shapes (not Qloo data)"] : []),
+    ...(replayed ? [`${q.replay} of ${q.calls} answers are recorded live hackathon API responses, served from fixtures`] : []),
+    ...(scripted ? [simulated ? "drafts from a deterministic stand-in" : "drafts come from a deterministic stand-in, not a model"] : []),
+  ];
+  const hidden = simulated ? ", so numbers are not shown" : scripted ? ", so miss counts are not shown" : "";
+  const sentence = `${keyless}${parts.join(keyless ? " and " : "; ")}${hidden}.`;
   return (
-    <div role="note" className="space-y-0.5 rounded-xl border border-fade/40 bg-fade/10 px-3 py-2 text-meta leading-snug text-fade">
-      {fellBack && (
-        <p>
-          <strong>Live Qloo failed for {q.fallbackCalls} of {q.calls} calls</strong> ({q.fallbacks.map((f) => f.reason).join("; ")}). Those
-          answers are recorded live responses, each labeled in the trace.
-        </p>
-      )}
-      {!fellBack && q.simulated > 0 && (
-        <p>
-          <strong>Simulated Qloo data.</strong> No Qloo key is configured on this deployment, so responses come from an offline simulator with placeholder
-          numbers in Qloo&apos;s response shapes. They are not Qloo data.
-        </p>
-      )}
-      {!fellBack && q.simulated === 0 && q.replay > 0 && (
-        <p>
-          <strong>Replayed Qloo responses.</strong> {q.replay} of {q.calls} answers were recorded from the live hackathon API and served from fixtures.
-        </p>
-      )}
-      {result.llm.scripted && (
-        <p>
-          <strong>Scripted model.</strong> No LLM key is set, so drafts come from a deterministic stand-in.
-        </p>
-      )}
-    </div>
+    <p role="note" className={`text-meta leading-snug text-muted ${className}`}>
+      <strong className="font-semibold text-fade">{labels.join(" · ")}.</strong> {keyless ? sentence : sentence.charAt(0).toUpperCase() + sentence.slice(1)}
+    </p>
   );
 }

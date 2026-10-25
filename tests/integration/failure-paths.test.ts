@@ -10,7 +10,11 @@ import type { Choice, DraftInput, Replacement } from "@/lib/llm/types";
 import { QlooBudgetError } from "@/lib/qloo/errors";
 import { MemoryCache, type CacheStore } from "@/lib/qloo/cache";
 import { EMPTY_TTL, QlooClient, isEmptyReply, trendFamily } from "@/lib/qloo/client";
-import { requestKey } from "@/lib/qloo/params";
+import { requestKey, type QlooPath } from "@/lib/qloo/params";
+import { simulate } from "@/lib/qloo/sim/simulator";
+import { HttpError } from "@/lib/net";
+import { isHealthy } from "@/lib/agent/runCache";
+import { tasteCheck } from "@/lib/agent/tasteCheck";
 import { must } from "../must";
 
 const audience: Audience = { ages: ["25_to_29", "30_to_34"] };
@@ -347,5 +351,35 @@ describe("client caching and replay", () => {
     expect(trendFamily("/v2/insights?filter.type=x")).toBeUndefined();
     // another entity has no recording: the labelled simulator answers
     expect((await c.trending("movie", "m2", { start: "2026-09-07", end: "2026-10-19" })).meta.source).toBe("simulated");
+  });
+});
+
+describe("audit-6 regressions", () => {
+  it("a taste check with a fixed city Qloo can't place leaves the venues unchecked instead of failing", async () => {
+    const qloo = offline();
+    const insights = qloo.insights.bind(qloo);
+    vi.spyOn(qloo, "insights").mockImplementation((type, params) =>
+      params["filter.location.query"] === "Nowhereville" ? Promise.reject(new HttpError("Qloo", 400, "/v2/insights")) : insights(type, params),
+    );
+    const r = await tasteCheck({ seeds: ["Tems"], ages: ["25_to_29"], city: "Nowhereville", picks: [{ name: "Echostage", type: "place", role: "venue" }, { name: "Ayra Starr", type: "artist", role: "collab" }] }, { qloo });
+    expect(r.receipts.find((x) => x.name === "Echostage")?.verdict).toBe("unscored");
+    expect(r.receipts.find((x) => x.name === "Ayra Starr")?.verdict).toBe("pass");
+    expect(r.warnings.join(" ")).toMatch(/couldn't load venues in Nowhereville/);
+  });
+
+  it("a run cut short by the Qloo budget isn't cached as healthy for a day", async () => {
+    // Live wire format (the run cap counts network calls), answered by the simulator.
+    const fetchImpl = (async (u: string | URL) => {
+      const url = new URL(String(u));
+      const params: Record<string, string> = {};
+      url.searchParams.forEach((v, k) => (params[k] = v));
+      return Response.json(simulate(url.pathname as QlooPath, params));
+    }) as typeof fetch;
+    const qloo = new QlooClient({ mode: "live", apiKey: "k", cache: new MemoryCache(), fixtures: {}, fetchImpl, runCallCap: 45 });
+    const r = await runTastemaker(must(PRESETS[0]).brief, { qloo, llm: new DeterministicLLM() });
+    expect(r.metrics.grounded.unscored + r.metrics.baseline.unscored).toBeGreaterThan(0);
+    expect(isHealthy(r)).toBe(false);
+    const full = await runTastemaker(must(PRESETS[0]).brief, { qloo: offline(), llm: new DeterministicLLM() });
+    expect(isHealthy(full)).toBe(true);
   });
 });

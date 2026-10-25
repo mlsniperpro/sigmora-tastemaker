@@ -59,8 +59,13 @@ function asRun(value: unknown): RunResult | undefined {
   return CachedRun.safeParse(value).success ? (value as RunResult) : undefined;
 }
 
+/**
+ * A run worth serving for a day: no fallbacks, every step done, and every pick
+ * judged (a run cut short by the Qloo budget or deadline leaves picks unscored,
+ * and must not replace a complete result for everyone for 24 hours).
+ */
 export function isHealthy(r: RunResult): boolean {
-  return r.qloo.fallbacks.length === 0 && r.trace.every((s) => s.status === "done");
+  return r.qloo.fallbacks.length === 0 && r.trace.every((s) => s.status === "done") && r.metrics.grounded.unscored === 0 && r.metrics.baseline.unscored === 0;
 }
 
 export interface RunDeps {
@@ -165,6 +170,9 @@ interface InFlight {
 }
 /** Runs in progress on this instance, by brief key: a second request for the same cold brief joins the first. */
 const inFlight = new Map<string, InFlight>();
+
+/** True when this instance is already running this brief: a request for it joins that run and spends nothing. */
+export const isInFlight = (key: string) => inFlight.has(key);
 
 /**
  * Serves a cached result, or runs and stores it. Identical concurrent requests
