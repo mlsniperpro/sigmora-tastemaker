@@ -58,7 +58,7 @@ describe("DiffCard", () => {
     expect(html).toContain(`the higher of ${DEFAULT_CRITIC.minAffinity} and ${DEFAULT_CRITIC.missRatio} × their median affinity`);
     expect(html).toMatch(/near zero by construction/);
     const noBase = text(renderToStaticMarkup(<DiffCard result={{ ...live, baseline: { ...live.baseline, unavailable: "LLM 529" } }} mode="qloo" />));
-    expect(noBase).toMatch(/failed this run \(LLM 529\)/);
+    expect(noBase).toMatch(/isn.t available on this run \(LLM 529\)/);
   });
 });
 
@@ -110,6 +110,6 @@ describe("CampaignPack highlighting", () => {
   });
   it("says so when the plan without Qloo couldn't be drafted", () => {
     const html = text(renderToStaticMarkup(<CampaignPack side={{ draft, receipts: [], unavailable: "LLM 529" }} mode="without" />));
-    expect(html).toMatch(/failed on this run \(LLM 529\)/);
+    expect(html).toMatch(/isn.t available on this run \(LLM 529\)/);
   });
 });

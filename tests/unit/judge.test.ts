@@ -164,10 +164,10 @@ describe("judge model selection", () => {
 });
 
 describe("summaries and the report", () => {
-  const m = (picks: number, hallucinations: number, misses: number) => ({ picks, hallucinations, misses, fading: 0, unscored: 0, cultureMissRate: 0 });
+  const m = (picks: number, hallucinations: number, misses: number) => ({ picks, judged: picks, hallucinations, misses, fading: 0, unscored: 0, cultureMissRate: 0 });
   const rowOf = (family: BenchRow["family"], sources = ["live"]): BenchRow => ({ subject: "s", family, grounded: m(10, 0, 1), baseline: m(10, 2, 5), sources, fallbacks: 0, qlooCalls: 50 });
 
-  test.prop([fc.array(fc.record({ picks: fc.nat(30), hallucinations: fc.nat(10), misses: fc.nat(10), fading: fc.nat(5), unscored: fc.nat(3), cultureMissRate: fc.constant(0) }), { maxLength: 30 })])("totals add up and rates stay in [0, 1] when counts fit", (ms) => {
+  test.prop([fc.array(fc.record({ picks: fc.nat(30), judged: fc.nat(30), hallucinations: fc.nat(10), misses: fc.nat(10), fading: fc.nat(5), unscored: fc.nat(3), cultureMissRate: fc.constant(0) }), { maxLength: 30 })])("totals add up and rates stay in [0, 1] when counts fit", (ms) => {
     fc.pre(ms.every((x) => x.hallucinations + x.misses + x.fading + x.unscored <= x.picks));
     const t = totals(ms);
     expect(t.picks).toBe(ms.reduce((a, x) => a + x.picks, 0));
@@ -215,6 +215,11 @@ describe("summaries and the report", () => {
     expect(s.invalidReasons).toEqual(["1 of 2 briefs failed"]);
     expect(renderReport(s)).toMatch(/### Failed briefs\n\n- Kaya: No seed resolved/);
     expect(summarize([{ ...rowOf("music"), fallbacks: 3 }], { briefs: 1, model: "x", modelScripted: false, ranAt: "t" }).valid).toBe(false);
+    // Mostly unscored (a budget or deadline cut): the rates would read as real numbers they aren't.
+    const unjudged = { ...rowOf("music"), baseline: { ...m(10, 0, 0), unscored: 6, judged: 4, cultureMissRate: null } };
+    const u = summarize([unjudged], { briefs: 1, model: "x", modelScripted: false, ranAt: "t" });
+    expect(u.invalidReasons).toEqual(["Qloo judged only 4 of the baseline plans' 10 picks"]);
+    expect(renderReport(u)).toMatch(/No measurement yet/);
   });
 });
 
@@ -240,7 +245,7 @@ describe("pass-bar sensitivity", () => {
   });
 
   it("puts the table in a valid report", () => {
-    const row = { subject: "s", family: "music" as const, grounded: { picks: 1, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: 0 }, baseline: { picks: 1, hallucinations: 0, misses: 1, fading: 0, unscored: 0, cultureMissRate: 1 }, sources: ["live"], fallbacks: 0, qlooCalls: 1, receipts: { grounded: [{ verdict: "pass" as const, affinity: 0.9, poolMedian: 0.8 }], baseline: [{ verdict: "miss" as const, affinity: 0.3, poolMedian: 0.8 }] } };
+    const row = { subject: "s", family: "music" as const, grounded: { picks: 1, judged: 1, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: 0 }, baseline: { picks: 1, judged: 1, hallucinations: 0, misses: 1, fading: 0, unscored: 0, cultureMissRate: 1 }, sources: ["live"], fallbacks: 0, qlooCalls: 1, receipts: { grounded: [{ verdict: "pass" as const, affinity: 0.9, poolMedian: 0.8 }], baseline: [{ verdict: "miss" as const, affinity: 0.3, poolMedian: 0.8 }] } };
     const s = summarize([row, { ...row, family: "dtc" }, { ...row, family: "sports" }], { briefs: 3, model: "m", modelScripted: false, ranAt: "t" });
     expect(s.sensitivity.map((x) => x.ratio)).toEqual([...SENSITIVITY_RATIOS]);
     expect(renderReport(s)).toMatch(/\| 0\.7 \(used\) \| 100\.0% \| 0\.0% \|/);

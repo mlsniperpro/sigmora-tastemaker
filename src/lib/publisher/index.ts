@@ -20,7 +20,9 @@
 import { z } from "zod";
 import { ConfigError, loadConfig } from "../config";
 import { CampaignId } from "../ids";
-import { ownerCredentialOf, ownerCredentialValid } from "./owner";
+import { defaultCounter, incrPerMinute } from "../counter";
+import { clientIp } from "../guard";
+import { OWNER_ATTEMPTS_PER_MINUTE, ownerCredentialOf, ownerCredentialValid } from "./owner";
 import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
 
 export const ShipRequest = z.object({
@@ -186,8 +188,10 @@ export function publisherFor(headers: Headers, raw: Record<string, string | unde
     return new SandboxPublisher();
   }
   if (presented === undefined) return new SandboxPublisher();
-  if (!ownerCredentialValid(presented, env.SIGMORA_OWNER_KEY, now)) throw new OwnerKeyError();
-  return new SigmoraPublisher(env.SIGMORA_API_URL, env.SIGMORA_API_TOKEN);
+  if (ownerCredentialValid(presented, env.SIGMORA_OWNER_KEY, now)) return new SigmoraPublisher(env.SIGMORA_API_URL, env.SIGMORA_API_TOKEN);
+  // A stale or garbled session cookie (say, after a key rotation) is just a visitor; a wrong header key is refused.
+  if (presented.kind === "token") return new SandboxPublisher();
+  throw new OwnerKeyError();
 }
 
 /** True when the request is the signed-in owner on a correctly configured live deployment. */
@@ -199,8 +203,18 @@ export function isOwnerRequest(headers: Headers, raw: Record<string, string | un
   }
 }
 
-/** publisherFor as a route needs it: the publisher, or the response that refuses the request. */
-export function publisherForRequest(req: Request): PublisherProvider | Response {
+/**
+ * publisherFor as a route needs it: the publisher, or the response that refuses
+ * the request. A request presenting an owner key in the header counts toward the
+ * same per-IP attempt limit as sign-in, so the key can't be guessed through Ship.
+ */
+export async function publisherForRequest(req: Request): Promise<PublisherProvider | Response> {
+  if (ownerCredentialOf(req.headers)?.kind === "key") {
+    const now = Date.now();
+    if ((await incrPerMinute(defaultCounter(), `rl:owner:${clientIp(req.headers)}`, now)) > OWNER_ATTEMPTS_PER_MINUTE) {
+      return Response.json({ error: "Too many owner-key attempts. Wait a minute." }, { status: 429, headers: { "Retry-After": String(60 - Math.floor((now / 1000) % 60)) } });
+    }
+  }
   try {
     return publisherFor(req.headers);
   } catch (err) {

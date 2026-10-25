@@ -2,12 +2,9 @@ import { z } from "zod";
 import { loadConfig } from "@/lib/config";
 import { defaultCounter, incrPerMinute } from "@/lib/counter";
 import { clientIp } from "@/lib/guard";
-import { OWNER_COOKIE, OWNER_SESSION_SECONDS, crossSiteResponse, ownerToken, sameKey, sameOrigin } from "@/lib/publisher/owner";
+import { OWNER_ATTEMPTS_PER_MINUTE, OWNER_COOKIE, OWNER_SESSION_SECONDS, crossSiteResponse, ownerToken, sameKey, sameOrigin } from "@/lib/publisher/owner";
 
 const OwnerRequest = z.object({ key: z.string().min(1).max(200) });
-
-/** Sign-in attempts per IP per minute, so the key can't be guessed online. */
-export const OWNER_ATTEMPTS_PER_MINUTE = 5;
 
 /**
  * The owner signs this browser in for real shipping: POST {key} sets an

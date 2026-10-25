@@ -17,7 +17,7 @@ Tastemaker plans a launch campaign for a creator or small brand (audience, launc
 1. The model drafts the plan from Qloo's audience data.
 2. Every cultural entity it names is resolved in Qloo, with a typed search and then an untyped one. A name Qloo can't find is flagged "not found in Qloo"; a real entity filed under the wrong type is flagged as a role mismatch.
 3. Every real pick is scored against the target audience with `filter.results.entities` and `feature.explainability`. Venues must be in the launch city; hook references must not be fading on `/v2/trending`.
-4. Failures are replaced with Qloo-preferred picks, the model revises, and the critic checks again.
+4. For each failure, the model either picks one of Qloo's above-bar options or proposes its own idea, which Qloo scores first and code keeps only if it clears the same bar. The model then revises the copy, and the critic checks the whole plan again.
 5. Every surviving pick carries a **receipt**: affinity, pass bar, which seed drove it, trend, and the exact Qloo call.
 6. **Without Qloo:** one toggle shows the plan the same model writes with no Qloo access, with its misses struck through.
 7. **Ship:** the verified pack goes to Sigmora's publishing engine as a schedule (a labeled sandbox on the public demo).

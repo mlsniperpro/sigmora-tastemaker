@@ -1,7 +1,7 @@
-/** What actually goes on the wire: discovery calls carry bias.trends / diversify.*, scoring calls never do. */
+/** What actually goes on the wire: discovery calls carry bias.trends, the tag call diversify.*, scoring calls neither. */
 import { describe, expect, it } from "vitest";
 import { Brief } from "@/lib/agent/brief";
-import { DIVERSIFY_TAKE, discoveryParams } from "@/lib/agent/context";
+import { DIVERSIFY_TAKE, discoveryParams, tagDiscoveryParams } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
@@ -28,7 +28,7 @@ const scoring = (us: URL[]) => us.filter((u) => u.searchParams.has("filter.resul
 describe("Qloo params on the wire", () => {
   const brief = Brief.parse(PRESETS[0].brief);
 
-  it("sends bias.trends on timing-sensitive discovery, diversify.by=subtype on brands and venues, neither on scoring", async () => {
+  it("sends bias.trends on timing-sensitive discovery, diversify.by=subtype only on urn:tag (the docs' rule), neither on scoring", async () => {
     const { urls, qloo } = wiredClient();
     const run = await runTastemaker(brief, { qloo, llm: new DeterministicLLM(), discovery: { trendBias: "high", diversify: true } });
     expect(run.sources).toEqual(["live"]);
@@ -41,14 +41,22 @@ describe("Qloo params on the wire", () => {
         expect(u.searchParams.has("diversify.by"), t).toBe(false);
       }
     }
+    // `subtype` is valid for urn:tag only; brands have no geocode to group by, and venues are already one city's.
     for (const t of ["brand", "place"]) {
       const found = discovery(insights(urls, t));
       expect(found.length, t).toBeGreaterThan(0);
       for (const u of found) {
-        expect(u.searchParams.get("diversify.by"), t).toBe("subtype");
-        expect(u.searchParams.get("diversify.take"), t).toBe(String(DIVERSIFY_TAKE));
+        expect(u.searchParams.has("diversify.by"), t).toBe(false);
         expect(u.searchParams.has("bias.trends"), t).toBe(false);
       }
+    }
+    const tagCalls = urls.filter((u) => u.pathname === "/v2/insights" && u.searchParams.get("filter.type") === "urn:tag");
+    expect(tagCalls.length).toBeGreaterThan(0);
+    for (const u of tagCalls) {
+      expect(u.searchParams.get("diversify.by")).toBe("subtype");
+      expect(u.searchParams.get("diversify.take")).toBe(String(DIVERSIFY_TAKE));
+      // The docs list no demographic signals for tags.
+      expect(u.searchParams.has("signal.demographics.age")).toBe(false);
     }
     const scored = scoring(urls.filter((u) => u.pathname === "/v2/insights"));
     expect(scored.length).toBeGreaterThan(0);
@@ -76,7 +84,35 @@ describe("Qloo params on the wire", () => {
     const { urls, qloo } = wiredClient();
     await runTastemaker(brief, { qloo, llm: new DeterministicLLM(), discovery: { trendBias: "off", diversify: true } });
     expect(urls.some((u) => u.searchParams.has("bias.trends"))).toBe(false);
-    expect(discovery(insights(urls, "brand")).every((u) => u.searchParams.get("diversify.by") === "subtype")).toBe(true);
+    const tagCalls = urls.filter((u) => u.searchParams.get("filter.type") === "urn:tag");
+    expect(tagCalls.length).toBeGreaterThan(0);
+    expect(tagCalls.every((u) => u.searchParams.get("diversify.by") === "subtype")).toBe(true);
+  });
+
+  it("asks /v2/trending for one entity per call, inside a dated window, and only for fading-checked roles", async () => {
+    const { urls, qloo } = wiredClient();
+    await runTastemaker(brief, { qloo, llm: new DeterministicLLM(), discovery: { trendBias: "off", diversify: false } });
+    const trends = urls.filter((u) => u.pathname === "/v2/trending");
+    expect(trends.length).toBeGreaterThan(0);
+    for (const u of trends) {
+      expect(checkParams("/v2/trending", Object.fromEntries(u.searchParams))).toEqual([]);
+      expect(u.searchParams.get("signal.interests.entities")?.split(",")).toHaveLength(1);
+      expect(u.searchParams.get("filter.start_date")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(u.searchParams.get("filter.end_date")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      // reference is the only role whose verdict depends on fading (tv_show, movie)
+      expect(["urn:entity:tv_show", "urn:entity:movie"]).toContain(u.searchParams.get("filter.type"));
+    }
+  });
+
+  it("sends compare with the documented genre subtype and a heatmap with an explicit documented take", async () => {
+    const { urls, qloo } = wiredClient();
+    await runTastemaker(brief, { qloo, llm: new DeterministicLLM(), discovery: { trendBias: "off", diversify: false } });
+    const cmp = urls.filter((u) => u.pathname === "/v2/analysis/compare");
+    expect(cmp.length).toBe(1);
+    expect(cmp[0]?.searchParams.get("filter.subtype")).toBe("urn:tag:genre");
+    const heat = urls.filter((u) => u.searchParams.get("filter.type") === "urn:heatmap");
+    expect(heat.length).toBeGreaterThan(0);
+    for (const u of heat) expect(u.searchParams.get("take")).toBe("50");
   });
 });
 
@@ -96,8 +132,27 @@ describe("discoveryParams", () => {
       }
     }
   });
+  it("produces tag-call parameters the urn:tag allow-list accepts", () => {
+    expect(checkParams("/v2/insights", { "filter.type": "urn:tag", "signal.interests.entities": ["a"], ...tagDiscoveryParams({ trendBias: "off", diversify: true }), take: 10 })).toEqual([]);
+  });
   it("rejects malformed values before they leave the server", () => {
     expect(checkParams("/v2/insights", { "filter.type": "urn:entity:artist", "bias.trends": "max" })).toEqual(['bias.trends "max" is not low, medium or high']);
-    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:brand", "diversify.take": 3 })).toEqual(["diversify.take needs diversify.by"]);
+    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:place", "diversify.take": 3 })).toEqual(["diversify.take needs diversify.by"]);
+  });
+});
+
+describe("diversify.by (insights deep dive: subtype on urn:tag only; geocode city/metro on located entities)", () => {
+  it("accepts subtype on urn:tag and the geocode fields on places", () => {
+    expect(checkParams("/v2/insights", { "filter.type": "urn:tag", "diversify.by": "subtype", "diversify.take": 3 })).toEqual([]);
+    for (const by of ["properties.geocode.city", "properties.geocode.metro"]) {
+      expect(checkParams("/v2/insights", { "filter.type": "urn:entity:place", "diversify.by": by, "diversify.take": 2 }), by).toEqual([]);
+    }
+  });
+  it("rejects subtype on entities, geocode on tags, and diversify on types the docs don't list it for", () => {
+    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:place", "diversify.by": "subtype" })).toEqual([
+      'diversify.by "subtype" is not valid for urn:entity:place (use properties.geocode.city or properties.geocode.metro)',
+    ]);
+    expect(checkParams("/v2/insights", { "filter.type": "urn:tag", "diversify.by": "properties.geocode.city" })).toEqual(['diversify.by "properties.geocode.city" is not valid for urn:tag (use subtype)']);
+    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:brand", "diversify.by": "subtype" })).toEqual(['"diversify.by" is not supported for /v2/insights (urn:entity:brand)']);
   });
 });

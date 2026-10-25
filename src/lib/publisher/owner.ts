@@ -11,6 +11,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 export const OWNER_HEADER = "x-tastemaker-owner";
 export const OWNER_COOKIE = "tm_owner";
 export const OWNER_SESSION_SECONDS = 30 * 24 * 3600;
+/** Owner-key attempts (sign-ins and header keys) per IP per minute, so the key can't be guessed online. */
+export const OWNER_ATTEMPTS_PER_MINUTE = 5;
 
 /** Constant-time comparison (hashing first makes the lengths equal). */
 export function sameKey(a: string, b: string): boolean {

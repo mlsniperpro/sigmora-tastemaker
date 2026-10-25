@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import recorded from "../../../fixtures/qloo/recorded.json";
 import { loadConfig } from "../config";
-import { defaultCounter, incrDaily, type Counter } from "../counter";
+import { budgetCounter, incrDaily, type Counter } from "../counter";
 import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
 import { formatZodIssues } from "../zod";
 import { defaultCache, type CacheStore } from "./cache";
@@ -13,6 +13,7 @@ import {
   CompareResponse,
   InsightsResponse,
   SearchResponse,
+  TrendingResponse,
   entityUrn,
   type EntityType,
   type InsightsFilterType,
@@ -57,7 +58,30 @@ export interface QlooClientOptions {
 
 const HACKATHON_HOST = "https://hackathon.api.qloo.com";
 const TTL = 60 * 60 * 24 * 7;
+/** An empty reply may be a transient miss (or a dropped parameter that gets fixed): keep it briefly. */
+export const EMPTY_TTL = 60 * 10;
 const SERVICE = "Qloo";
+
+/** True when a reply carries no results at all: `results` is an empty array, or an object whose lists are all empty. */
+export function isEmptyReply(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return true;
+  const results = (raw as { results?: unknown }).results;
+  if (results === undefined || results === null) return true;
+  if (Array.isArray(results)) return results.length === 0;
+  if (typeof results !== "object") return false;
+  return Object.values(results).every((v) => !Array.isArray(v) || v.length === 0);
+}
+
+/** The trending window's date params; a recorded series stands in for a later window of the same entity. */
+const TREND_DATES = ["filter.start_date", "filter.end_date"];
+
+/** Fixture key with the trending window removed, so a recording from an earlier week still answers. */
+export function trendFamily(key: string): string | undefined {
+  if (!key.startsWith("/v2/trending?")) return undefined;
+  const q = new URLSearchParams(key.slice("/v2/trending?".length));
+  for (const d of TREND_DATES) q.delete(d);
+  return requestKey("/v2/trending", Object.fromEntries(q));
+}
 
 /** Parameters whose values are sets: sorted so the same set always makes the same request (and cache key). */
 const SET_PARAMS = ["filter.results.entities", "filter.exclude.entities"];
@@ -83,10 +107,12 @@ function normalize(params: QlooParams): QlooParams {
 let sharedThrottle: Throttle | undefined;
 
 export interface ReserveOptions {
-  /** Refuse when today's shared use would pass this, though it is under the cap. */
-  globalLimit?: number;
-  /** A caller's own daily share (an IP, a preset): `key` names it, `cap` bounds it. */
-  scope?: { key: string; cap: number };
+  /**
+   * Daily shares the calls also count against, each with its own cap: a pool
+   * (presets vs. custom briefs, which split the day so neither can starve the
+   * other), one network, one preset.
+   */
+  scopes?: { key: string; cap: number }[];
 }
 
 export class QlooClient {
@@ -102,7 +128,9 @@ export class QlooClient {
   private networkCalls = 0;
   /** Calls already paid for out of today's budget by reserve(), not yet spent. */
   private prepaid = 0;
-  private reservation: { at: number; scopeName?: string } | undefined;
+  private reservation: { at: number; scopes: { name: string; cap: number }[] } | undefined;
+  /** The shares calls past the reservation are charged to (kept after release, for a client that keeps calling). */
+  private shares: { name: string; cap: number }[] = [];
   /** Epoch ms after which no call is sent (set per job by setDeadline). */
   private deadlineAt = Infinity;
 
@@ -144,21 +172,36 @@ export class QlooClient {
       for (const fn of this.observers) fn(meta);
       return { data, meta };
     };
-    const hasFixture = key in this.fixtures;
+    const fixtureKey = this.fixtureKey(key);
+    const hasFixture = fixtureKey !== undefined;
 
     if (this.primarySource === "live") {
       try {
-        const live = await this.getLive(path, clean, key);
+        const live = await this.getLive(path, clean, key, schema);
         return done(this.parse(path, schema, live.raw), "live", live.cached);
       } catch (err) {
         if (this.mode === "live" || !hasFixture) throw err;
         const reason = err instanceof Error ? err.message : String(err);
         console.warn(`[qloo] live call failed, using the recorded response: ${reason}`);
-        return done(this.parse(path, schema, this.fixtures[key]), "replay", false, reason);
+        return done(this.parse(path, schema, this.fixtures[fixtureKey]), "replay", false, reason);
       }
     }
-    if (hasFixture) return done(this.parse(path, schema, this.fixtures[key]), "replay", false);
+    if (hasFixture) return done(this.parse(path, schema, this.fixtures[fixtureKey]), "replay", false);
     return done(this.parse(path, schema, simulate(path, clean)), "simulated", false);
+  }
+
+  /**
+   * The recorded response for a request: the exact key, or for /v2/trending the
+   * newest recording of the same entity and type (the date window moves weekly).
+   */
+  private fixtureKey(key: string): string | undefined {
+    if (key in this.fixtures) return key;
+    const family = trendFamily(key);
+    if (!family) return undefined;
+    const end = (k: string) => new URLSearchParams(k.split("?")[1] ?? "").get("filter.end_date") ?? "";
+    return Object.keys(this.fixtures)
+      .filter((k) => trendFamily(k) === family)
+      .sort((a, b) => (end(a) < end(b) ? 1 : end(a) > end(b) ? -1 : 0))[0];
   }
 
   private parse<S extends z.ZodType>(path: string, schema: S, raw: unknown): z.infer<S> {
@@ -167,23 +210,29 @@ export class QlooClient {
     return r.data;
   }
 
-  private getLive(path: QlooPath, params: QlooParams, key: string) {
+  private getLive(path: QlooPath, params: QlooParams, key: string, schema: z.ZodType) {
     const pending = this.inFlight.get(key);
     if (pending) return pending;
-    const p = this.fetchLive(path, params, key).finally(() => this.inFlight.delete(key));
+    const p = this.fetchLive(path, params, key, schema).finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, p);
     return p;
   }
 
-  private async fetchLive(path: QlooPath, params: QlooParams, key: string): Promise<{ raw: unknown; cached: boolean }> {
+  /**
+   * A cached reply, or a fetched one. Only replies that pass the schema are
+   * cached or recorded: a malformed 200 must not be served for a week, or
+   * become a replay fixture. A cached entry that no longer passes is refetched.
+   */
+  private async fetchLive(path: QlooPath, params: QlooParams, key: string, schema: z.ZodType): Promise<{ raw: unknown; cached: boolean }> {
     const hit = await this.cache.get(key);
-    if (hit !== undefined) return { raw: hit, cached: true };
+    if (hit !== undefined && schema.safeParse(hit).success) return { raw: hit, cached: true };
     // Every network attempt, retries included, is paid for from the budget.
     const raw = await withRetry(async () => {
       await this.spendBudget();
       return this.fetchOnce(path, params);
     }, this.opts.retry ?? DEFAULT_RETRY);
-    await this.cache.set(key, raw, TTL);
+    this.parse(path, schema, raw);
+    await this.cache.set(key, raw, isEmptyReply(raw) ? EMPTY_TTL : TTL);
     if (this.opts.recorder) this.opts.recorder[key] = raw;
     return { raw, cached: false };
   }
@@ -204,50 +253,84 @@ export class QlooClient {
       return;
     }
     const daily = this.opts.daily;
-    if (daily && (await incrDaily(daily.counter, "qloo-calls")) > daily.cap) throw new QlooBudgetError("day", daily.cap);
+    if (!daily) return;
+    // Past the reservation, each call is charged to the day and to every share the job reserved from.
+    const counters = [{ name: "qloo-calls", cap: daily.cap }, ...this.shares];
+    const at = Date.now();
+    const taken: string[] = [];
+    try {
+      for (const c of counters) {
+        const n = await incrDaily(daily.counter, c.name, at);
+        taken.push(c.name);
+        if (n > c.cap) {
+          await this.giveBack(taken, at, 1);
+          throw new QlooBudgetError("day", c.cap);
+        }
+      }
+    } catch (err) {
+      if (err instanceof QlooBudgetError) throw err;
+      // Fail closed: an unreadable budget is treated as a spent one (the run degrades to unscored picks).
+      await this.giveBack(taken, at, 1);
+      throw new QlooBudgetError("day", daily.cap);
+    }
   }
 
   /**
-   * Takes `calls` out of today's live budget up front, in one atomic step, so a
-   * job that starts can finish: concurrent jobs can't all pass a check and then
-   * run dry half-way. False (and nothing taken) when today's budget can't cover it.
-   * Free when this client makes no live calls. One reservation per client (each
-   * run gets a fresh client).
-   *
-   * - `globalLimit` refuses below the daily cap, keeping the rest back for others (preset runs).
-   * - `scope` also counts the calls against its own daily cap (one IP, one preset), so no single
-   *   caller can take the whole day, however many instances serve it.
+   * Takes `calls` out of today's live budget up front, in one atomic step per
+   * counter, so a job that starts can finish: concurrent jobs can't all pass a
+   * check and then run dry half-way. False (and nothing taken) when today's
+   * budget or any of `scopes` can't cover it, or when the budget store can't be
+   * read (fail closed: an unreadable budget never means an unlimited one).
+   * Free when this client makes no live calls. One reservation per client
+   * (each run gets a fresh client).
    */
   async reserve(calls: number, opts: ReserveOptions = {}): Promise<boolean> {
     const daily = this.opts.daily;
     if (!daily || this.primarySource !== "live" || calls <= 0) return true;
     const at = Date.now();
-    const scopeName = opts.scope && `qloo-scope:${opts.scope.key}`;
-    if (opts.scope && scopeName && (await incrDaily(daily.counter, scopeName, at, calls)) > opts.scope.cap) {
-      await incrDaily(daily.counter, scopeName, at, -calls);
-      return false;
-    }
-    const limit = Math.min(daily.cap, opts.globalLimit ?? daily.cap);
-    if ((await incrDaily(daily.counter, "qloo-calls", at, calls)) > limit) {
-      await incrDaily(daily.counter, "qloo-calls", at, -calls);
-      if (scopeName) await incrDaily(daily.counter, scopeName, at, -calls);
+    const counters = [{ name: "qloo-calls", cap: daily.cap }, ...(opts.scopes ?? []).map((s) => ({ name: `qloo-scope:${s.key}`, cap: s.cap }))];
+    const taken: string[] = [];
+    try {
+      for (const c of counters) {
+        const n = await incrDaily(daily.counter, c.name, at, calls);
+        taken.push(c.name);
+        if (n > c.cap) {
+          await this.giveBack(taken, at, calls);
+          return false;
+        }
+      }
+    } catch (err) {
+      console.error(`[qloo] budget store unavailable, refusing the run: ${err instanceof Error ? err.message : String(err)}`);
+      await this.giveBack(taken, at, calls);
       return false;
     }
     this.prepaid += calls;
-    this.reservation = { at, scopeName };
+    this.shares = counters.slice(1);
+    this.reservation = { at, scopes: this.shares };
     return true;
   }
 
   /** Gives back whatever reserve() took and the job didn't spend, to the day it was taken from. */
   async release(): Promise<void> {
-    const daily = this.opts.daily;
     const unspent = this.prepaid;
     const r = this.reservation;
     this.prepaid = 0;
     this.reservation = undefined;
-    if (!daily || unspent <= 0 || !r) return;
-    await incrDaily(daily.counter, "qloo-calls", r.at, -unspent);
-    if (r.scopeName) await incrDaily(daily.counter, r.scopeName, r.at, -unspent);
+    if (unspent <= 0 || !r) return;
+    await this.giveBack(["qloo-calls", ...r.scopes.map((x) => x.name)], r.at, unspent);
+  }
+
+  /** Best effort: a refund the store refuses is logged; the day's window expires on its own. */
+  private async giveBack(names: readonly string[], at: number, calls: number) {
+    const daily = this.opts.daily;
+    if (!daily) return;
+    for (const name of names) {
+      try {
+        await incrDaily(daily.counter, name, at, -calls);
+      } catch (err) {
+        console.error(`[qloo] couldn't refund ${calls} calls to ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   private async fetchOnce(path: QlooPath, params: QlooParams): Promise<unknown> {
@@ -287,12 +370,22 @@ export class QlooClient {
     return this.get("/v2/insights", { "filter.type": filterType, ...params }, InsightsResponse);
   }
 
-  trending(type: EntityType, entityIds: string[]) {
-    return this.get("/v2/trending", { "filter.type": entityUrn(type), "signal.interests.entities": entityIds }, InsightsResponse);
+  /** One entity's weekly series over [start, end] (YYYY-MM-DD, both required by the docs). */
+  trending(type: EntityType, entityId: string, window: { start: string; end: string }) {
+    return this.get(
+      "/v2/trending",
+      { "filter.type": entityUrn(type), "signal.interests.entities": [entityId], "filter.start_date": window.start, "filter.end_date": window.end },
+      TrendingResponse,
+    );
   }
 
+  /** Genre tags (filter.subtype=urn:tag:genre, documented) where audience a and audience b differ. */
   compare(a: string[], b: string[], take = 10) {
-    return this.get("/v2/analysis/compare", { "a.signal.interests.entities": a, "b.signal.interests.entities": b, take }, CompareResponse);
+    return this.get(
+      "/v2/analysis/compare",
+      { "a.signal.interests.entities": a, "b.signal.interests.entities": b, "filter.subtype": "urn:tag:genre", take },
+      CompareResponse,
+    );
   }
 
   tags(query: string, take = 10) {
@@ -311,7 +404,7 @@ export function qlooFromEnv(overrides: Partial<QlooClientOptions> = {}): QlooCli
     timeoutMs: env.QLOO_TIMEOUT_MS,
     throttle: sharedThrottle,
     runCallCap: env.QLOO_RUN_CALL_CAP,
-    daily: { counter: defaultCounter(), cap: env.QLOO_DAILY_CALL_CAP },
+    daily: { counter: budgetCounter(), cap: env.QLOO_DAILY_CALL_CAP },
     ...overrides,
   });
 }

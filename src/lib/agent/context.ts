@@ -6,13 +6,19 @@
 import { loadConfig } from "../config";
 import type { QlooClient, QlooSource } from "../qloo/client";
 import type { QlooParams } from "../qloo/params";
-import type { Entity, EntityType } from "../qloo/types";
+import { isQlooStop } from "../qloo/errors";
+import { AGE_BUCKETS, explainabilityOf, latestTrend, type Entity, type EntityType } from "../qloo/types";
 import type { Candidate } from "../llm/types";
 import { ROLE_SPEC, ROLES, type Brief, type PickType, type Role } from "./brief";
 import type { Driver } from "./types";
 import { isTitlePart, normName, sameName } from "./util";
 
-export const TREND_TYPES: readonly EntityType[] = ["artist", "tv_show", "movie", "podcast"];
+/** Types /v2/trending takes as filter.type (its documented enum) among the ones we pick. */
+export const TREND_TYPES: readonly EntityType[] = ["artist", "brand", "movie", "person", "place", "podcast", "tv_show"];
+/** Trend readings are fetched for this many top candidates per fading-checked role (one /v2/trending call each; the grounding shows 6). */
+export const TREND_POOL_TOP = 6;
+/** Weeks of /v2/trending history asked for; the newest point is the reading. */
+export const TREND_WEEKS = 6;
 
 /** A Qloo-ranked candidate; `key` is the request that ranked it. */
 export type RankedCandidate = Candidate & { entityId: string; key?: string; lat?: number; lon?: number };
@@ -22,11 +28,16 @@ export interface CriticSettings {
   missRatio: number;
   /** Absolute affinity floor for a pass. */
   minAffinity: number;
-  /** Trend velocity below which a reference counts as fading. */
+  /**
+   * A reference is fading when the newest /v2/trending point's
+   * `population_percent_delta` is below this. Provisional: the docs give the
+   * field's type and an example (1.15) but no scale, so the bar is re-set once
+   * a live recording exists.
+   */
   fadingBelow: number;
 }
 
-export const DEFAULT_CRITIC: CriticSettings = { missRatio: 0.7, minAffinity: 0.25, fadingBelow: -0.3 };
+export const DEFAULT_CRITIC: CriticSettings = { missRatio: 0.7, minAffinity: 0.25, fadingBelow: -3 };
 
 /** Who the plan is for. */
 export interface Audience {
@@ -43,6 +54,8 @@ export interface Score {
   drivers: Driver[];
   key: string;
   source: QlooSource;
+  /** Qloo's `query.explainability.warning`: it couldn't compute a driver split for this score (drivers stay empty). */
+  explainabilityWarning?: string;
 }
 
 export interface Resolved {
@@ -64,7 +77,7 @@ export type TrendBias = "off" | "low" | "medium" | "high";
 /** How candidate pools are discovered (never how picks are scored). */
 export interface Discovery {
   trendBias: TrendBias;
-  /** diversify.by=subtype on brand and place discovery. */
+  /** diversify.by=subtype on the taste-vocabulary call (urn:tag), the only place the docs allow `subtype`. */
   diversify: boolean;
 }
 
@@ -81,15 +94,23 @@ export interface Ctx extends CriticSettings {
   seedNames: Map<string, string>;
   tagIds: string[];
   candidates: Partial<Record<Role, RankedCandidate[]>>;
-  trends: Map<string, number>;
+  /** Newest population_percent_delta per entity; undefined = asked, but Qloo had no series for it. */
+  trends: Map<string, number | undefined>;
+  /** Entities a scoring call (filter.results.entities) asked about and Qloo left out: the request key that omitted them. */
+  omitted: Map<string, string>;
   /** Critic memos for the run: affinity per entity, and resolution per role + name. */
   scores: Map<string, Score>;
   resolved: Map<string, Resolved>;
-  /** Venue-in-city checks, keyed by inCityKey(city, entity id): whether Qloo's location filter returns it there. */
-  inCity: Map<string, { ok: boolean; key: string }>;
+  /**
+   * Venue-in-city checks, keyed by inCityKey(city, entity id): whether Qloo's location filter returns it there,
+   * or why the check failed (e.g. a 400 when Qloo finds no locality for the city), so it isn't re-asked every pass.
+   */
+  inCity: Map<string, InCityCheck>;
   /** Launch city, when known; venues must be in it. */
   city?: string;
 }
+
+export type InCityCheck = { ok: boolean; key: string } | { error: string };
 
 export const inCityKey = (city: string, entityId: string) => `${normName(city)}|${entityId}`;
 
@@ -100,15 +121,41 @@ export interface Seed {
   matched?: string;
 }
 
-/** signal.demographics.age takes coarse buckets; the output buckets are finer. */
+/**
+ * signal.demographics.age values. The docs' enum accepts the fine buckets the
+ * brief uses (24_and_younger … 55_and_older), so they are sent as they are,
+ * de-duplicated and in bucket order, rather than coarsened.
+ */
 export function signalAges(ages: readonly string[]): string[] {
-  const out = new Set<string>();
-  for (const a of ages) {
-    if (a === "24_and_younger" || a === "25_to_29" || a === "30_to_34") out.add("35_and_younger");
-    else if (a === "35_to_44" || a === "45_to_54") out.add("36_to_55");
-    else if (a === "55_and_older") out.add("55_and_older");
-  }
-  return [...out];
+  const wanted = new Set(ages);
+  return AGE_BUCKETS.filter((b) => wanted.has(b));
+}
+
+/**
+ * urn:demographics answers one row per input signal (each seed entity, each tag:
+ * https://docs.qloo.com/reference/demographics-use-case). The audience is all
+ * of them, so each bucket is the mean over the rows that carry it.
+ */
+export function aggregateDemographics(rows: readonly { query: { age?: Record<string, number>; gender?: Record<string, number> } }[]): {
+  age: { bucket: string; value: number }[];
+  gender: { bucket: string; value: number }[];
+} {
+  const mean = (pick: (r: (typeof rows)[number]) => Record<string, number> | undefined, order?: readonly string[]) => {
+    const sums = new Map<string, { sum: number; n: number }>();
+    for (const r of rows) {
+      for (const [k, v] of Object.entries(pick(r) ?? {})) {
+        if (!Number.isFinite(v)) continue;
+        const s = sums.get(k) ?? { sum: 0, n: 0 };
+        sums.set(k, { sum: s.sum + v, n: s.n + 1 });
+      }
+    }
+    const keys = order ? order.filter((k) => sums.has(k)) : [...sums.keys()];
+    return keys.flatMap((bucket) => {
+      const s = sums.get(bucket);
+      return s ? [{ bucket, value: s.sum / s.n }] : [];
+    });
+  };
+  return { age: mean((r) => r.query.age, AGE_BUCKETS), gender: mean((r) => r.query.gender) };
 }
 
 /** The audience signal every insights call is conditioned on. */
@@ -168,6 +215,7 @@ export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], set
     tagIds: [],
     candidates: {},
     trends: new Map(),
+    omitted: new Map(),
     scores: new Map(),
     resolved: new Map(),
     inCity: new Map(),
@@ -228,20 +276,30 @@ export async function resolveSeeds(qloo: QlooClient, seeds: Pick<Brief, "seeds" 
 
 /** Types where timing matters (hooks, collabs, pitches): discovery leans toward what's rising. */
 const TREND_BIASED: readonly PickType[] = ["artist", "tv_show", "movie", "podcast"];
-/** Types where near-duplicates crowd the list: at most DIVERSIFY_TAKE per subtype. */
-const DIVERSIFIED: readonly PickType[] = ["brand", "place"];
 export const DIVERSIFY_TAKE = 5;
 
 /**
  * Extra parameters for candidate-discovery calls (never for the critic's
  * scoring calls, which must measure plain affinity): bias.trends on
- * timing-sensitive types, diversify.by=subtype where near-duplicates crowd.
+ * timing-sensitive types.
+ *
+ * No diversify.by on entities: the docs allow `subtype` on urn:tag only, and
+ * the geocode groupings (properties.geocode.city / metro) don't apply to
+ * brands, while venue discovery is already confined to one city, where a
+ * per-city cap would only cut the pool to DIVERSIFY_TAKE.
  */
 export function discoveryParams(type: PickType, d: Discovery): QlooParams {
-  return {
-    ...(TREND_BIASED.includes(type) && d.trendBias !== "off" ? { "bias.trends": d.trendBias } : {}),
-    ...(DIVERSIFIED.includes(type) && d.diversify ? { "diversify.by": "subtype", "diversify.take": DIVERSIFY_TAKE } : {}),
-  };
+  return TREND_BIASED.includes(type) && d.trendBias !== "off" ? { "bias.trends": d.trendBias } : {};
+}
+
+/** The taste-vocabulary call (urn:tag): at most DIVERSIFY_TAKE tags per tag subtype, so one subtype can't fill the list. */
+export function tagDiscoveryParams(d: Discovery): QlooParams {
+  return d.diversify ? { "diversify.by": "subtype", "diversify.take": DIVERSIFY_TAKE } : {};
+}
+
+/** The urn:tag signal: interests only (the docs list no signal.demographics.* for tags). */
+export function tagSignalFor(ctx: Pick<Ctx, "seedIds" | "tagIds">): QlooParams {
+  return { "signal.interests.entities": ctx.seedIds, "signal.interests.tags": ctx.tagIds };
 }
 
 /**
@@ -256,16 +314,20 @@ export async function scoreEntities(ctx: Ctx, type: PickType, ids: readonly stri
     take: ids.length,
   });
   const entities = res.data.results.entities ?? [];
+  // Asked for by id and left out: Qloo doesn't rank it for this audience (a miss), unlike a reply without an affinity.
+  const returned = new Set(entities.map((e) => e.entity_id));
+  for (const id of ids) if (!returned.has(id)) ctx.omitted.set(id, res.meta.key);
   for (const e of entities) {
     const affinity = e.query?.affinity;
     // No affinity in the reply means no score: the pick stays "unscored" rather than failing on a made-up 0.
     if (typeof affinity !== "number") continue;
-    const ex = e.query?.explainability?.["signal.interests.entities"] ?? [];
+    const ex = explainabilityOf(e.query?.explainability);
     ctx.scores.set(e.entity_id, {
       affinity,
-      drivers: ex.map((d) => ({ name: d.name ?? ctx.seedNames.get(d.entity_id ?? "") ?? d.entity_id ?? "signal", score: d.score })),
+      drivers: ex.drivers.map((d) => ({ name: d.name ?? ctx.seedNames.get(d.entity_id ?? "") ?? d.entity_id ?? "signal", score: d.score })),
       key: res.meta.key,
       source: res.meta.source,
+      ...(ex.warning ? { explainabilityWarning: ex.warning } : {}),
     });
   }
   return entities;
@@ -274,11 +336,23 @@ export async function scoreEntities(ctx: Ctx, type: PickType, ids: readonly stri
 /** The culture-map roles and the entity types they draw from. */
 const CULTURE_ROLES: readonly Role[] = ROLES.filter((r) => r !== "venue" && r !== "city");
 
-/** Load Qloo's ranked candidates for the given roles (all culture-map roles by default), one insights call per type. */
-export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROLES) {
+export interface Culture {
+  /** The types that loaded, with their ranked candidates. */
+  lists: (readonly [PickType, RankedCandidate[]])[];
+  /** One line per type whose call failed ("tv_show: Qloo 500 on /v2/insights"); those roles have a smaller (or no) pool. */
+  failures: string[];
+}
+
+/**
+ * Load Qloo's ranked candidates for the given roles (all culture-map roles by
+ * default), one insights call per type. A failed type is reported, not
+ * thrown, so one bad call can't sink the run; only when every type fails
+ * (or the run's budget/time stop hits) does it throw.
+ */
+export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROLES): Promise<Culture> {
   const wanted = roles.filter((r) => CULTURE_ROLES.includes(r));
   const types = [...new Set(wanted.flatMap((r) => ROLE_SPEC[r].types))];
-  const lists = await Promise.all(
+  const settled = await Promise.allSettled(
     types.map(async (t) => {
       const params = discoveryParams(t, ctx.discovery);
       const r = await ctx.qloo.insights(`urn:entity:${t as EntityType}`, { ...signalFor(ctx), ...params, take: 10 });
@@ -294,40 +368,97 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
       return [t, plain] as const;
     }),
   );
+  const lists: Culture["lists"] = [];
+  const failures: string[] = [];
+  const errors: unknown[] = [];
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") lists.push(r.value);
+    else {
+      errors.push(r.reason);
+      failures.push(`${types[i] ?? "?"}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+    }
+  });
+  if (types.length && !lists.length) throw errors[0] instanceof Error ? errors[0] : new Error(failures.join("; "));
   const byType = new Map<PickType, RankedCandidate[]>(lists);
   for (const role of wanted) {
     ctx.candidates[role] = ROLE_SPEC[role].types.flatMap((t) => byType.get(t) ?? []).sort((a, b) => b.affinity - a.affinity);
   }
-  return lists;
+  return { lists, failures };
 }
 
+/** The venue pool for `city`. The previous city's pool is dropped first, so a failed load leaves no pool, never a stale one. */
 export async function loadVenues(ctx: Ctx, city: string) {
+  delete ctx.candidates.venue;
   const r = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), ...discoveryParams("place", ctx.discovery), "filter.location.query": city, take: 10 });
   ctx.candidates.venue = (r.data.results.entities ?? []).flatMap((e) => toCandidate(e, "place", r.meta.key));
 }
 
-/** Trend velocity for the given entities, grouped by type; failures are returned, not thrown. */
-export async function loadTrends(ctx: Ctx, items: { entityId: string; type: string }[]): Promise<string[]> {
-  const groups = new Map<EntityType, Set<string>>();
-  for (const { entityId, type } of items) {
-    if (ctx.trends.has(entityId) || !TREND_TYPES.includes(type as EntityType)) continue;
-    groups.set(type as EntityType, (groups.get(type as EntityType) ?? new Set()).add(entityId));
+/** The /v2/trending window ending at the most recent Monday (UTC), TREND_WEEKS long; weekly-stable, so cache keys repeat within a week. */
+export function trendWindow(now: Date = new Date(), weeks = TREND_WEEKS): { start: string; end: string } {
+  const day = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const sinceMonday = (new Date(day).getUTCDay() + 6) % 7;
+  const end = day - sinceMonday * 86_400_000;
+  const start = end - weeks * 7 * 86_400_000;
+  const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+  return { start: iso(start), end: iso(end) };
+}
+
+/** One line per distinct message, with a count when it repeats. */
+const grouped = (messages: readonly string[]) => {
+  const counts = new Map<string, number>();
+  for (const m of messages) counts.set(m, (counts.get(m) ?? 0) + 1);
+  return [...counts].map(([msg, n]) => (n > 1 ? `${msg} (×${n})` : msg));
+};
+
+/**
+ * Trend readings for fading-checked roles only (ROLE_SPEC.checkFading): one
+ * /v2/trending call per entity not yet read (the endpoint returns one entity's
+ * weekly series), keeping the newest point's population_percent_delta.
+ * Nothing is thrown: `failures` groups the calls that failed (one line per
+ * distinct reason), and `refused` names the entities whose call the run's
+ * Qloo budget or time refused, so a caller can tell a cut from a failure.
+ */
+export async function readTrends(
+  ctx: Ctx,
+  items: readonly { entityId: string; type: string; role: Role }[],
+  now: Date = new Date(),
+): Promise<{ failures: string[]; refused: Map<string, string> }> {
+  const todo = new Map<string, EntityType>();
+  for (const { entityId, type, role } of items) {
+    if (!ROLE_SPEC[role].checkFading || ctx.trends.has(entityId) || todo.has(entityId) || !TREND_TYPES.includes(type as EntityType)) continue;
+    todo.set(entityId, type as EntityType);
   }
-  const failures: string[] = [];
-  await Promise.all(
-    [...groups].map(async ([type, ids]) => {
-      try {
-        const r = await ctx.qloo.trending(type, [...ids]);
-        for (const e of r.data.results.entities ?? []) {
-          const v = e.query?.population_rank_velocity;
-          if (typeof v === "number") ctx.trends.set(e.entity_id, v);
-        }
-      } catch (err) {
-        failures.push(`${type}: ${(err as Error).message}`);
-      }
+  const window = trendWindow(now);
+  const ids = [...todo.keys()];
+  const settled = await Promise.allSettled(
+    [...todo].map(async ([id, type]) => {
+      const r = await ctx.qloo.trending(type, id, window);
+      ctx.trends.set(id, latestTrend(r.data.results.trending)?.population_percent_delta);
     }),
   );
-  return failures;
+  const failed: string[] = [];
+  const refused = new Map<string, string>();
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") return;
+    const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+    const id = ids[i];
+    if (isQlooStop(r.reason) && id !== undefined) refused.set(id, msg);
+    else failed.push(msg);
+  });
+  return { failures: grouped(failed), refused };
+}
+
+/** readTrends, with every failed call (budget and time refusals included) as one line per distinct reason. */
+export async function loadTrends(ctx: Ctx, items: readonly { entityId: string; type: string; role: Role }[], now: Date = new Date()): Promise<string[]> {
+  const { failures, refused } = await readTrends(ctx, items, now);
+  return [...failures, ...grouped([...refused.values()])];
+}
+
+/** Trend inputs for the top TREND_POOL_TOP candidates of every fading-checked role. */
+export function trendItems(ctx: Pick<Ctx, "candidates">): { entityId: string; type: PickType; role: Role }[] {
+  return ROLES.filter((r) => ROLE_SPEC[r].checkFading).flatMap((role) =>
+    (ctx.candidates[role] ?? []).slice(0, TREND_POOL_TOP).map((c) => ({ entityId: c.entityId, type: c.type, role })),
+  );
 }
 
 /** Memo key for a pick: same role + same normalised name = same entity. */

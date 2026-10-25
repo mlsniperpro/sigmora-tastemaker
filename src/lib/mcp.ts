@@ -7,7 +7,7 @@ import { z } from "zod";
 import { BriefFields, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
 import { RunRequest } from "./agent/brief";
-import { placeholderReason } from "./agent/evidence";
+import { formatRate, placeholderReason } from "./agent/evidence";
 import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
@@ -131,7 +131,7 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
   }
   const text = [
     `${r.brief.subject} — ${r.brief.product}. Qloo data: ${r.sources.join(", ")}. Model: ${r.llm.label}.`,
-    placeholderReason(r) ?? `Culture Miss Rate: without Qloo ${Math.round(r.metrics.baseline.cultureMissRate * 100)}%, with the Qloo critic ${Math.round(r.metrics.grounded.cultureMissRate * 100)}% (its bar comes from Qloo's own candidates, so this is low by design).`,
+    placeholderReason(r) ?? `Culture Miss Rate: without Qloo ${formatRate(r.metrics.baseline.cultureMissRate)}, with the Qloo critic ${formatRate(r.metrics.grounded.cultureMissRate)} (its bar comes from Qloo's own candidates, so this is low by design).`,
     `Positioning: ${r.grounded.draft.positioning}`,
     "Hooks:",
     ...r.grounded.draft.hooks.map((h) => `- ${h}`),

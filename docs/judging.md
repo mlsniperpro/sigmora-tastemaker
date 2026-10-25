@@ -8,7 +8,7 @@
 
 1. **Open the demo.** The hero preset (indie Afro-fusion single launch) runs on load. Watch the **Agent trace** (left on desktop, bottom on mobile): every step names the Qloo endpoint and `filter.type` it called. Click a step to see each call's parameters, source and latency.
 2. **Click a receipt chip** in the Campaign pack. It shows the affinity, the pass bar, the explainability split across the seed entities, the trend, and the exact `GET` behind it. "Replaced" picks show what the critic threw out.
-3. **Flip "Without Qloo".** Same model, no Qloo access. Invented entities are pink, low-affinity picks red and struck through, fading references amber. The scoreboard shows this run's Culture Miss Rate both ways.
+3. **Flip "Without Qloo".** Same model, no Qloo access. Invented entities are pink, low-affinity picks red and struck through, fading references amber. The diff card at the top shows both sides for this run: what the plain model would have shipped, with its worst picks struck through, next to what the Qloo critic changed.
 
 Then try the other two presets, or "Your own brief" (paste names your audience loves, or a Spotify/IMDb link).
 

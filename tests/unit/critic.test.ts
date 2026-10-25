@@ -7,6 +7,8 @@ import type { Receipt, Verdict } from "@/lib/agent/types";
 import type { Pick } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient } from "@/lib/qloo/client";
+import { QlooBudgetError } from "@/lib/qloo/errors";
+import { InsightsResponse } from "@/lib/qloo/types";
 import { must } from "../must";
 
 const audience: Audience = { ages: ["25_to_29", "30_to_34"] };
@@ -47,16 +49,27 @@ describe("thresholdFor", () => {
 
 describe("metricsOf", () => {
   const verdict = fc.constantFrom<Verdict>("pass", "miss", "hallucination", "fading", "unscored");
-  test.prop([fc.array(verdict, { maxLength: 30 })])("counts add up and the miss rate is in [0, 1]", (vs) => {
+  test.prop([fc.array(verdict, { maxLength: 30 })])("counts add up; the miss rate is in [0, 1] when at least half the picks were judged, else null", (vs) => {
     const m = metricsOf(vs.map((v, i) => receipt(`n${i}`, v)));
     expect(m.picks).toBe(vs.length);
     expect(m.hallucinations + m.misses + m.fading + m.unscored).toBe(vs.filter((v) => v !== "pass").length);
-    expect(m.cultureMissRate).toBeGreaterThanOrEqual(0);
-    expect(m.cultureMissRate).toBeLessThanOrEqual(1);
+    expect(m.judged).toBe(m.picks - m.unscored);
+    if (m.judged === 0 || m.judged * 2 < m.picks) expect(m.cultureMissRate).toBeNull();
+    else {
+      const rate = must(m.cultureMissRate);
+      expect(rate).toBeGreaterThanOrEqual(0);
+      expect(rate).toBeLessThanOrEqual(1);
+      expect(rate).toBeCloseTo((m.hallucinations + m.misses) / m.judged, 3);
+    }
   });
   it("leaves unscored picks out of the rate instead of counting them as passes or misses", () => {
     expect(metricsOf([receipt("a", "unscored"), receipt("b", "miss")]).cultureMissRate).toBe(1);
-    expect(metricsOf([receipt("a", "unscored")]).cultureMissRate).toBe(0);
+    expect(metricsOf([receipt("a", "unscored"), receipt("b", "pass")])).toMatchObject({ judged: 1, cultureMissRate: 0 });
+  });
+  it("shows no rate (null, not a fake 0%) when nothing or too little was judged", () => {
+    expect(metricsOf([receipt("a", "unscored")])).toMatchObject({ picks: 1, judged: 0, cultureMissRate: null });
+    expect(metricsOf([])).toMatchObject({ picks: 0, judged: 0, cultureMissRate: null });
+    expect(metricsOf([receipt("a", "unscored"), receipt("b", "unscored"), receipt("c", "pass")]).cultureMissRate).toBeNull();
   });
   it("counts fading as a warning, not a miss", () => {
     expect(metricsOf([receipt("a", "fading"), receipt("b", "pass")]).cultureMissRate).toBe(0);
@@ -94,8 +107,9 @@ describe("a name with its subtitle dropped", () => {
 describe("isFading", () => {
   it("needs a reading below the threshold", () => {
     const ctx = ctxWith({});
-    ctx.trends.set("a", -0.9).set("b", 0.2);
-    expect([isFading(ctx, "a"), isFading(ctx, "b"), isFading(ctx, "none")]).toEqual([true, false, false]);
+    // Readings are population_percent_delta (percent); the default bar is DEFAULT_CRITIC.fadingBelow.
+    ctx.trends.set("a", -9).set("b", 2).set("c", undefined);
+    expect([isFading(ctx, "a"), isFading(ctx, "b"), isFading(ctx, "c"), isFading(ctx, "none")]).toEqual([true, false, false, false]);
   });
 });
 
@@ -131,11 +145,45 @@ describe("chooseReplacements", () => {
     },
   );
 
-  it("skips fading references and won't move a fixed market", () => {
+  it("skips fading references, and swaps a city that misses a fixed market for that market (never another ranked metro)", () => {
     const ctx = ctxWith({ reference: [cand("Old Show", 0.9, "tv_show"), cand("New Show", 0.8, "tv_show")], city: [cand("Houston", 0.9, "locality")] }, { ...audience, targetCity: "Atlanta" });
-    ctx.trends.set("id-Old Show", -0.9);
+    ctx.trends.set("id-Old Show", -9);
     const reps = chooseReplacements(ctx, picksOf(["x"]), [receipt("Barbie", "fading", "reference"), receipt("Dallas", "miss", "city")], new Set());
-    expect(reps.map((r) => r.to)).toEqual(["New Show"]);
+    expect(reps.map((r) => r.to)).toEqual(["New Show", "Atlanta"]);
+    expect(reps[1]).toMatchObject({ from: "Dallas", role: "city", type: "locality" });
+  });
+
+  it("doesn't swap in the fixed market when the plan already names it", () => {
+    const ctx = ctxWith({}, { ...audience, targetCity: "Atlanta" });
+    const plan: Pick[] = [...picksOf(["Atlanta"], "city"), ...picksOf(["Dallas"], "city")];
+    expect(chooseReplacements(ctx, plan, [receipt("Atlanta", "pass", "city"), receipt("Dallas", "miss", "city")], new Set())).toEqual([]);
+  });
+
+  it("only offers alternatives that clear the role's bar", () => {
+    // median 0.5 → bar max(0.25, 0.35) = 0.35: the 0.2 candidate is below it
+    const ctx = ctxWith({ collab: [cand("Top", 0.9), cand("Mid", 0.5), cand("Low", 0.2)] });
+    const reps = chooseReplacements(ctx, picksOf(["Top", "Mid", "A", "B"]), [receipt("A", "miss", "collab", 0.1), receipt("B", "miss", "collab", 0.1)], new Set());
+    expect(reps).toEqual([]);
+    const bar = must(thresholdFor(ctx, "collab"));
+    for (const r of chooseReplacements(ctx, picksOf(["A"]), [receipt("A", "miss", "collab", 0.1)], new Set())) {
+      for (const o of r.options ?? []) expect(o.affinity).toBeGreaterThanOrEqual(bar);
+    }
+  });
+
+  test.prop([fc.array(fc.double({ min: 0, max: 1, noNaN: true }), { minLength: 1, maxLength: 12 }), fc.nat(5)])("every offered option clears the bar", (affs, failing) => {
+    const ctx = ctxWith({ collab: affs.map((a, i) => cand(`c${i}`, a)) });
+    const bar = must(thresholdFor(ctx, "collab"));
+    const receipts = Array.from({ length: failing }, (_, i) => receipt(`f${i}`, "miss", "collab", 0));
+    for (const r of chooseReplacements(ctx, picksOf(receipts.map((x) => x.name)), receipts, new Set())) {
+      for (const o of must(r.options)) expect(o.affinity).toBeGreaterThanOrEqual(bar);
+    }
+  });
+
+  it("offers a ranked, above-bar candidate for an unscored pick (unscored is not a pass)", () => {
+    const ctx = ctxWith({ collab: [cand("Victony", 0.8), cand("Omah Lay", 0.7)] });
+    const reps = chooseReplacements(ctx, picksOf(["Mystery"]), [receipt("Mystery", "unscored")], new Set());
+    expect(reps).toEqual([expect.objectContaining({ from: "Mystery", to: "Victony" })]);
+    expect(reps[0]?.reason).toMatch(/couldn't be scored/);
   });
 });
 
@@ -197,7 +245,7 @@ describe("critic honesty", () => {
     expect(r.note).toMatch(/files "Insecure" as tv show/);
   });
 
-  it("shows no number when Qloo gives no score, and doesn't count it as a miss", async () => {
+  it("calls a resolved entity that the scoring call (filter.results.entities) leaves out a miss, with no made-up number", async () => {
     const empty: QlooClient["insights"] = async (type, params) => {
       const q = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
       const r = await q.insights(type, params);
@@ -206,9 +254,27 @@ describe("critic honesty", () => {
     const ctx = makeCtx(audience, live({ insights: empty }), [{ name: "Tems", entityId: "t" }]);
     ctx.candidates = { collab: [cand("Ayra Starr", 0.9)] };
     const r = must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]);
+    expect(r.verdict).toBe("miss");
+    expect(r.affinity).toBeUndefined();
+    expect(r.note).toMatch(/left it out/);
+    expect(r.calls.some((k) => k.includes("filter.results.entities"))).toBe(true);
+    expect(metricsOf([r]).cultureMissRate).toBe(1);
+  });
+
+  it("shows no number when Qloo returns the entity without an affinity, and doesn't count it as a miss (or a pass)", async () => {
+    const noAffinity: QlooClient["insights"] = async (type, params) => {
+      const q = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+      const r = await q.insights(type, params);
+      if (!params["filter.results.entities"]) return r;
+      const entities = (r.data.results.entities ?? []).map((e) => ({ ...e, query: {} }));
+      return { ...r, data: { ...r.data, results: { ...r.data.results, entities } } };
+    };
+    const ctx = makeCtx(audience, live({ insights: noAffinity }), [{ name: "Tems", entityId: "t" }]);
+    ctx.candidates = { collab: [cand("Ayra Starr", 0.9)] };
+    const r = must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]);
     expect(r.verdict).toBe("unscored");
     expect(r.affinity).toBeUndefined();
-    expect(metricsOf([r]).cultureMissRate).toBe(0);
+    expect(metricsOf([r])).toMatchObject({ judged: 0, cultureMissRate: null });
   });
 
   it("marks a pick unscored, not missed, when its role has no candidate pool", async () => {
@@ -217,5 +283,109 @@ describe("critic honesty", () => {
     expect(r.verdict).toBe("unscored");
     expect(r.threshold).toBeUndefined();
     expect(r.note).toMatch(/no candidates for this role/);
+  });
+});
+
+describe("explainability Qloo couldn't compute", () => {
+  type Reply = Awaited<ReturnType<Ctx["qloo"]["insights"]>>;
+  /** The scoring reply as the client hands it over: parsed by the response schema. */
+  const scoringReply = (query: Record<string, unknown>): Reply =>
+    ({ data: InsightsResponse.parse({ results: { entities: [{ entity_id: "id-Burna Boy", name: "Burna Boy", query }] } }), meta: { key: "score-key", source: "live" } }) as unknown as Reply;
+  const ctxFor = () => ctxWith({ collab: [cand("Ayra Starr", 0.9), cand("Burna Boy", 0.8)] });
+
+  it("judges the pick on its affinity, shows no driver split, and puts Qloo's warning on the receipt", async () => {
+    const ctx = ctxFor();
+    vi.spyOn(ctx.qloo, "insights").mockResolvedValue(scoringReply({ affinity: 0.8, explainability: { warning: "Explainability unavailable for this request" } }));
+    const r = must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]);
+    expect(r.verdict).toBe("pass");
+    expect(r.affinity).toBe(0.8);
+    expect(r.drivers).toEqual([]);
+    expect(r.explainabilityWarning).toBe("Explainability unavailable for this request");
+    expect(r.note).toMatch(/no driver split for this score \("Explainability unavailable for this request"\)/);
+  });
+
+  it("treats affinity: null as unscored, not as a crash or a 0", async () => {
+    const ctx = ctxFor();
+    vi.spyOn(ctx.qloo, "insights").mockResolvedValue(scoringReply({ affinity: null }));
+    const r = must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]);
+    expect(r.verdict).toBe("unscored");
+    expect(r.affinity).toBeUndefined();
+  });
+});
+
+describe("a pass cut short by the run's Qloo budget", () => {
+  /** Offline Qloo that refuses every call once `spent` is set, as the run cap does. */
+  class Spendable extends QlooClient {
+    spent = false;
+    override search(...a: Parameters<QlooClient["search"]>) {
+      return this.spent ? Promise.reject(new QlooBudgetError("run", 90)) : super.search(...a);
+    }
+    override insights(...a: Parameters<QlooClient["insights"]>) {
+      return this.spent ? Promise.reject(new QlooBudgetError("run", 90)) : super.insights(...a);
+    }
+    override trending(...a: Parameters<QlooClient["trending"]>) {
+      return this.spent ? Promise.reject(new QlooBudgetError("run", 90)) : super.trending(...a);
+    }
+  }
+  const setup = () => {
+    const q = new Spendable({ cache: new MemoryCache(), fixtures: {} });
+    const ctx = makeCtx(audience, q, [{ name: "Tems", entityId: "t" }]);
+    ctx.candidates = { collab: [cand("Victony", 0.8), cand("Omah Lay", 0.7), cand("Fireboy DML", 0.6)] };
+    return { q, ctx };
+  };
+  const NAMES = ["Ayra Starr", "Ed Sheeran", "Burna Boy", "Wizkid", "Lagos Velvet Collective"];
+
+  it("keeps the receipts already judged, and marks unscored only the picks whose own calls were refused", async () => {
+    const { q, ctx } = setup();
+    const first = await critique(ctx, picksOf(["Ayra Starr", "Ed Sheeran"]));
+    expect(first.cut).toBeUndefined();
+    expect(first.receipts.every((x) => x.verdict !== "unscored")).toBe(true);
+    q.spent = true;
+    const second = await critique(ctx, picksOf(["Ayra Starr", "Ed Sheeran", "Burna Boy"]));
+    expect(second.cut).toMatch(/Qloo call budget for this run \(90\) is spent/);
+    // A cut is said once, on `cut`, not reported as a failed trend check.
+    expect(second.warnings).toEqual([]);
+    for (const before of first.receipts) {
+      const after = must(second.receipts.find((x) => x.name === before.name));
+      expect([after.verdict, after.affinity, after.drivers]).toEqual([before.verdict, before.affinity, before.drivers]);
+    }
+    expect(second.receipts.find((x) => x.name === "Burna Boy")).toMatchObject({ verdict: "unscored", note: "Not checked: Qloo call budget for this run (90) is spent." });
+  });
+
+  test.prop([fc.subarray(NAMES, { minLength: 1 }), fc.subarray(NAMES)])("a cut never changes a verdict the run could already reach: it only withholds the rest", async (known, later) => {
+    const { q, ctx } = setup();
+    const judged = await critique(ctx, picksOf(known));
+    q.spent = true;
+    const cut = await critique(ctx, picksOf([...new Set([...known, ...later])]));
+    for (const r of cut.receipts) {
+      const was = judged.receipts.find((x) => x.name === r.name);
+      expect(r.verdict).toBe(was ? was.verdict : "unscored");
+    }
+  });
+
+  it("doesn't swap out unscored picks after a cut (no evidence they're bad), but still swaps real misses", () => {
+    const ctx = ctxWith({ collab: [cand("Victony", 0.8), cand("Omah Lay", 0.7)] });
+    const receipts = [receipt("Mystery", "unscored"), receipt("Ed Sheeran", "miss", "collab", 0.1)];
+    expect(chooseReplacements(ctx, picksOf(["Mystery", "Ed Sheeran"]), receipts, new Set(), { cut: true }).map((r) => r.from)).toEqual(["Ed Sheeran"]);
+    // Without a cut, an unscored pick is still offered a ranked swap.
+    expect(chooseReplacements(ctx, picksOf(["Mystery", "Ed Sheeran"]), receipts, new Set()).map((r) => r.from)).toEqual(["Mystery", "Ed Sheeran"]);
+  });
+});
+
+describe("an entity the scoring call already left out", () => {
+  it("isn't re-scored on later passes", async () => {
+    const ctx = ctxWith({ collab: [cand("Ayra Starr", 0.9)] });
+    const real = ctx.qloo.insights.bind(ctx.qloo);
+    const scored: string[] = [];
+    vi.spyOn(ctx.qloo, "insights").mockImplementation(async (t, p) => {
+      const r = await real(t, p);
+      if (!p["filter.results.entities"]) return r;
+      scored.push(String(p["filter.results.entities"]));
+      // Qloo leaves every asked-about entity out.
+      return { ...r, data: { ...r.data, results: { ...r.data.results, entities: [] } } };
+    });
+    expect(must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]).verdict).toBe("miss");
+    expect(must((await critique(ctx, picksOf(["Burna Boy"]))).receipts[0]).verdict).toBe("miss");
+    expect(scored).toHaveLength(1);
   });
 });

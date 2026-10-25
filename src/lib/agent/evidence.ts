@@ -10,6 +10,9 @@ export function placeholderReason(result: Pick<RunResult, "qloo" | "llm">): stri
   return reasons.length ? `This run used ${reasons.join(" and ")}, so its rates are placeholders and are not shown.` : undefined;
 }
 
+/** A rate as a whole percent, or "—" when there is no honest rate to show (too few picks judged). */
+export const formatRate = (rate: number | null): string => (rate === null ? "—" : `${Math.round(rate * 100)}%`);
+
 /** Entity id → name for everything the run knows by name (seeds, picks, cities), to make the trace readable. */
 export function entityNames(result: Pick<RunResult, "seeds" | "cities" | "grounded" | "baseline">): Map<string, string> {
   const named = [...result.seeds, ...result.cities, ...result.grounded.receipts, ...result.baseline.receipts];

@@ -114,7 +114,7 @@ export function Trace({
           <p>
             <strong className="font-semibold text-ink">Instant:</strong> this exact run finished at {finishedAt(served.at)}
             {served.from === "recording" ? ", a recorded live run of this preset" : ""}
-            {served.from === "recording" && served.reason ? `, shown because ${served.reason}` : ""}. Its own timings and sources are shown.
+            {served.reason ? `, shown because ${served.reason}` : ""}. Its own timings and sources are shown.
           </p>
         </div>
       )}

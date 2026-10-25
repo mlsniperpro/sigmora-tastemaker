@@ -19,6 +19,32 @@ export function normName(s: string): string {
   return tokens.join(" ");
 }
 
+/** Roman numerals I–XXXIX, the range sequels and editions use (strict, so "mix", "dc" or "civil" never count). */
+const ROMAN = /^(x{0,3})(ix|iv|v?i{0,3})$/;
+
+/** The number a token stands for, when it is one: digits ("2", "182") or a roman numeral ("ii", "vii"). */
+export function numeralValue(token: string): number | undefined {
+  if (/^\d+$/.test(token)) return Number(token);
+  const m = ROMAN.exec(token);
+  if (!m || !token) return undefined;
+  const tens = (m[1] ?? "").length * 10;
+  const unit = m[2] ?? "";
+  const units = unit === "ix" ? 9 : unit === "iv" ? 4 : (unit.startsWith("v") ? 5 : 0) + unit.replace("v", "").length;
+  return tens + units;
+}
+
+/** A name's tokens with every numeral written one way ("ii" and "2" both become "#2"). */
+const canonTokens = (normed: string) =>
+  new Set(
+    normed.split(" ").map((t) => {
+      const n = numeralValue(t);
+      return n === undefined ? t : `#${n}`;
+    }),
+  );
+
+/** The set of numbers in a name, as one comparable string ("" when there are none). */
+const numeralKey = (tokens: ReadonlySet<string>) => [...tokens].filter((t) => t.startsWith("#")).sort().join(",");
+
 /**
  * Is a search hit the entity the model named? Search is fuzzy and will
  * happily return *something* for an invented name, so we require the names
@@ -29,8 +55,10 @@ export function sameName(a: string, b: string): boolean {
   const y = normName(b);
   if (!x || !y) return false;
   if (x === y) return true;
-  const tx = new Set(x.split(" "));
-  const ty = new Set(y.split(" "));
+  const tx = canonTokens(x);
+  const ty = canonTokens(y);
+  // Sequel and edition numbers must agree exactly: "Grand Theft Auto VII" is not "Grand Theft Auto V".
+  if (numeralKey(tx) !== numeralKey(ty)) return false;
   const inter = [...tx].filter((t) => ty.has(t)).length;
   return inter / Math.max(tx.size, ty.size) >= 0.75;
 }

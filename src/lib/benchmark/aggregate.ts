@@ -40,6 +40,7 @@ export function totals(ms: readonly Metrics[]): Totals {
     { picks: 0, unscored: 0, hallucinations: 0, misses: 0, fading: 0 },
   );
   const judged = t.picks - t.unscored;
+  // 0 when nothing was judged; summarize() then marks the run invalid, so it is never published.
   const rate = (n: number) => (judged ? r3(n / judged) : 0);
   return { ...t, hallucinationRate: rate(t.hallucinations), cultureMissRate: rate(t.hallucinations + t.misses), fadingRate: rate(t.fading) };
 }
@@ -103,6 +104,11 @@ export function summarize(
     ...(meta.modelScripted ? ["drafts came from the scripted offline model, not an LLM"] : []),
     ...(qlooSources.some((s) => s !== "live" && s !== "replay") ? [`Qloo answers came from: ${qlooSources.join(", ")}`] : []),
     ...(qlooFallbacks ? [`${qlooFallbacks} Qloo calls fell back after a live failure`] : []),
+    // A rate over a sliver of the picks (or none) would read as a real number it isn't.
+    ...(["baseline", "grounded"] as const).flatMap((side) => {
+      const t = totals(ok.map((r) => r[side]));
+      return (t.picks - t.unscored) * 2 < t.picks ? [`Qloo judged only ${t.picks - t.unscored} of the ${side} plans' ${t.picks} picks`] : [];
+    }),
   ];
   return {
     valid: invalidReasons.length === 0,
@@ -143,7 +149,7 @@ const METHOD = (briefs: number) => `## Method
 - **Not-found ("hallucination") rate:** named entities with no match in a typed or an untyped Qloo \`/search\`. Real entities outside Qloo's catalogue land here too, so this is an upper bound on invention. A real entity Qloo files under another type counts as a miss for its role.
 - **Unscored:** picks Qloo returned no affinity for (or whose role had no candidate pool); they are excluded from every rate's denominator and shown in the Unscored column.
 - **Culture Miss Rate:** hallucinations plus resolved picks scoring below the pass bar (max(0.25, 0.7 × the median plain affinity of the candidates Qloo returned for that role: up to 10, brand and venue lists diversified by subtype, trend-biased lists re-scored without the bias); launch city: outside the top 3 ranked metros; venues: not in the launch city).
-- **Fading-reference rate:** hook references that clear the bar but have /v2/trending velocity below −0.3.
+- **Fading-reference rate:** hook references that clear the bar but whose newest /v2/trending reading (a 6-week window) has \`population_percent_delta\` below −3 (provisional until the first live recording).
 - The grounded plan is scored after the critic loop (up to 2 revise rounds), so it measures the shipped plan. The pass bar is the one the critic uses, so this measures what the product ships, not an independent judgment of taste — which is what the judge below is for.
 - **Blind pairwise preference (LLM judge).** A separate judge model (\`JUDGE_*\` env, falling back to \`LLM_*\`) sees the brief and both plans as "Plan 1" / "Plan 2", with Qloo mentions and affinity scores removed, and scores audience fit, specificity, credibility and freshness (src/lib/benchmark/judge.ts). The first order is random (seeded per brief); every pair is judged again with positions swapped, and a winner counts only if both orders agree, otherwise it's a tie. This is an LLM judge, disclosed as such; when the judge is the same model as the generator, self-preference is possible and the report says so. Judge replies are recorded in fixtures/judge/recorded.json and replayed on reruns.`;
 

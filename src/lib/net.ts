@@ -81,7 +81,13 @@ export async function withRetry<T>(fn: (attempt: number) => Promise<T>, policy: 
   }
 }
 
-/** fetch with a hard deadline; throws TimeoutError instead of a bare AbortError. */
+/**
+ * fetch with a hard deadline that covers the whole exchange: headers *and*
+ * the body read (res.json() / res.text()). A server that sends headers and
+ * then stalls the body still fails with TimeoutError at `timeoutMs`, rather
+ * than hanging the caller. The timer is cleared once the body is fully read,
+ * cancelled or errored.
+ */
 export async function fetchWithTimeout(
   fetchImpl: typeof fetch,
   service: string,
@@ -90,16 +96,62 @@ export async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   const path = new URL(url).pathname;
+  const timeout = () => new TimeoutError(service, path, timeoutMs);
+  /** Set once headers arrive: errors the body stream when the deadline passes mid-read. */
+  let onTimeout: (() => void) | undefined;
+  const timer = setTimeout(() => {
+    ctrl.abort();
+    onTimeout?.();
+  }, timeoutMs);
+  let res: Response;
   try {
-    return await fetchImpl(url, { ...init, signal: ctrl.signal });
+    res = await fetchImpl(url, { ...init, signal: ctrl.signal });
   } catch (err) {
-    if (ctrl.signal.aborted) throw new TimeoutError(service, path, timeoutMs);
-    throw err;
-  } finally {
     clearTimeout(timer);
+    if (ctrl.signal.aborted) throw timeout();
+    throw err;
   }
+  const body = res.body;
+  if (!body) {
+    clearTimeout(timer);
+    return res;
+  }
+  const reader = body.getReader();
+  let finished = false;
+  const finish = () => {
+    finished = true;
+    clearTimeout(timer);
+  };
+  const guarded = new ReadableStream<Uint8Array>({
+    start(controller) {
+      onTimeout = () => {
+        if (finished) return;
+        finish();
+        controller.error(timeout());
+        reader.cancel().catch(() => undefined);
+      };
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (finished) return;
+        if (done) {
+          finish();
+          controller.close();
+        } else controller.enqueue(value);
+      } catch (err) {
+        if (finished) return;
+        finish();
+        controller.error(ctrl.signal.aborted ? timeout() : err);
+      }
+    },
+    cancel(reason) {
+      finish();
+      return reader.cancel(reason);
+    },
+  });
+  return new Response(guarded, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
 /** Turns a non-2xx response into an HttpError (draining the body so the socket is freed). */

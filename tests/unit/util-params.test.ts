@@ -3,7 +3,7 @@ import { fc, test } from "@fast-check/vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { runKey } from "@/lib/agent/runCache";
-import { isTitlePart, median, normName, sameName } from "@/lib/agent/util";
+import { isTitlePart, median, normName, numeralValue, sameName } from "@/lib/agent/util";
 import { must } from "../must";
 import { QlooParamError, assertParams, checkParams, requestKey } from "@/lib/qloo/params";
 
@@ -35,6 +35,41 @@ describe("names", () => {
     expect(sameName("Arsenal F.C.", "Arsenal")).toBe(true);
     expect(sameName("SOB's", "SOBs")).toBe(true);
   });
+});
+
+describe("sameName and numbers", () => {
+  it("never accepts an invented sequel or edition", () => {
+    expect(sameName("Grand Theft Auto VII", "Grand Theft Auto V")).toBe(false);
+    expect(sameName("Grand Theft Auto V", "Grand Theft Auto VI")).toBe(false);
+    expect(sameName("Rocky II", "Rocky III")).toBe(false);
+    expect(sameName("FIFA 23", "FIFA 24")).toBe(false);
+    expect(sameName("Toy Story 5", "Toy Story 4")).toBe(false);
+    expect(sameName("Grand Theft Auto V", "Grand Theft Auto")).toBe(false);
+  });
+  it("still matches the same number written either way, and names whose words only look like numerals", () => {
+    expect(sameName("Grand Theft Auto V", "grand theft auto v")).toBe(true);
+    expect(sameName("Boyz II Men", "Boyz 2 Men")).toBe(true);
+    expect(sameName("Blink-182", "Blink 182")).toBe(true);
+    expect(sameName("Washington, DC", "Washington DC")).toBe(true);
+    expect(sameName("The Civil Wars", "Civil Wars")).toBe(true);
+  });
+  it("reads digits and roman numerals I–XXXIX, and nothing else", () => {
+    expect([numeralValue("v"), numeralValue("vii"), numeralValue("iv"), numeralValue("ix"), numeralValue("xiv"), numeralValue("xxxix"), numeralValue("23")]).toEqual([5, 7, 4, 9, 14, 39, 23]);
+    for (const w of ["mix", "dc", "civil", "dim", "vv", "iiii", "xl", "", "md", "lil"]) expect(numeralValue(w), w).toBeUndefined();
+  });
+  const word = fc.stringMatching(/^[a-z]{3,8}$/).filter((w) => numeralValue(w) === undefined);
+  test.prop([fc.array(word, { minLength: 1, maxLength: 4 }), fc.integer({ min: 1, max: 39 }), fc.integer({ min: 1, max: 39 }), fc.boolean()])(
+    "two names that differ only in their number are never the same, written as digits or roman numerals",
+    (words, m, n, roman) => {
+      fc.pre(m !== n);
+      const toRoman = (k: number) => "x".repeat(Math.floor(k / 10)) + must(["", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"][k % 10]);
+      const num = (k: number) => (roman ? toRoman(k) : String(k));
+      const base = words.join(" ");
+      expect(sameName(`${base} ${num(m)}`, `${base} ${num(n)}`)).toBe(false);
+      expect(sameName(`${base} ${num(m)}`, `${base} ${toRoman(m)}`)).toBe(true);
+      expect(numeralValue(toRoman(m))).toBe(m);
+    },
+  );
 });
 
 describe("median", () => {

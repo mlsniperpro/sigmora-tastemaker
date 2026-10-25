@@ -100,7 +100,7 @@ describe("e2e: /api/run in live mode against stubbed Qloo + LLM hosts", () => {
     expect(seen.llm).toBeGreaterThanOrEqual(3);
     expect(r.metrics.grounded.hallucinations).toBe(0);
     expect(r.metrics.baseline.hallucinations).toBeGreaterThan(0);
-    expect(r.metrics.grounded.cultureMissRate).toBeLessThan(r.metrics.baseline.cultureMissRate);
+    expect(must(r.metrics.grounded.cultureMissRate, "grounded rate")).toBeLessThan(must(r.metrics.baseline.cultureMissRate, "baseline rate"));
     expect(r.llm).toMatchObject({ scripted: false, label: "stub-model" });
     // no secret anywhere in what the browser receives
     const wire = JSON.stringify(events);

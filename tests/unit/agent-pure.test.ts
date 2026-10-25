@@ -10,23 +10,28 @@ import type { QlooHealth } from "@/lib/agent/types";
 import { NdjsonParser } from "@/lib/ndjson";
 import { decodeBrief, encodeBrief, measureFromUrl, requestFromUrl } from "@/lib/permalink";
 import { schedule } from "@/lib/publisher";
+import { checkParams } from "@/lib/qloo/params";
 import { wktBBox } from "@/lib/qloo/sim/simulator";
 import { AGE_BUCKETS } from "@/lib/qloo/types";
 import { must } from "../must";
 
 describe("signals", () => {
-  it("maps fine age buckets to the coarse signal buckets", () => {
-    expect(signalAges(["25_to_29", "30_to_34", "35_to_44"])).toEqual(["35_and_younger", "36_to_55"]);
+  it("sends the brief's fine age buckets as they are (the docs' signal enum accepts them), in bucket order", () => {
+    expect(signalAges(["35_to_44", "25_to_29", "30_to_34"])).toEqual(["25_to_29", "30_to_34", "35_to_44"]);
     expect(signalAges(["55_and_older"])).toEqual(["55_and_older"]);
   });
-  test.prop([fc.subarray([...AGE_BUCKETS])])("signal buckets are unique and known", (ages) => {
+  test.prop([fc.array(fc.constantFrom(...AGE_BUCKETS), { maxLength: 12 })])("signal buckets are exactly the requested ones, unique, and all pass the validator", (ages) => {
     const out = signalAges(ages);
     expect(new Set(out).size).toBe(out.length);
-    out.forEach((b) => expect(["35_and_younger", "36_to_55", "55_and_older"]).toContain(b));
+    expect(new Set(out)).toEqual(new Set(ages));
+    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:artist", "signal.demographics.age": out })).toEqual([]);
   });
   it("conditions every call on seeds, vibe tags and demographics", () => {
     const ctx = { audience: { ages: ["25_to_29" as const], gender: "female" as const }, seedIds: ["a"], tagIds: ["t"] };
-    expect(signalFor(ctx)).toEqual({ "signal.interests.entities": ["a"], "signal.interests.tags": ["t"], "signal.demographics.age": ["35_and_younger"], "signal.demographics.gender": "female" });
+    expect(signalFor(ctx)).toEqual({ "signal.interests.entities": ["a"], "signal.interests.tags": ["t"], "signal.demographics.age": ["25_to_29"], "signal.demographics.gender": "female" });
+  });
+  it("rejects an age bucket the docs don't list", () => {
+    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:artist", "signal.demographics.age": ["18_to_24"] })).toEqual(['signal.demographics.age "18_to_24" is not a documented bucket']);
   });
   it("scores a search hit as the searched type unless it's clearly another type the role allows", () => {
     const hit = (types: string[]) => ({ name: "x", entity_id: "1", types });

@@ -11,21 +11,40 @@
  * parallel; the critic audits that plan without fixing it.
  */
 import { qlooFromEnv, type QlooClient } from "../qloo/client";
-import { AGE_BUCKETS } from "../qloo/types";
+import { compareItems } from "../qloo/types";
 import { llmFromEnv } from "../llm";
 import { applyReplacements, type Choice, type Draft, type Grounding, type LLMProvider } from "../llm/types";
 import { Brief, ROLE_SPEC, type BriefInput } from "./brief";
-import { applyChoices } from "./choose";
-import { rankCities } from "./cities";
-import { chooseReplacements, critique, metricsOf } from "./critic";
-import { audienceOf, discoveryFromConfig, isFading, loadCulture, loadTrends, loadVenues, makeCtx, resolveByName, resolveSeeds, signalFor, type CriticSettings, type Ctx, type Discovery } from "./context";
+import { applyChoices, ownProposals, withOwnIdeas } from "./choose";
+import { HEATMAP_TAKE, rankCities } from "./cities";
+import { chooseReplacements, critique, metricsOf, type Critique } from "./critic";
+import {
+  aggregateDemographics,
+  audienceOf,
+  discoveryFromConfig,
+  isFading,
+  loadCulture,
+  loadTrends,
+  loadVenues,
+  makeCtx,
+  resolveByName,
+  resolveSeeds,
+  signalFor,
+  tagDiscoveryParams,
+  tagSignalFor,
+  trendItems,
+  type CriticSettings,
+  type Ctx,
+  type Discovery,
+} from "./context";
 import { isQlooStop } from "../qloo/errors";
-import { unlistedMentions } from "./mentions";
+import { unlistedMentions, type Mentions } from "./mentions";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
 import { newRunId, normName, sameName } from "./util";
 
-const mentionNote = (extra: readonly { name: string }[]) => (extra.length ? ` · named in the copy but not listed, so added: ${extra.map((e) => e.name).join(", ")}` : "");
+const mentionNote = (m: Mentions) =>
+  (m.picks.length ? ` · named in the copy but not listed, so added: ${m.picks.map((e) => e.name).join(", ")}` : "") + m.notes.map((n) => ` · ${n}`).join("");
 
 const emptyDraft = (): Draft => ({ positioning: "", hooks: [], script: "", captions: [], musicBrief: "", picks: [] });
 
@@ -81,10 +100,10 @@ function groundingFor(ctx: Ctx, audience: RunResult["audience"], positioning: Ru
   return grounding;
 }
 
-const critiqueDetail = (receipts: Receipt[], warnings: string[]) => {
-  const m = metricsOf(receipts);
-  const base = `${m.picks} picks · ${m.hallucinations} invented · ${m.misses} low-affinity · ${m.fading} fading`;
-  return warnings.length ? `${base} · trend check failed: ${warnings.join("; ")}` : base;
+const critiqueDetail = (c: Critique) => {
+  const m = metricsOf(c.receipts);
+  const base = `${m.picks} picks · ${m.hallucinations} invented · ${m.misses} low-affinity · ${m.fading} fading · ${m.unscored} unscored`;
+  return base + (c.cut ? ` · cut short (${c.cut})` : "") + (c.warnings.length ? ` · trend check failed: ${c.warnings.join("; ")}` : "");
 };
 
 /** The run ran out of time waiting on the model. */
@@ -153,30 +172,31 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     const where: { heatmap: RunResult["heatmap"]; rankedBy: RunResult["citiesRankedBy"] } = { heatmap: [], rankedBy: "none" };
     const demographics = tracer.optional("demographics", "Who over-indexes (urn:demographics)", async (s) => {
       const r = await qloo.insights("urn:demographics", { "signal.interests.entities": ctx.seedIds });
-      const q = r.data.results.demographics?.[0]?.query;
-      audience.age = AGE_BUCKETS.flatMap((bucket) => {
-        const value = q?.age?.[bucket];
-        return value === undefined ? [] : [{ bucket, value }];
-      });
-      audience.gender = Object.entries(q?.gender ?? {}).map(([bucket, value]) => ({ bucket, value }));
+      // One row per seed: the audience is all of them, so rows are averaged, not just the first read.
+      const rows = r.data.results.demographics ?? [];
+      const agg = aggregateDemographics(rows);
+      audience.age = agg.age;
+      audience.gender = agg.gender;
       const top = [...audience.age].sort((a, b) => b.value - a.value)[0];
-      s.detail = top ? `Strongest age over-index: ${top.bucket.replace(/_/g, " ")} (${top.value > 0 ? "+" : ""}${top.value.toFixed(2)})` : "No demographic signal";
+      s.detail = top
+        ? `Strongest age over-index: ${top.bucket.replace(/_/g, " ")} (${top.value > 0 ? "+" : ""}${top.value.toFixed(2)})${rows.length > 1 ? `, mean of ${rows.length} seed rows` : ""}`
+        : "No demographic signal";
     });
     const tags = tracer.optional("tags", "Taste vocabulary (urn:tag)", async (s) => {
-      const r = await qloo.insights("urn:tag", { ...signalFor(ctx), take: 10 });
+      const r = await qloo.insights("urn:tag", { ...tagSignalFor(ctx), ...tagDiscoveryParams(ctx.discovery), take: 10 });
       audience.tags = (r.data.results.tags ?? []).flatMap((t) => (typeof t.query?.affinity === "number" ? [{ name: t.name, affinity: t.query.affinity }] : []));
       s.detail = audience.tags.slice(0, 5).map((t) => t.name).join(", ") || "No tags returned";
     });
     const culture = tracer.step("culture", "Cross-domain culture map (/v2/insights)", async (s) => {
-      const lists = await loadCulture(ctx);
-      s.detail = lists.map(([t, l]) => `${t}: ${l[0]?.name ?? "—"}`).join(" · ");
+      const { lists, failures } = await loadCulture(ctx);
+      s.detail = lists.map(([t, l]) => `${t}: ${l[0]?.name ?? "—"}`).join(" · ") + (failures.length ? ` · failed: ${failures.join("; ")}` : "");
     });
     const cityAndVenues = (async () => {
       const target = brief.targetCity;
       if (target) {
         // A fixed market: where inside it the audience is (neighbourhood-scale heatmap).
         await tracer.optional("cities", `Where in ${target} (urn:heatmap + filter.location.query)`, async (s) => {
-          const r = await qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location.query": target });
+          const r = await qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location.query": target, take: HEATMAP_TAKE });
           where.heatmap = (r.data.results.heatmap ?? []).flatMap((c) =>
             typeof c.query.affinity === "number" ? [{ lat: c.location.latitude, lon: c.location.longitude, affinity: c.query.affinity }] : [],
           );
@@ -190,7 +210,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           where.heatmap = r.heatmap;
           where.rankedBy = r.rankedBy;
           const top = r.cities.slice(0, 3).map((c) => `${c.name} ${c.affinity.toFixed(2)}`).join(" › ");
-          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}`;
+          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.localityError ? ` (locality ranking failed: ${r.localityError})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}`;
         });
       }
       ctx.city = brief.targetCity ?? ctx.candidates.city?.[0]?.name;
@@ -210,13 +230,18 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
         const { hit } = await resolveByName(qloo, other, { take: 3 });
         if (!hit) throw new Error(`"${other}" isn't a name Qloo knows`);
         const r = await qloo.compare(ctx.seedIds, [hit.entity_id], 10);
-        for (const t of r.data.results.tags ?? []) {
+        const items = compareItems(r.data);
+        for (const t of items) {
           const a = t.query?.a?.affinity;
           const b = t.query?.b?.affinity;
           // A tag Qloo didn't score on both sides has no gap to show; it is skipped, never given a 0.
           if (typeof a === "number" && typeof b === "number") positioning.push({ name: t.name, a, b, delta: t.query?.delta ?? a - b });
         }
-        s.detail = positioning.filter((p) => p.delta > 0).slice(0, 3).map((p) => `+${p.name}`).join(", ") || "no gap found";
+        // Items, but none scored on both sides: the reply's shape isn't the one we read, which is not "no gap".
+        s.detail =
+          items.length && !positioning.length
+            ? `compare reply shape not recognised: ${items.length} items, none with an affinity on both sides (query.a / query.b)`
+            : positioning.filter((p) => p.delta > 0).slice(0, 3).map((p) => `+${p.name}`).join(", ") || "no gap found";
       });
     })();
     // allSettled first so a failed required step (culture) doesn't leave the others running unobserved.
@@ -226,11 +251,13 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
 
     // ---- timing: needs every candidate pool -----------------------------------
     await tracer.optional("trending", "Rising vs. fading (/v2/trending)", async (s) => {
-      const items = Object.values(ctx.candidates).flatMap((list) => list.map((c) => ({ entityId: c.entityId, type: c.type })));
+      // One call per entity (the endpoint returns one entity's weekly series): only the top of the fading-checked pools.
+      const items = trendItems(ctx);
       const failures = await loadTrends(ctx, items);
-      if (failures.length && !ctx.trends.size) throw new Error(failures.join("; "));
+      const readings = [...ctx.trends.values()].filter((v) => v !== undefined).length;
+      if (failures.length && !readings) throw new Error(failures.join("; "));
       const fading = (ctx.candidates.reference ?? []).filter((c) => isFading(ctx, c.entityId));
-      s.detail = `${ctx.trends.size} trend readings; fading references: ${fading.map((f) => f.name).join(", ") || "none"}${failures.length ? ` · failed: ${failures.join("; ")}` : ""}`;
+      s.detail = `${readings} trend readings of ${items.length} checked; fading references: ${fading.map((f) => f.name).join(", ") || "none"}${failures.length ? ` · failed: ${failures.join("; ")}` : ""}`;
     });
 
     // ---- generate → critic → revise -----------------------------------------
@@ -263,6 +290,48 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       });
     };
 
+    // ---- without Qloo: the baseline draft, and the Qloo audit of it (once) ----------
+    type Audit = { base: Awaited<typeof baselineP>; baselineReceipts: Receipt[]; baselineUnavailable?: string };
+    let auditP: Promise<Audit> | undefined;
+    const auditBaseline = (): Promise<Audit> =>
+      (auditP ??= (async () => {
+        const base = await baselineP;
+        tracer.record({
+          id: "baseline",
+          title: "Same model, no Qloo access (baseline, drafted in parallel)",
+          status: "err" in base ? "error" : "done",
+          detail: "err" in base ? base.err.message : `${base.draft.picks.length} cultural picks`,
+          ms: base.ms,
+          model: llm.label,
+        });
+        if ("err" in base) return { base, baselineReceipts: [], baselineUnavailable: base.err.message };
+        // The baseline's venues are judged in the baseline's own city, not the grounded plan's.
+        const ownCity = brief.targetCity ?? base.draft.picks.find((p) => p.role === "city")?.name ?? ctx.city;
+        // Optional: a failed audit marks the comparison unavailable instead of discarding the finished grounded plan.
+        const audited = await tracer.step("audit", "Qloo audit of the baseline plan", async (s) => {
+          const mentions = await unlistedMentions(ctx, base.draft, brief);
+          if (mentions.picks.length) base.draft = { ...base.draft, picks: [...base.draft.picks, ...mentions.picks] };
+          // ...and against that city's own venue pool, so the venue's pass bar isn't another city's.
+          const own: Ctx = { ...ctx, city: ownCity, candidates: { ...ctx.candidates } };
+          if (ownCity && normName(ownCity) !== normName(ctx.city ?? "") && base.draft.picks.some((p) => p.role === "venue")) {
+            // Out of Qloo budget or time: no venue pool, so that venue comes back unscored.
+            await loadVenues(own, ownCity).catch((err: unknown) => {
+              if (!isQlooStop(err)) throw err;
+              own.candidates.venue = [];
+            });
+          }
+          const c = await critique(own, base.draft.picks);
+          s.detail = critiqueDetail(c) + mentionNote(mentions);
+          return c.receipts;
+        }).then(
+          (receipts) => ({ receipts }),
+          (err: unknown) => ({ err: err instanceof Error ? err.message : String(err) }),
+        );
+        return "err" in audited
+          ? { base, baselineReceipts: [], baselineUnavailable: `the Qloo audit of the baseline failed (${audited.err})` }
+          : { base, baselineReceipts: audited.receipts };
+      })());
+
     const tried = new Set<string>();
     // Names found only by scanning the copy are flagged, never swapped: the model didn't offer them as picks.
     const mentionedOnly = new Set<string>();
@@ -271,37 +340,55 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     let receipts: Receipt[] = [];
     let rounds = 0;
     for (let round = 1; round <= maxRounds + 1; round++) {
+      // The baseline audit runs before pass 2, not last, so on a tight Qloo budget the grounded loop can't starve the comparison.
+      if (round === 2) await auditBaseline();
       let current = draft;
       await followPlanCity(current);
-      receipts = await tracer.step(`critic-${round}`, `Qloo critic, pass ${round} (filter.results.entities + explainability)`, async (s) => {
+      const pass = await tracer.step(`critic-${round}`, `Qloo critic, pass ${round} (filter.results.entities + explainability)`, async (s) => {
         // Names the copy mentions without listing them are checked too.
-        const extra = await unlistedMentions(ctx, current, brief);
+        const mentions = await unlistedMentions(ctx, current, brief);
+        const extra = mentions.picks;
         if (extra.length) current = draft = { ...current, picks: [...current.picks, ...extra] };
         for (const e of extra) mentionedOnly.add(`${e.role}:${normName(e.name)}`);
         const c = await critique(ctx, current.picks);
-        s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
-        return c.receipts;
+        s.detail = critiqueDetail(c) + mentionNote(mentions);
+        return c;
       });
+      receipts = pass.receipts;
       rounds = round;
-      if (round > maxRounds || receipts.every((r) => r.verdict === "pass" || r.verdict === "unscored")) break;
-      const offered = chooseReplacements(ctx, current.picks, receipts, tried).filter((r) => !mentionedOnly.has(`${r.role}:${normName(r.from)}`));
+      // Only passes end the loop early: an unscored pick isn't a pass, and is swapped when a ranked candidate clears the bar
+      // (unless the pass was cut short by the run's Qloo budget or time: then nothing says it's bad).
+      if (round > maxRounds || receipts.every((r) => r.verdict === "pass")) break;
+      const offered = chooseReplacements(ctx, current.picks, receipts, tried, { cut: pass.cut !== undefined }).filter((r) => !mentionedOnly.has(`${r.role}:${normName(r.from)}`));
       if (!offered.length) break;
       // The model decides among Qloo-approved options; code accepts only those (applyChoices).
       const replacements = await tracer.step(
         `choose-${round}`,
-        `Model chooses among Qloo-approved replacements (round ${round})`,
+        `Model chooses a replacement or proposes its own, checked by Qloo (round ${round})`,
         async (s) => {
           let choices: Choice[] = [];
           let failed = "";
-          if (offered.some((r) => (r.options?.length ?? 0) > 1) && Date.now() - startedAt <= reviseDeadlineMs) {
+          if (Date.now() - startedAt <= reviseDeadlineMs) {
             try {
               choices = await byDeadline(llm.choose(offered, { brief, grounding }), deadlineAt, "the model's choice");
             } catch (err) {
               failed = ` · model choice failed (${err instanceof Error ? err.message : String(err)}); Qloo's top options kept`;
             }
           }
-          const c = applyChoices(offered, choices);
-          s.detail = c.notes.join("; ") + failed;
+          // The model's own ideas go through the same Qloo critic before they can be used.
+          const proposals = ownProposals(offered, choices, new Set([...tried, ...current.picks.map((p) => normName(p.name))]));
+          // Optional: if Qloo fails on them, the own ideas go unchecked ("wasn't checked") and Qloo's options stand.
+          let verdicts: Receipt[] = [];
+          let unchecked = "";
+          if (proposals.length) {
+            try {
+              verdicts = (await critique(ctx, proposals.map((p) => p.pick))).receipts;
+            } catch (err) {
+              unchecked = ` · the model's own ideas weren't checked (${err instanceof Error ? err.message : String(err)})`;
+            }
+          }
+          const c = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts);
+          s.detail = c.notes.join("; ") + failed + unchecked;
           return c.replacements;
         },
         { model: llm.label },
@@ -341,41 +428,12 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       return o ? { ...r, replaced: { name: o.name, verdict: o.verdict, affinity: o.affinity } } : r;
     });
 
-    // ---- without Qloo ----------------------------------------------------------
-    const base = await baselineP;
-    tracer.record({
-      id: "baseline",
-      title: "Same model, no Qloo access (baseline, drafted in parallel)",
-      status: "err" in base ? "error" : "done",
-      detail: "err" in base ? base.err.message : `${base.draft.picks.length} cultural picks`,
-      ms: base.ms,
-      model: llm.label,
-    });
-    let baselineReceipts: Receipt[] = [];
-    if (!("err" in base)) {
-      // The baseline's venues are judged in the baseline's own city, not the grounded plan's.
-      const ownCity = brief.targetCity ?? base.draft.picks.find((p) => p.role === "city")?.name ?? ctx.city;
-      baselineReceipts = await tracer.step("audit", "Qloo audit of the baseline plan", async (s) => {
-        const extra = await unlistedMentions(ctx, base.draft, brief);
-        if (extra.length) base.draft = { ...base.draft, picks: [...base.draft.picks, ...extra] };
-        // ...and against that city's own venue pool, so the venue's pass bar isn't another city's.
-        const own: Ctx = { ...ctx, city: ownCity, candidates: { ...ctx.candidates } };
-        if (ownCity && normName(ownCity) !== normName(ctx.city ?? "") && base.draft.picks.some((p) => p.role === "venue")) {
-          // Out of Qloo budget or time: no venue pool, so that venue comes back unscored.
-          await loadVenues(own, ownCity).catch((err: unknown) => {
-            if (!isQlooStop(err)) throw err;
-            own.candidates.venue = [];
-          });
-        }
-        const c = await critique(own, base.draft.picks);
-        s.detail = critiqueDetail(c.receipts, c.warnings) + mentionNote(extra);
-        return c.receipts;
-      });
-    }
+    const { base, baselineReceipts, baselineUnavailable } = await auditBaseline();
 
     const grounded: PlanSide & { rounds: number } = { draft, receipts, rounds };
     // A failed baseline doesn't throw away a finished grounded plan; the comparison is marked unavailable.
-    const baseline: PlanSide = "err" in base ? { draft: emptyDraft(), receipts: [], unavailable: base.err.message } : { draft: base.draft, receipts: baselineReceipts };
+    const baseline: PlanSide =
+      "err" in base ? { draft: emptyDraft(), receipts: [], unavailable: base.err.message } : { draft: base.draft, receipts: baselineReceipts, ...(baselineUnavailable ? { unavailable: baselineUnavailable } : {}) };
     const health = qlooHealth(tracer.steps);
     const sources = [...new Set(tracer.steps.flatMap((s) => s.calls.map((c) => c.source)))];
     const result: RunResult = {

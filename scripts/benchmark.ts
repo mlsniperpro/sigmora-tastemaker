@@ -23,7 +23,7 @@ import { ReplayChat } from "../src/lib/llm/chat";
 import { qlooFromEnv } from "../src/lib/qloo/client";
 
 const JUDGE_FIXTURES = "fixtures/judge/recorded.json";
-const zero = { picks: 0, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: 0 };
+const zero = { picks: 0, judged: 0, hallucinations: 0, misses: 0, fading: 0, unscored: 0, cultureMissRate: null };
 
 const llm = llmFromEnv();
 const liveJudge = judgeChatFromEnv();

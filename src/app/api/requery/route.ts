@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   const body = MeasureRequest.safeParse(json);
   if (!body.success) return Response.json({ error: formatZodIssues(body.error, { root: "body" }) }, { status: 400 });
 
-  const publisher = publisherForRequest(req);
+  const publisher = await publisherForRequest(req);
   if (publisher instanceof Response) return publisher;
   const g = await admit(req, { costs: publisher.id === "sigmora" });
   if (!g.ok) return guardResponse(g);

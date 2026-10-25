@@ -32,34 +32,55 @@ export type InsightsFilterType =
   | "urn:heatmap"
   | "urn:tag";
 
-export const Explainability = z
-  .record(
-    z.string(),
-    z.array(
-      z
-        .object({
-          entity_id: z.string().optional(),
-          tag_id: z.string().optional(),
-          name: z.string().optional(),
-          score: z.number(),
-        })
-        .loose(),
-    ),
-  )
-  .optional();
+/** One input signal's share of a result's score (an item of `query.explainability["signal.interests.entities"]`). */
+export const ExplainabilityDriver = z
+  .object({
+    entity_id: z.string().optional(),
+    tag_id: z.string().optional(),
+    name: z.string().optional(),
+    score: z.number(),
+  })
+  .loose();
+export type ExplainabilityDriver = z.infer<typeof ExplainabilityDriver>;
+
+/**
+ * `query.explainability` is read leniently. The insights deep dive
+ * (https://docs.qloo.com/reference/insights-api-deep-dive) says that when it
+ * can't be computed "a warning is returned under `query.explainability.warning`"
+ * (a string, not a driver list) and the results still come back. A strict
+ * record-of-arrays schema rejected that whole reply, so the values stay
+ * unknown here and explainabilityOf() reads the parts we use.
+ */
+export const Explainability = z.unknown().optional();
 
 export const EntityQuery = z
   .object({
-    affinity: z.number().optional(),
-    rank: z.number().optional(),
+    // null as well as absent: either way the entity is unscored, never given a made-up 0.
+    affinity: z.number().nullish(),
+    rank: z.number().nullish(),
     explainability: Explainability,
-    // Trending fields (/v2/trending)
-    population_percentile: z.number().optional(),
-    population_rank: z.number().optional(),
-    population_rank_velocity: z.number().optional(),
-    trending_percentile: z.number().optional(),
   })
   .loose();
+
+/**
+ * The entity drivers and any warning in a result's `query.explainability`.
+ * Drivers that don't match the documented shape are dropped one by one. With
+ * a warning no driver split is returned: Qloo said it couldn't compute one.
+ */
+export function explainabilityOf(raw: unknown): { drivers: ExplainabilityDriver[]; warning?: string } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { drivers: [] };
+  const fields = raw as Record<string, unknown>;
+  const warning = typeof fields.warning === "string" && fields.warning.trim() ? fields.warning.trim() : undefined;
+  if (warning) return { drivers: [], warning };
+  const list = z.array(z.unknown()).safeParse(fields["signal.interests.entities"]);
+  if (!list.success) return { drivers: [] };
+  return {
+    drivers: list.data.flatMap((d) => {
+      const r = ExplainabilityDriver.safeParse(d);
+      return r.success ? [r.data] : [];
+    }),
+  };
+}
 
 export const Tag = z
   .object({
@@ -68,7 +89,7 @@ export const Tag = z
     name: z.string(),
     type: z.string().optional(),
     subtype: z.string().optional(),
-    query: z.object({ affinity: z.number().optional() }).loose().optional(),
+    query: z.object({ affinity: z.number().nullish() }).loose().optional(),
   })
   .loose();
 export type Tag = z.infer<typeof Tag>;
@@ -126,8 +147,8 @@ export const HeatmapCell = z
       .loose(),
     query: z
       .object({
-        affinity: z.number().optional(),
-        affinity_rank: z.number().optional(),
+        affinity: z.number().nullish(),
+        affinity_rank: z.number().nullish(),
         popularity: z.number().optional(),
       })
       .loose(),
@@ -153,34 +174,85 @@ export const InsightsResponse = z
   .loose();
 export type InsightsResponse = z.infer<typeof InsightsResponse>;
 
-/** GET /v2/analysis/compare */
+/**
+ * One weekly point of GET /v2/trending (https://docs.qloo.com/reference/get-trending):
+ * a date series for the one entity in `signal.interests.entities`, newest first.
+ * The docs give types and examples but no descriptions; `population_percent_delta`
+ * is the field the critic reads (its sign is unambiguous: negative = losing share).
+ */
+export const TrendPoint = z
+  .object({
+    date: z.string(),
+    population_percentile: z.number().optional(),
+    population_rank: z.number().int().optional(),
+    population_rank_velocity: z.number().int().optional(),
+    velocity_fold_change: z.number().optional(),
+    population_percent_delta: z.number().optional(),
+  })
+  .loose();
+export type TrendPoint = z.infer<typeof TrendPoint>;
+
+/** GET /v2/trending */
+export const TrendingResponse = z
+  .object({
+    success: z.boolean().optional(),
+    results: z.object({ trending: z.array(TrendPoint).default([]) }).loose().default({ trending: [] }),
+    duration: z.number().optional(),
+  })
+  .loose();
+export type TrendingResponse = z.infer<typeof TrendingResponse>;
+
+/** The newest point that carries a percent delta, or undefined (dates are YYYY-MM-DD, so they sort as strings). */
+export function latestTrend(points: readonly TrendPoint[]): (TrendPoint & { population_percent_delta: number }) | undefined {
+  let best: (TrendPoint & { population_percent_delta: number }) | undefined;
+  for (const p of points) {
+    const d = p.population_percent_delta;
+    if (typeof d !== "number" || !Number.isFinite(d)) continue;
+    if (!best || p.date > best.date) best = { ...p, population_percent_delta: d };
+  }
+  return best;
+}
+
+const CompareSide = z.object({ affinity: z.number().nullish() }).loose().nullish();
+
+/**
+ * One compared item. The docs type `results` as an array of entity-shaped
+ * objects (Common.yml) and publish no example, so only the name is required;
+ * the per-side affinities are read when present and never invented.
+ */
+export const CompareItem = z
+  .object({
+    name: z.string(),
+    tag_id: z.string().optional(),
+    id: z.string().optional(),
+    entity_id: z.string().optional(),
+    type: z.string().optional(),
+    subtype: z.string().optional(),
+    query: z
+      .object({
+        a: CompareSide,
+        b: CompareSide,
+        delta: z.number().optional(),
+      })
+      .loose()
+      .optional(),
+  })
+  .loose();
+export type CompareItem = z.infer<typeof CompareItem>;
+
+/**
+ * GET /v2/analysis/compare (https://docs.qloo.com/reference/analysis-compare).
+ * Documented: `results` is an array. Also accepted until a live recording
+ * settles it: the older `results.tags[]` object form.
+ */
 export const CompareResponse = z
   .object({
     success: z.boolean().optional(),
-    results: z
-      .object({
-        tags: z
-          .array(
-            z
-              .object({
-                name: z.string(),
-                tag_id: z.string().optional(),
-                subtype: z.string().optional(),
-                query: z
-                  .object({
-                    a: z.object({ affinity: z.number() }).loose().optional(),
-                    b: z.object({ affinity: z.number() }).loose().optional(),
-                    delta: z.number().optional(),
-                  })
-                  .loose()
-                  .optional(),
-              })
-              .loose(),
-          )
-          .optional(),
-      })
-      .loose()
-      .default({}),
+    results: z.union([z.array(CompareItem), z.object({ tags: z.array(CompareItem).optional() }).loose()]).default([]),
+    duration: z.number().optional(),
   })
   .loose();
 export type CompareResponse = z.infer<typeof CompareResponse>;
+
+/** The compared items, whichever of the two accepted forms the reply used. */
+export const compareItems = (r: CompareResponse): CompareItem[] => (Array.isArray(r.results) ? r.results : (r.results.tags ?? []));

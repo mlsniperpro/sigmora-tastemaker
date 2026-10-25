@@ -75,6 +75,9 @@ export function runKey(brief: Brief, llmId: string, primarySource: string) {
   return `run:v${RUN_SCHEMA_VERSION}:${createHash("sha256").update(JSON.stringify([brief, llmId, primarySource])).digest("base64url")}`;
 }
 
+/** The latest finished run for a brief key, kept as long as runs are: served (labelled) when a new run is refused. */
+const lastKey = (key: string) => `last:${key}`;
+
 /** Cache key for one run's full result. */
 const resultKey = (id: string) => `result:v${RUN_SCHEMA_VERSION}:${id}`;
 
@@ -134,6 +137,17 @@ export async function cachedRun(brief: Brief, deps: Partial<RunDeps> = {}): Prom
   return { brief, key, result: ptr.success ? await runById(ptr.data.id, d.cache) : undefined, deps: d };
 }
 
+/**
+ * The latest finished run for this brief, however old (the pointer that serves
+ * repeat requests expires after a day, or ten minutes for a degraded run). Used
+ * only when a new run is refused, and labelled as such, so a cold preset with no
+ * recording shows its last result instead of an error.
+ */
+export async function lastRun(lookup: Pick<Lookup, "key" | "deps">): Promise<RunResult | undefined> {
+  const ptr = Pointer.safeParse(await lookup.deps.cache.get(lastKey(lookup.key)));
+  return ptr.success ? runById(ptr.data.id, lookup.deps.cache) : undefined;
+}
+
 /** True when an uncached run would spend paid API calls (live Qloo or a real model). */
 export const costsMoney = (deps: RunDeps) => deps.qloo.primarySource === "live" || !deps.llm.scripted;
 
@@ -170,7 +184,11 @@ export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void, fal
       for (const l of listeners) l(e);
     };
     const done = runTastemaker(brief, { qloo: deps.qloo, llm: deps.llm, emit: fanOut }).then(async (result) => {
-      await Promise.all([deps.cache.set(resultKey(result.id), result, KEEP_TTL), deps.cache.set(key, { id: result.id }, isHealthy(result) ? RESULT_TTL : DEGRADED_TTL)]);
+      await Promise.all([
+        deps.cache.set(resultKey(result.id), result, KEEP_TTL),
+        deps.cache.set(key, { id: result.id }, isHealthy(result) ? RESULT_TTL : DEGRADED_TTL),
+        deps.cache.set(lastKey(key), { id: result.id }, KEEP_TTL),
+      ]);
       return result;
     });
     flight = { done, events, listeners };

@@ -4,7 +4,8 @@ import type { Brief, PickType, Role } from "./brief";
 
 /**
  * "hallucination": no Qloo entity matches the name in a typed or an untyped search.
- * "unscored": real, but Qloo gave no affinity to judge it by (no pool, no score); not counted as a miss.
+ * "unscored": real, but Qloo gave no affinity to judge it by (no pool, no score, or the run's budget ran out);
+ * left out of the miss rate, and never counted as a pass.
  */
 export type Verdict = "pass" | "miss" | "hallucination" | "fading" | "unscored";
 
@@ -28,7 +29,9 @@ export interface Receipt {
   poolRank?: { above: number; of: number };
   /** Explainability: which input signals drove the score. */
   drivers: Driver[];
-  /** /v2/trending velocity, -1..1 when known. */
+  /** Qloo's `query.explainability.warning`: it scored the pick but couldn't split the score by signal, so `drivers` is empty. */
+  explainabilityWarning?: string;
+  /** Newest /v2/trending `population_percent_delta` for the entity, when Qloo has a series for it. */
   trend?: number;
   /** Request keys (no credentials) of the Qloo calls behind this receipt. */
   calls: string[];
@@ -85,17 +88,19 @@ export interface PlanSide {
 
 export interface Metrics {
   picks: number;
+  /** Picks Qloo could judge (picks − unscored). */
+  judged: number;
   hallucinations: number;
   misses: number;
   fading: number;
   /** Picks Qloo couldn't score; excluded from the rate's denominator. */
   unscored: number;
-  /** (hallucinations + misses) / (picks − unscored) */
-  cultureMissRate: number;
+  /** (hallucinations + misses) / judged; null when fewer than half the picks were judged (shown as "—"). */
+  cultureMissRate: number | null;
 }
 
 /** Bump when RunResult's shape changes; cache keys carry it, so an older deploy's entries are never served. */
-export const RUN_SCHEMA_VERSION = 3;
+export const RUN_SCHEMA_VERSION = 4;
 
 export interface RunResult {
   id: string;
@@ -128,10 +133,10 @@ export interface RunResult {
 
 /**
  * Where a result that wasn't computed for this request came from:
- * "cache" = the same brief ran recently; "recording" = a recorded live run of the preset
- * (served instantly, or because a live run was refused or failed: `reason`).
+ * "cache" = the same brief ran before; "recording" = a recorded live run of the preset.
+ * `reason` says why it was served instead of a new run (a refused or failed live run).
  */
-export type Served = { from: "cache" } | { from: "recording"; reason?: string };
+export type Served = { from: "cache" | "recording"; reason?: string };
 
 export type RunEvent =
   /** A step began; the trace shows it as running until its "step" event arrives. */

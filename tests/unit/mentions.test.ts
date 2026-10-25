@@ -70,7 +70,7 @@ describe("unlistedMentions", () => {
   const qloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
   it("returns only names Qloo has under exactly that name, with a role from Qloo's type", async () => {
     const ctx = makeCtx({ ages: ["25_to_29"] }, qloo(), [{ name: "Tems", entityId: "t" }]);
-    const extra = await unlistedMentions(ctx, draft("Burna Boy and Insecure, Then Something Else Entirely."), brief);
+    const { picks: extra } = await unlistedMentions(ctx, draft("Burna Boy and Insecure, Then Something Else Entirely."), brief);
     expect(extra.map((p) => [p.name, p.role])).toEqual(expect.arrayContaining([["Burna Boy", "collab"], ["Insecure", "reference"]]));
     expect(extra.some((p) => p.name.startsWith("Then"))).toBe(false);
   });
@@ -82,8 +82,15 @@ describe("unlistedMentions", () => {
       if (m.path === "/search") searches.push(m.key);
     });
     const many = Array.from({ length: 20 }, (_, i) => `Zq${String.fromCharCode(65 + i)}x Name`).join(", ");
-    await unlistedMentions(makeCtx({ ages: ["25_to_29"] }, q, [{ name: "Tems", entityId: "t" }]), draft(many), brief);
+    const m = await unlistedMentions(makeCtx({ ages: ["25_to_29"] }, q, [{ name: "Tems", entityId: "t" }]), draft(many), brief);
     expect(searches.length).toBe(MAX_MENTION_SEARCHES);
+    // The names the cap cut off are said so on the trace, not dropped silently.
+    expect(m.notes).toEqual([expect.stringMatching(new RegExp(`^${candidateMentions(draft(many), brief, ["Tems"]).length - MAX_MENTION_SEARCHES} more capitalised names in the copy not searched \\(cap of ${MAX_MENTION_SEARCHES} searches\\)`))]);
+  });
+
+  it("says nothing about a cap it didn't hit", async () => {
+    const m = await unlistedMentions(makeCtx({ ages: ["25_to_29"] }, qloo(), [{ name: "Tems", entityId: "t" }]), draft("Cameo: Burna Boy."), brief);
+    expect(m.notes).toEqual([]);
   });
 
   it("puts an unlisted name through the critic in a real run", async () => {

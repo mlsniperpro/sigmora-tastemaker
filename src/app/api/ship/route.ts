@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const publisher = publisherForRequest(req);
+  const publisher = await publisherForRequest(req);
   if (publisher instanceof Response) return publisher;
   if (publisher.id === "sigmora" && !(await shippableByOwner(run))) {
     return Response.json({ error: "Only preset runs and runs you started while signed in as the owner can ship to real channels." }, { status: 403 });

@@ -48,8 +48,14 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
         ctx.candidates.city = (await rankCities(ctx, pool)).cities;
       }
     }
-    const { receipts, warnings } = await critique(ctx, picks);
-    return { receipts, metrics: metricsOf(receipts), suggestions: chooseReplacements(ctx, picks, receipts, new Set()), sources: [...sources], warnings };
+    const { receipts, warnings, cut } = await critique(ctx, picks);
+    return {
+      receipts,
+      metrics: metricsOf(receipts),
+      suggestions: chooseReplacements(ctx, picks, receipts, new Set(), { cut: cut !== undefined }),
+      sources: [...sources],
+      warnings: cut ? [...warnings, `cut short: ${cut}`] : warnings,
+    };
   } finally {
     unobserve();
   }

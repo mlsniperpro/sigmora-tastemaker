@@ -12,7 +12,7 @@ A **Without Qloo** toggle shows the plan the same model writes with no Qloo acce
 
 ![Tastemaker: agent trace, Taste Map and campaign pack with receipts](docs/screenshots/desktop.png)
 
-_Screenshot from an offline run (`pnpm screenshots`): the banner says the Qloo data is simulated, and the scoreboard leaves its rates blank, as it does on any simulated or scripted run._
+_Screenshot from an offline run (`pnpm screenshots`): the banner says the Qloo data is simulated, and the first-screen diff card hides its counts, as it does on any simulated or scripted run._
 
 ## Why it matters
 
@@ -41,13 +41,15 @@ resolve seeds ─► who over-indexes ─► taste vocabulary ─► cross-domai
       ─► QLOO CRITIC: resolve every named entity (typed, then untyped search; no match = not found in Qloo),
          score with filter.results.entities + feature.explainability,
          check venues are in the launch city, check hook references aren't fading
-      ─► replace failures with Qloo-preferred picks ─► LLM revises ─► critic again (≤ 2 rounds)
+      ─► for each failure the model picks one of Qloo's above-bar options, or proposes its own idea,
+         which the critic scores first and keeps only if it clears the bar
+      ─► LLM revises the copy around the swaps ─► critic again (≤ 2 rounds)
       ─► pack with receipts ─► Ship (Sigmora /v1, sandbox on the public demo)
       ─► measure ─► re-query: picks named in the posts that beat the median engagement
          rate become the next run's seeds (signal.interests.entities)
 ```
 
-Discovery leans toward what's rising (`bias.trends` on artist, TV, film and podcast candidates) and spreads brand and venue candidates across subtypes (`diversify.by=subtype`). Trend-biased pools are re-scored with plain affinity, so the critic's pass bar and the pick scores are on the same scale, and scoring calls never carry either parameter.
+Discovery leans toward what's rising (`bias.trends` on artist, TV, film and podcast candidates), and the taste vocabulary is spread across tag subtypes (`diversify.by=subtype` on `urn:tag`, its documented use). Trend-biased pools are re-scored with plain affinity, so the critic's pass bar and the pick scores are on the same scale, and scoring calls never carry either parameter.
 
 The same model also drafts with no Qloo context; the critic audits that plan without fixing it, which powers the Without Qloo view and the Culture Miss Rate.
 

@@ -33,22 +33,32 @@
   - an uncommitted pids file.
   - `checks.sh` itself passes.
 
-## In flight (2026-10-25, session_01PRg5xX3d1yQyMW528USmNf)
-- Re-audit 3 ran as three parallel audits (security, Qloo depth, judge path) on 9cb77e6. Findings are mapped in WIN-CHECKLIST.md "Re-audit 3" (C1+).
-- **Done locally (squash before push):**
-  - owner session tokens (HMAC, expiring), Origin checks, sign-in rate limit;
-  - per-IP and per-preset Qloo budget shares plus the preset holdback;
-  - IPv6 /64 keys and the flood guard;
-  - owner-only Ship of owner or preset runs;
-  - midnight-safe refunds;
-  - CSP and security headers;
-  - "Washington, DC";
-  - the measured ROI line;
-  - the LLM side of model-proposed replacements (`Choice.own`).
-- **Two worktree agents are running** (under `.claude/worktrees/`, gitignored); merge their commits when they report:
-  - Qloo API contract fixes: trending dates and response shape, compare array, locality catch, diversify on the right types, multi-seed demographics, honest metrics with judged counts, `sameName` sequels, optional audit, body timeout, short TTL for empty replies, stale venue pool, replacements filtered by the bar;
-  - UI: simulated labels on chips, sticky toggle plus a collapsed brief, a first-screen diff card, 12 px trace text, replay wording, metadataBase, styleimagemissing, RoiLine on simulated runs.
-- **After the merge:** wire `Choice.own` in run.ts (score own proposals with the critic and accept only passing ones, in applyChoices), with tests. Then update the BLOCKED.md live-call table rows 5, 11, 12 and 16 to the new request shapes.
+## In flight (2026-10-25 09:05 UTC, session_01PRg5xX3d1yQyMW528USmNf)
+- **Pushed eba9860 (08:55):** the audit-3 security fixes plus the judge-path UI (diff card, sticky toggle, simulated labels).
+- **Local, not yet pushed (squash before pushing, at 09:40 or later):**
+  - the Qloo contract fixes (trending, compare, diversify, demographics, honest metrics);
+  - model-proposed replacements verified by Qloo (`choose.ts` `ownProposals`/`withOwnIdeas`);
+  - the benchmark validity rule;
+  - the audit-4 security fixes: preset and custom pools, last-run fallback, Origin on /api/run, owner attempt limit, fail-closed budget counter, the cookie sandbox fallback, overruns charged to the shares.
+- **Audit 4 ran on b190264** (three lenses). Security is fixed (WIN-CHECKLIST D1–D9).
+- **Two worktree agents are running** (`.claude/worktrees/`, both reset to b190264). Cherry-pick their commits when they report:
+  - Judge path + "Audit any AI's plan" panel: no numbers on simulated runs in the trace and Taste Map, the TrendMark threshold, a trace jump link, "Re-run" without "live" on simulated runs, 12 px text, README screenshots, `/api/audit` plus the panel, and a re-run of the offline benchmark (it gives the new request count for BLOCKED.md and the benchmark docs; the old figure was 1318, now about 1949).
+  - Qloo audit-4 fixes: the explainability warning and null-affinity schema, per-pick degrade on a budget or deadline cut, no swaps after a cut pass, not starving the audit, optional own-idea scoring, a venue city 400, mentions errors, the compare shape warning, and omitted-entity rescoring.
+- **Soak on b190264:** a `FC_NUM_RUNS=100000` deep pass (380/380, 209 s) and 60 seeded `FC_NUM_RUNS=500` rounds, with no failure. Redo it on the final commit for break-it.md.
+
+## Next steps, in order
+1. Merge both agents' commits; resolve conflicts in run.ts and choose.ts. Apply the sandbox note wording and the benchmark count they report.
+2. Add WIN-CHECKLIST items D10+ for the judge and Qloo audit-4 findings.
+3. Squash the WIP commits, run lint, typecheck, test and e2e, then push (45 minutes or more after the last push).
+4. Run a full three-lens audit again (fresh agents, read-only). Fix what it finds, and repeat until two audits in a row are clean.
+5. Break-it on the final commit:
+   - the deep soak;
+   - 60 seeded rounds;
+   - `pnpm test:e2e`;
+   - a fresh clone of the pushed branch running the README commands;
+   - failure injection (the live-stub tests).
+6. Write reaudit.md (`AUDITED_COMMIT`, 0/0, `CLEAN_AUDITS_IN_A_ROW: 2`) and break-it.md (`TESTED_COMMIT`), commit, push, and run the gate until it prints PASS.
+7. Update the PR body (status, Decisions, Self-review) and post the final status comment.
 
 ## Key decisions (why)
 - **Qloo is the critic inside the loop:**

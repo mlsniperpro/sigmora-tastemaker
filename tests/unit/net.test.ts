@@ -98,6 +98,57 @@ describe("fetchWithTimeout / ensureOk", () => {
     });
   });
 
+  it("keeps the deadline over the body read: headers then a stalled body still time out", async () => {
+    const enc = new TextEncoder();
+    const stalled = (async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(enc.encode('{"results":'));
+            // ...and never another byte, never closed.
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )) as unknown as typeof fetch;
+    const res = await fetchWithTimeout(stalled, "Qloo", "https://h.example/v2/insights?x=1", {}, 30);
+    expect(res.status).toBe(200);
+    const t0 = Date.now();
+    await expect(res.json()).rejects.toMatchObject({ name: "TimeoutError", path: "/v2/insights" });
+    expect(Date.now() - t0).toBeLessThan(2000);
+  });
+
+  it("times out res.text() on a stalled body as well", async () => {
+    const stalled = (async () => new Response(new ReadableStream<Uint8Array>({ start: () => undefined }), { status: 200 })) as unknown as typeof fetch;
+    const res = await fetchWithTimeout(stalled, "Sigmora", "https://h.example/v1/campaigns", {}, 20);
+    await expect(res.text()).rejects.toBeInstanceOf(TimeoutError);
+  });
+
+  it("delivers a body that arrives in time, with status and headers intact, and stops the timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const ok = (async () => Response.json({ results: { entities: [1, 2] } }, { status: 201, headers: { "x-k": "v" } })) as unknown as typeof fetch;
+      const res = await fetchWithTimeout(ok, "Qloo", "https://h.example/x", {}, 1000);
+      expect(res.status).toBe(201);
+      expect(res.headers.get("x-k")).toBe("v");
+      await expect(res.json()).resolves.toEqual({ results: { entities: [1, 2] } });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops the timer when the body is cancelled (ensureOk drains error replies)", async () => {
+    vi.useFakeTimers();
+    try {
+      const err = (async () => new Response("nope", { status: 503 })) as unknown as typeof fetch;
+      const res = await fetchWithTimeout(err, "Qloo", "https://h.example/x", {}, 1000);
+      await expect(ensureOk(res, "Qloo", "https://h.example/x")).rejects.toBeInstanceOf(HttpError);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("passes network errors through untouched", async () => {
     const down = vi.fn(async () => {
       throw new TypeError("fetch failed");

@@ -1,11 +1,12 @@
 import { after } from "next/server";
-import { cachedRun, costsMoney, getOrRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById } from "@/lib/agent/runCache";
-import type { RunEvent } from "@/lib/agent/types";
+import { cachedRun, costsMoney, getOrRun, lastRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById, type Lookup, type ResolvedRequest } from "@/lib/agent/runCache";
+import type { RunEvent, Served } from "@/lib/agent/types";
 import { loadConfig } from "@/lib/config";
 import { isOwnerRequest } from "@/lib/publisher";
-import { QLOO_SPENT, admit, clientIp, floodGuard, guardResponse, qlooBudget } from "@/lib/guard";
+import { QLOO_SPENT, admit, clientIp, floodGuard, guardResponse, qlooBudget, type GuardResult } from "@/lib/guard";
+import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 
-// A live run is throttled to the Qloo key's rate (the hero preset makes ~73 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
+// A live run is throttled to the Qloo key's rate (the hero preset makes ~76 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
 export const maxDuration = 120;
 
 const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" };
@@ -55,6 +56,8 @@ function ndjson(work: (send: (e: RunEvent) => void) => Promise<unknown>, headers
  * also covers a refused or failed live run.
  */
 export async function POST(req: Request) {
+  // A cross-site page could otherwise make its visitors spend this demo's budget.
+  if (!sameOrigin(req)) return crossSiteResponse();
   const flood = await floodGuard(req);
   if (flood) return flood;
   let json: unknown;
@@ -73,16 +76,13 @@ export async function POST(req: Request) {
   if (!lookup.result && recording && !request.fresh) {
     return ndjson((send) => Promise.resolve(replay(recording, { from: "recording" }, send)), { "X-Run-Cache": "recording" });
   }
-  // Presets skip the per-IP limits so the one-click demo always works ("Re-run live" doesn't); they still count toward the daily cap.
-  const g = await admit(req, { costs: !lookup.result && costsMoney(lookup.deps), perIp: !request.presetId || request.fresh });
-  // A new run takes its Qloo calls out of today's budget before it starts, so it can't run dry half-way.
-  // Each caller (an IP, or a cold preset) has its own daily share, so no one caller can spend the day.
-  const reserved = () => lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, clientIp(req.headers)));
-  const refusal = !g.ok ? g : !lookup.result && !(await reserved()) ? QLOO_SPENT : undefined;
+  const refusal = !lookup.result && costsMoney(lookup.deps) ? await admitNewRun(req, request, lookup) : undefined;
   if (refusal) {
-    if (!recording) return guardResponse(refusal);
-    const reason = `a live run was refused (${refusal.message})`;
-    return ndjson((send) => Promise.resolve(replay(recording, { from: "recording", reason }, send)), { "X-Run-Cache": "recording" });
+    // A refused run shows the preset's recording, else this brief's last finished run, labelled with why.
+    const fallback = recording ?? (await lastRun(lookup));
+    if (!fallback) return guardResponse(refusal);
+    const served: Served = { from: fallback === recording ? "recording" : "cache", reason: `a new live run was refused (${refusal.message})` };
+    return ndjson((send) => Promise.resolve(replay(fallback, served, send)), { "X-Run-Cache": served.from });
   }
   const owner = isOwnerRequest(req.headers);
   const work = async (send: (e: RunEvent) => void) => {
@@ -92,6 +92,21 @@ export async function POST(req: Request) {
     return out;
   };
   return ndjson(work, { "X-Run-Cache": lookup.result ? "hit" : "miss" });
+}
+
+/**
+ * Admits a new paid run, or says why not. Its Qloo calls are reserved first
+ * (each caller, or each cold preset, has its own daily share), and only a run
+ * that got its budget counts toward the rate limits and the daily run cap, so
+ * refused requests can't use up the cap for everyone.
+ */
+async function admitNewRun(req: Request, request: Extract<ResolvedRequest, { ok: true }>, lookup: Lookup): Promise<Extract<GuardResult, { ok: false }> | undefined> {
+  if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, clientIp(req.headers))))) return QLOO_SPENT;
+  // Presets skip the per-IP limits so the one-click demo always works ("Re-run live" doesn't); they still count toward the daily cap.
+  const g = await admit(req, { costs: true, perIp: !request.presetId || request.fresh });
+  if (g.ok) return undefined;
+  await lookup.deps.qloo.release();
+  return g;
 }
 
 /** GET /api/run?id=<run id> → the finished run as JSON (permalinks). */

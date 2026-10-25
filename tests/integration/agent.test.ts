@@ -89,7 +89,7 @@ describe("agent loop (zero credentials)", () => {
     it(`${preset.id}: grounded plan beats the baseline and every pick has a receipt`, async () => {
       const r = await runTastemaker(preset.brief, deps());
       expect(r.grounded.receipts.length).toBe(r.grounded.draft.picks.length);
-      expect(r.metrics.grounded.cultureMissRate).toBeLessThan(r.metrics.baseline.cultureMissRate);
+      expect(must(r.metrics.grounded.cultureMissRate, "grounded rate")).toBeLessThan(must(r.metrics.baseline.cultureMissRate, "baseline rate"));
       expect(r.metrics.grounded.hallucinations).toBe(0);
       for (const rec of r.grounded.receipts) {
         expect(rec.calls.length).toBeGreaterThan(0);
@@ -285,10 +285,19 @@ describe("agent loop: failure paths", () => {
     spent.after = false;
     const r = await runTastemaker(PRESETS[0].brief, { qloo: new SpentQloo({ cache: new MemoryCache(), fixtures: {} }), llm: new DraftThenSpend() });
     expect(r.grounded.receipts.length).toBeGreaterThan(0);
-    expect(r.grounded.receipts.filter((x) => x.role !== "city").every((x) => x.verdict === "unscored" && /Not checked: Qloo call budget/.test(x.note))).toBe(true);
-    expect(r.trace.find((s) => s.id === "critic-1")?.detail).toMatch(/budget/);
+    // Per pick: what the run already holds (the ranked pools, their scores) is still judged; only picks needing a refused call are unscored.
+    const unscored = r.grounded.receipts.filter((x) => x.verdict === "unscored");
+    expect(unscored.length).toBeGreaterThan(0);
+    expect(unscored.every((x) => /Not checked: .*Qloo call budget/.test(x.note))).toBe(true);
+    expect(r.grounded.receipts.filter((x) => x.verdict !== "unscored" && x.role !== "city").length).toBeGreaterThan(0);
+    const critic = must(r.trace.find((s) => s.id === "critic-1")).detail;
+    expect(critic).toMatch(new RegExp(`${unscored.length} unscored · cut short \\(Qloo call budget`));
+    expect(critic).not.toMatch(/trend check failed/);
+    // A cut pass is no evidence against its unscored picks, so none is swapped out.
+    expect(r.trace.some((s) => s.id.startsWith("choose-"))).toBe(false);
     // The baseline audit degrades the same way instead of failing the run.
-    expect(r.baseline.receipts.every((x) => x.verdict === "unscored" || x.role === "city")).toBe(true);
+    expect(r.baseline.unavailable).toBeUndefined();
+    expect(r.baseline.receipts.filter((x) => x.verdict === "unscored").every((x) => /Not checked/.test(x.note))).toBe(true);
   });
 
   it("never waits on a hung model past the run's deadline", async () => {

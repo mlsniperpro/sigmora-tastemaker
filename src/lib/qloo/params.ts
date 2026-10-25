@@ -37,8 +37,6 @@ const COMMON_INSIGHTS = [
   "filter.type",
   ...SIGNALS,
   "bias.trends",
-  "diversify.by",
-  "diversify.take",
   "feature.explainability",
   "filter.results.entities",
   "filter.exclude.entities",
@@ -61,6 +59,24 @@ const LOCATION_FILTERS = [
   "filter.geocode.country_code",
 ];
 
+/**
+ * diversify.by values (insights deep dive): `subtype` caps results per tag
+ * subtype and applies to filter.type=urn:tag only; the geocode fields group
+ * located entities by city or metro.
+ */
+const DIVERSIFY_GEO = ["properties.geocode.city", "properties.geocode.metro"];
+const DIVERSIFY_BY: Partial<Record<string, string[]>> = {
+  "urn:tag": ["subtype"],
+  "urn:entity:place": DIVERSIFY_GEO,
+  "urn:entity:destination": DIVERSIFY_GEO,
+};
+const DIVERSIFY = ["diversify.by", "diversify.take"];
+
+/** signal.demographics.age values the insights docs enumerate (coarse and fine buckets). */
+export const SIGNAL_AGE_VALUES = ["35_and_younger", "36_to_55", "24_and_younger", "25_to_29", "30_to_34", "35_to_44", "45_to_54", "55_and_older"] as const;
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 const BY_FILTER_TYPE: Record<string, string[]> = {
   "urn:entity:artist": [...COMMON_INSIGHTS],
   "urn:entity:book": [
@@ -69,7 +85,7 @@ const BY_FILTER_TYPE: Record<string, string[]> = {
     "filter.publication_year.max",
   ],
   "urn:entity:brand": [...COMMON_INSIGHTS],
-  "urn:entity:destination": [...COMMON_INSIGHTS, ...LOCATION_FILTERS],
+  "urn:entity:destination": [...COMMON_INSIGHTS, ...LOCATION_FILTERS, ...DIVERSIFY],
   "urn:entity:movie": [
     ...COMMON_INSIGHTS,
     "filter.release_year.min",
@@ -82,6 +98,7 @@ const BY_FILTER_TYPE: Record<string, string[]> = {
   "urn:entity:place": [
     ...COMMON_INSIGHTS,
     ...LOCATION_FILTERS,
+    ...DIVERSIFY,
     "filter.price_level.min",
     "filter.price_level.max",
     "filter.properties.business_rating.min",
@@ -100,19 +117,26 @@ const BY_FILTER_TYPE: Record<string, string[]> = {
   "urn:entity:video_game": [...COMMON_INSIGHTS],
   "urn:entity:locality": [...COMMON_INSIGHTS, ...LOCATION_FILTERS],
   "urn:demographics": ["filter.type", ...SIGNALS, "take"],
+  // The docs list no signal.demographics.* for tags (they are dropped there).
   "urn:tag": [
     "filter.type",
-    ...SIGNALS,
+    "signal.interests.entities",
+    "signal.interests.tags",
+    ...DIVERSIFY,
+    "offset",
     "filter.tag.types",
     "filter.parents.types",
     "feature.explainability",
     "take",
     "page",
   ],
+  // available-parameters-by-entity-type: no filter.results.entities, bias.trends or offset on heatmaps.
   "urn:heatmap": [
     "filter.type",
     ...SIGNALS,
-    ...LOCATION_FILTERS,
+    "filter.location",
+    "filter.location.query",
+    "filter.location.radius",
     "output.heatmap.boundary",
     "take",
   ],
@@ -127,7 +151,7 @@ const BY_PATH: Record<Exclude<QlooPath, "/v2/insights">, string[]> = {
     "external.isbn.ids",
     "external.tmdb.ids",
   ],
-  "/v2/trending": ["filter.type", "signal.interests.entities", "filter.start_date", "filter.end_date", "take", "page"],
+  "/v2/trending": ["filter.type", "signal.interests.entities", "filter.start_date", "filter.end_date", "take", "page", "offset"],
   "/v2/tags": ["filter.query", "filter.tag.types", "filter.parents.types", "feature.semantic_search", "take", "page"],
   "/v2/analysis/compare": [
     "a.signal.interests.entities",
@@ -143,7 +167,8 @@ const BY_PATH: Record<Exclude<QlooPath, "/v2/insights">, string[]> = {
 const REQUIRED: Partial<Record<string, string[]>> = {
   "/search": ["query"],
   "/v2/insights": ["filter.type"],
-  "/v2/trending": ["filter.type", "signal.interests.entities"],
+  // https://docs.qloo.com/reference/get-trending: filter.type and both dates are required; the entity is ours.
+  "/v2/trending": ["filter.type", "signal.interests.entities", "filter.start_date", "filter.end_date"],
   "/v2/analysis/compare": ["a.signal.interests.entities", "b.signal.interests.entities"],
   "urn:entity:destination": ["signal.interests.entities"],
 };
@@ -190,6 +215,30 @@ export function checkParams(path: QlooPath, params: QlooParams): string[] {
   const bias = params["bias.trends"];
   if (bias !== undefined && bias !== "low" && bias !== "medium" && bias !== "high") problems.push(`bias.trends "${String(bias)}" is not low, medium or high`);
   if (keys.includes("diversify.take") && !keys.includes("diversify.by")) problems.push(`diversify.take needs diversify.by`);
+  const div = params["diversify.by"];
+  if (div !== undefined && filterType && DIVERSIFY_BY[filterType] && !DIVERSIFY_BY[filterType].includes(String(div))) {
+    problems.push(`diversify.by "${String(div)}" is not valid for ${filterType} (use ${DIVERSIFY_BY[filterType].join(" or ")})`);
+  }
+  const ages = params["signal.demographics.age"];
+  if (ages !== undefined) {
+    const values = Array.isArray(ages) ? ages : String(ages).split(",");
+    for (const a of values) if (!(SIGNAL_AGE_VALUES as readonly string[]).includes(a)) problems.push(`signal.demographics.age "${a}" is not a documented bucket`);
+  }
+  if (path === "/v2/trending") {
+    for (const k of ["filter.start_date", "filter.end_date"]) {
+      const v = params[k];
+      if (v !== undefined && !DATE_RE.test(String(v))) problems.push(`${k} "${String(v)}" is not YYYY-MM-DD`);
+    }
+    const ids = params["signal.interests.entities"];
+    if (Array.isArray(ids) && ids.length > 1) problems.push(`/v2/trending returns one entity's series: send one id in signal.interests.entities`);
+  }
+  const take = params.take;
+  if (take !== undefined && path !== "/search" && path !== "/v2/tags" && (!Number.isInteger(Number(take)) || Number(take) < 1 || Number(take) > 50)) {
+    problems.push(`take ${String(take)} is outside the documented 1..50`);
+  }
+  if (path === "/v2/analysis/compare" && params["filter.subtype"] !== undefined && !["urn:tag:occupation", "urn:tag:genre"].includes(String(params["filter.subtype"]))) {
+    problems.push(`filter.subtype "${String(params["filter.subtype"])}" is not urn:tag:genre or urn:tag:occupation`);
+  }
   if (keys.includes("output.heatmap.boundary")) {
     const v = params["output.heatmap.boundary"];
     if (v !== "urn:entity:locality" && v !== "geohashes" && v !== "city" && v !== "neighborhood") {

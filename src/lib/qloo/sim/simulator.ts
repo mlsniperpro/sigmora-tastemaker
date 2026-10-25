@@ -153,7 +153,7 @@ function insightsEntities(params: QlooParams) {
       return { e, aff };
     })
     .sort((x, y) => y.aff - x.aff)
-    // diversify.by is accepted but not modelled: the catalog has no subtypes to spread across.
+    // diversify.by is never sent on entity types (see discoveryParams); urn:tag models it in tagInsights.
     .slice(0, only.length ? only.length : take);
   return {
     success: true,
@@ -165,27 +165,18 @@ function insightsEntities(params: QlooParams) {
   };
 }
 
+/** As documented (demographics-use-case): one row per input signal, each with its own age and gender over-index. */
 function demographics(params: QlooParams) {
   const a = audienceFrom(params);
-  const seeds = a.seeds.length ? a.seeds : [];
-  const age: Record<string, number> = {};
-  AGE_BUCKETS.forEach((b, i) => {
-    const p = i / (AGE_BUCKETS.length - 1);
-    const fit = avg(seeds.map((s) => 1 - 2.2 * Math.abs(p - s.age)));
-    age[b] = r3(Math.max(-0.8, Math.min(0.8, fit * 0.6)));
-  });
-  const fem = avg(seeds.map((s) => s.fem));
-  return {
-    success: true,
-    results: {
-      demographics: [
-        {
-          entity_id: seeds.map((s) => s.id).join(","),
-          query: { age, gender: { male: r3(-fem * 0.5), female: r3(fem * 0.5) } },
-        },
-      ],
-    },
+  const row = (s: SimEntity) => {
+    const age: Record<string, number> = {};
+    AGE_BUCKETS.forEach((b, i) => {
+      const p = i / (AGE_BUCKETS.length - 1);
+      age[b] = r3(Math.max(-0.8, Math.min(0.8, (1 - 2.2 * Math.abs(p - s.age)) * 0.6)));
+    });
+    return { entity_id: s.id, query: { age, gender: { male: r3(-s.fem * 0.5), female: r3(s.fem * 0.5) } } };
   };
+  return { success: true, results: { demographics: a.seeds.map(row) }, duration: 1 };
 }
 
 function tagInsights(params: QlooParams) {
@@ -198,9 +189,16 @@ function tagInsights(params: QlooParams) {
     subtype: t.subtype,
     query: { affinity: affinity(a, { id: t.id, v: { [t.dim]: 1 } }) },
   }))
-    .sort((x, y) => y.query.affinity - x.query.affinity)
-    .slice(0, take);
-  return { success: true, results: { tags } };
+    .sort((x, y) => y.query.affinity - x.query.affinity);
+  // diversify.by=subtype (documented for urn:tag): at most diversify.take per subtype, applied before take.
+  const cap = params["diversify.by"] === "subtype" ? Number(params["diversify.take"] ?? Infinity) : Infinity;
+  const perSubtype = new Map<string, number>();
+  const kept = tags.filter((t) => {
+    const n = perSubtype.get(t.subtype) ?? 0;
+    perSubtype.set(t.subtype, n + 1);
+    return n < cap;
+  });
+  return { success: true, results: { tags: kept.slice(0, take) } };
 }
 
 /** Bounding box of a WKT POLYGON (lon lat pairs), or undefined. */
@@ -218,6 +216,9 @@ export function wktBBox(wkt: string): { minLon: number; maxLon: number; minLat: 
   return { minLon: Math.min(...lons), maxLon: Math.max(...lons), minLat: Math.min(...lats), maxLat: Math.max(...lats) };
 }
 
+/** Documented `take`: default 20, max 50. */
+const heatTake = (params: QlooParams) => Math.min(50, Math.max(1, Number(params.take ?? 20)));
+
 const CELL_OFFSETS: [number, number][] = [[0, 0], [0.25, 0.1], [-0.2, 0.2], [0.15, -0.25], [-0.3, -0.1], [0.05, 0.35]];
 
 function heatmap(params: QlooParams) {
@@ -231,17 +232,16 @@ function heatmap(params: QlooParams) {
     const { lat, lon } = inCity;
     const base = affinity(ageless, inCity);
     const grid = [-2, -1, 0, 1, 2].flatMap((i) => [-2, -1, 0, 1, 2].map((j) => ({ i, j })));
-    return {
-      success: true,
-      results: {
-        heatmap: grid.map(({ i, j }, k) => ({
-          location: { latitude: r3(lat + i * 0.04), longitude: r3(lon + j * 0.05), geohash: `simc${k}` },
-          query: { affinity: r3(Math.max(0, Math.min(1, base + (hash01(`${inCity.id}:n${k}`) - 0.5) * 0.3 - (Math.abs(i) + Math.abs(j)) * 0.03))), popularity: inCity.pop },
-        })),
-      },
-    };
+    const cells = grid
+      .map(({ i, j }, k) => ({
+        location: { latitude: r3(lat + i * 0.04), longitude: r3(lon + j * 0.05), geohash: `simc${k}` },
+        query: { affinity: r3(Math.max(0, Math.min(1, base + (hash01(`${inCity.id}:n${k}`) - 0.5) * 0.3 - (Math.abs(i) + Math.abs(j)) * 0.03))), popularity: inCity.pop },
+      }))
+      .sort((x, y) => y.query.affinity - x.query.affinity)
+      .slice(0, heatTake(params));
+    return { success: true, results: { heatmap: cells } };
   }
-  // Like the live host: unnamed geohash-sized cells, several per metro; `take` is ignored.
+  // Unnamed geohash-sized cells, several per metro, strongest first; `take` caps them (docs: default 20, max 50).
   const cells = CATALOG.filter((e) => e.type === "locality").flatMap((l) => {
     const { lat, lon } = l;
     if (lat === undefined || lon === undefined) return [];
@@ -253,7 +253,9 @@ function heatmap(params: QlooParams) {
       pop: l.pop,
     }));
   });
-  const inBox = box ? cells.filter((c) => c.lon >= box.minLon && c.lon <= box.maxLon && c.lat >= box.minLat && c.lat <= box.maxLat) : cells;
+  const inBox = (box ? cells.filter((c) => c.lon >= box.minLon && c.lon <= box.maxLon && c.lat >= box.minLat && c.lat <= box.maxLat) : cells)
+    .sort((x, y) => y.affinity - x.affinity)
+    .slice(0, heatTake(params));
   return {
     success: true,
     results: {
@@ -265,36 +267,59 @@ function heatmap(params: QlooParams) {
   };
 }
 
+const DAY = 86_400_000;
+
+/**
+ * As documented (get-trending): one entity's weekly series between
+ * filter.start_date and filter.end_date, newest first, under results.trending.
+ * The catalog's trend (-1 fading … +1 rising) sets the newest
+ * population_percent_delta (×10, in percent), with earlier weeks easing toward it.
+ */
 function trending(params: QlooParams) {
   const t = typeOf(String(params["filter.type"]));
-  const ids = list(params["signal.interests.entities"]);
-  const pool = CATALOG.filter((e) => e.type === t && ids.includes(e.id));
-  return {
-    success: true,
-    results: {
-      entities: pool.map((e) =>
-        entityJson(e, {
-          population_percentile: r3(e.pop),
-          population_rank_velocity: r3(e.trend),
-          trending_percentile: r3((e.trend + 1) / 2),
-        }),
-      ),
-    },
-  };
+  const [id] = list(params["signal.interests.entities"]);
+  const e = id ? byId.get(id) : undefined;
+  const start = Date.parse(`${String(params["filter.start_date"])}T00:00:00Z`);
+  const end = Date.parse(`${String(params["filter.end_date"])}T00:00:00Z`);
+  if (!e || e.type !== t || !Number.isFinite(start) || !Number.isFinite(end) || end < start) return { success: true, results: { trending: [] }, duration: 1 };
+  const weeks = Math.min(52, Math.floor((end - start) / (7 * DAY)) + 1);
+  const trend = Array.from({ length: weeks }, (_, w) => {
+    const ease = 1 - w / (weeks + 1);
+    const delta = r3(e.trend * 10 * ease);
+    const percentile = r3(Math.max(0, Math.min(100, e.pop * 100 - w * e.trend)));
+    const rank = Math.max(1, Math.round((1 - percentile / 100) * 5000));
+    return {
+      date: new Date(end - w * 7 * DAY).toISOString().slice(0, 10),
+      population_percentile: percentile,
+      population_rank: rank,
+      population_rank_velocity: Math.round(e.trend * 40 * ease),
+      velocity_fold_change: r3(1 + e.trend * 0.2 * ease),
+      population_percent_delta: delta,
+    };
+  });
+  return { success: true, results: { trending: trend }, duration: 1 };
 }
 
+/**
+ * As documented (analysis-compare): `results` is an array. With
+ * filter.subtype=urn:tag:genre the items are genre tags; the per-side
+ * affinities under `query.a` / `query.b` are this repo's reading, since the
+ * docs publish no example (see BLOCKED.md).
+ */
 function compare(params: QlooParams) {
   const a = audienceFrom(params, "a.signal");
   const b = audienceFrom(params, "b.signal");
-  const take = Number(params.take ?? 10);
-  const tags = TAGS.map((t) => {
-    const va = affinity(a, { id: t.id, v: { [t.dim]: 1 } });
-    const vb = affinity(b, { id: t.id, v: { [t.dim]: 1 } });
-    return { name: t.name, tag_id: t.id, subtype: t.subtype, query: { a: { affinity: va }, b: { affinity: vb }, delta: r3(va - vb) } };
-  })
+  const take = Number(params.take ?? 20);
+  const sub = params["filter.subtype"];
+  const results = TAGS.filter((t) => sub === undefined || t.subtype === String(sub) || t.subtype.startsWith(`${String(sub)}:`))
+    .map((t) => {
+      const va = affinity(a, { id: t.id, v: { [t.dim]: 1 } });
+      const vb = affinity(b, { id: t.id, v: { [t.dim]: 1 } });
+      return { name: t.name, entity_id: t.id, tag_id: t.id, type: "urn:tag", subtype: t.subtype, query: { a: { affinity: va }, b: { affinity: vb }, delta: r3(va - vb) } };
+    })
     .sort((x, y) => Math.abs(y.query.delta) - Math.abs(x.query.delta))
     .slice(0, take);
-  return { success: true, results: { tags } };
+  return { success: true, duration: 0.1, results };
 }
 
 function search(params: QlooParams) {

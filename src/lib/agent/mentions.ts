@@ -8,7 +8,6 @@
  */
 import type { Draft, Pick as PlanPick } from "../llm/types";
 import type { Brief, PickType, Role } from "./brief";
-import { isQlooStop } from "../qloo/errors";
 import { entityTypesOf, resolveByName, type Ctx } from "./context";
 import { normName, sameName } from "./util";
 
@@ -101,23 +100,38 @@ export function candidateMentions(
   return [...priority.values()].sort((a, b) => b.rank - a.rank).map((c) => c.name);
 }
 
+export interface Mentions {
+  /** Unlisted names Qloo knows by exactly that name, as picks for the critic to check. */
+  picks: PlanPick[];
+  /** For the trace: names left unchecked (search cap, or a failed or refused search). */
+  notes: string[];
+}
+
 /** Unlisted names that Qloo knows by exactly that name, as picks for the critic to check (searches capped). */
-export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Promise<PlanPick[]> {
+export async function unlistedMentions(ctx: Ctx, draft: Draft, brief: Brief): Promise<Mentions> {
+  const all = candidateMentions(draft, brief, [...ctx.seedNames.values()]);
+  const searched = all.slice(0, MAX_MENTION_SEARCHES);
+  // Failed searches, grouped by reason: names per error message.
+  const failed = new Map<string, string[]>();
   const found = await Promise.all(
-    candidateMentions(draft, brief, [...ctx.seedNames.values()])
-      .slice(0, MAX_MENTION_SEARCHES)
-      .map(async (name) => {
-        // Out of Qloo budget or time: the name goes unchecked rather than failing the plan.
-        const found = await resolveByName(ctx.qloo, name, { take: 3 }).catch((err: unknown) => {
-          if (isQlooStop(err)) return undefined;
-          throw err;
-        });
-        const hit = found?.hit;
-        if (!hit || !sameName(hit.name, name)) return [];
-        const type = entityTypesOf(hit).find((t): t is PickType => t in ROLE_FOR);
-        const role = type ? ROLE_FOR[type] : undefined;
-        return type && role ? [{ name, type, role, rationale: "Named in the copy but not listed as a pick; added so the critic checks it." }] : [];
-      }),
+    searched.map(async (name) => {
+      // A failed search (out of budget or time, or any Qloo error) leaves that one name unchecked rather than failing the plan.
+      const found = await resolveByName(ctx.qloo, name, { take: 3 }).catch((err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err);
+        failed.set(reason, [...(failed.get(reason) ?? []), name]);
+        return undefined;
+      });
+      const hit = found?.hit;
+      if (!hit || !sameName(hit.name, name)) return [];
+      const type = entityTypesOf(hit).find((t): t is PickType => t in ROLE_FOR);
+      const role = type ? ROLE_FOR[type] : undefined;
+      return type && role ? [{ name, type, role, rationale: "Named in the copy but not listed as a pick; added so the critic checks it." }] : [];
+    }),
   );
-  return found.flat();
+  const skipped = all.slice(MAX_MENTION_SEARCHES);
+  const notes = [
+    ...[...failed].map(([reason, names]) => `copy names not checked (${reason}): ${names.join(", ")}`),
+    ...(skipped.length ? [`${skipped.length} more capitalised name${skipped.length === 1 ? "" : "s"} in the copy not searched (cap of ${MAX_MENTION_SEARCHES} searches)`] : []),
+  ];
+  return { picks: found.flat(), notes };
 }

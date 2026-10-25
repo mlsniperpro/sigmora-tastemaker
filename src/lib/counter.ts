@@ -93,3 +93,18 @@ export function defaultCounter(): Counter {
   }
   return shared;
 }
+
+let budget: Counter | undefined;
+/**
+ * The counter for money: the daily Qloo budget and its shares. With KV
+ * configured it is KV only, with no in-process fallback, so a KV outage
+ * refuses new spending (each instance counting from zero would multiply the
+ * day's budget by the number of instances). Rate limits keep the resilient one.
+ */
+export function budgetCounter(): Counter {
+  if (!budget) {
+    const kv = kvFromEnv();
+    budget = kv ? new KvCounter(kv) : new MemoryCounter();
+  }
+  return budget;
+}

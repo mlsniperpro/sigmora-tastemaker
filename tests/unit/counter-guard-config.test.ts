@@ -1,6 +1,6 @@
 import { describe, it, vi, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { ConfigError, loadConfig } from "@/lib/config";
+import { ConfigError, budgetProblems, loadConfig } from "@/lib/config";
 import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
 import { FREE_ROUTE_PER_MINUTE, checkGuard, clientIp, floodGuard, ipKey, qlooBudget } from "@/lib/guard";
@@ -151,7 +151,7 @@ describe("blank env values", () => {
     const c = loadConfig({ SIGMORA_PUBLISH_MODE: "", QLOO_MODE: "  ", QLOO_DAILY_CALL_CAP: "", QLOO_BIAS_TRENDS: "", QLOO_API_KEY: " " });
     expect(c.SIGMORA_PUBLISH_MODE).toBe("sandbox");
     expect(c.QLOO_MODE).toBe("auto");
-    expect(c.QLOO_DAILY_CALL_CAP).toBe(300);
+    expect(c.QLOO_DAILY_CALL_CAP).toBe(400);
     expect(c.QLOO_BIAS_TRENDS).toBe("medium");
     expect(c.QLOO_API_KEY).toBeUndefined();
   });
@@ -181,12 +181,39 @@ describe("client IP keys", () => {
 });
 
 describe("qlooBudget", () => {
-  it("gives a cold preset its own share and custom runs the caller's share minus the holdback", () => {
-    const env = { QLOO_DAILY_CALL_CAP: "1000", QLOO_PRESET_HOLDBACK: "200", QLOO_IP_DAILY_CALLS: "160", QLOO_PRESET_DAILY_CALLS: "240" };
-    expect(qlooBudget({ presetId: "indie-release", fresh: false }, "1.2.3.4", env)).toEqual({ scope: { key: "preset:indie-release", cap: 240 } });
-    expect(qlooBudget({ presetId: "indie-release", fresh: true }, "1.2.3.4", env)).toEqual({ scope: { key: "ip:1.2.3.4", cap: 160 }, globalLimit: 800 });
-    expect(qlooBudget({ fresh: false }, "1.2.3.4", { ...env, QLOO_PRESET_HOLDBACK: "5000" }).globalLimit).toBe(0);
+  it("draws cold presets from the presets' pool and custom runs from the custom pool and their network's share", () => {
+    const env = { QLOO_DAILY_CALL_CAP: "1000", QLOO_PRESET_POOL: "300", QLOO_IP_DAILY_CALLS: "160", QLOO_PRESET_DAILY_CALLS: "240" };
+    expect(qlooBudget({ presetId: "indie-release", fresh: false }, "1.2.3.4", env)).toEqual({ scopes: [{ key: "pool:presets", cap: 300 }, { key: "preset:indie-release", cap: 240 }] });
+    expect(qlooBudget({ presetId: "indie-release", fresh: true }, "1.2.3.4", env)).toEqual({ scopes: [{ key: "pool:custom", cap: 700 }, { key: "ip:1.2.3.4", cap: 160 }] });
   });
+});
+
+describe("budget settings", () => {
+  it("the defaults fit together", () => {
+    expect(budgetProblems(loadConfig({}))).toEqual([]);
+  });
+  it("refuses settings that would refuse a kind of run all day, or let one network take the custom pool", () => {
+    expect(() => loadConfig({ QLOO_DAILY_CALL_CAP: "300", QLOO_PRESET_POOL: "240" })).toThrow(/must cover one run/);
+    expect(() => loadConfig({ QLOO_PRESET_POOL: "50" })).toThrow(/QLOO_PRESET_POOL \(50\) must cover one run/);
+    expect(() => loadConfig({ QLOO_DAILY_CALL_CAP: "1000", QLOO_IP_DAILY_CALLS: "900" })).toThrow(/can't exceed the custom pool/);
+    expect(budgetProblems(loadConfig({ QLOO_DAILY_CALL_CAP: "0" }))).toEqual([]);
+  });
+  test.prop([fc.integer({ min: 0, max: 5000 }), fc.integer({ min: 0, max: 5000 }), fc.integer({ min: 10, max: 500 }), fc.integer({ min: 10, max: 2000 })])(
+    "a config that loads always fits one run in every share it can reserve from",
+    (cap, pool, estimate, ip) => {
+      let c;
+      try {
+        c = loadConfig({ QLOO_DAILY_CALL_CAP: String(cap), QLOO_PRESET_POOL: String(pool), QLOO_RUN_ESTIMATE: String(estimate), QLOO_IP_DAILY_CALLS: String(ip) });
+      } catch (err) {
+        expect(err).toBeInstanceOf(ConfigError);
+        return;
+      }
+      if (c.QLOO_DAILY_CALL_CAP === 0) return;
+      const customPool = c.QLOO_DAILY_CALL_CAP - c.QLOO_PRESET_POOL;
+      expect(Math.min(customPool, c.QLOO_PRESET_POOL, c.QLOO_IP_DAILY_CALLS, c.QLOO_PRESET_DAILY_CALLS)).toBeGreaterThanOrEqual(c.QLOO_RUN_ESTIMATE);
+      expect(c.QLOO_IP_DAILY_CALLS).toBeLessThanOrEqual(customPool);
+    },
+  );
 });
 
 describe("floodGuard", () => {

@@ -1,6 +1,6 @@
 /** QlooClient against a stubbed HTTP layer: the live path, its failure modes, and the labeled fallbacks. */
 import { describe, expect, it, vi } from "vitest";
-import { MemoryCounter, incrDaily } from "@/lib/counter";
+import { type Counter, MemoryCounter, incrDaily } from "@/lib/counter";
 import { HttpError, TimeoutError, type RetryPolicy } from "@/lib/net";
 import { MemoryCache } from "@/lib/qloo/cache";
 import { QlooClient, type QlooClientOptions } from "@/lib/qloo/client";
@@ -91,6 +91,16 @@ describe("QlooClient: live", () => {
 
   it("treats an unexpected live response shape as an error, not data", async () => {
     await expect(client(async () => ok({ results: "not a list" })).search("Tems")).rejects.toBeInstanceOf(QlooSchemaError);
+    // A malformed 200 is neither cached nor recorded: the next call fetches again and gets the good reply.
+    const cache = new MemoryCache();
+    const recorder: Record<string, unknown> = {};
+    let n = 0;
+    const flaky = vi.fn(async () => (n++ === 0 ? ok({ results: "not a list" }) : ok(results)));
+    await expect(client(flaky, { cache, recorder }).search("Tems")).rejects.toBeInstanceOf(QlooSchemaError);
+    expect(Object.keys(recorder)).toEqual([]);
+    const second = await client(flaky, { cache, recorder }).search("Tems");
+    expect(second.meta.cached).toBe(false);
+    expect(Object.keys(recorder)).toHaveLength(1);
   });
 
   it("enforces the per-run call budget, counting every attempt including retries", async () => {
@@ -140,27 +150,59 @@ describe("QlooClient: live", () => {
     expect(await jobs[4]?.reserve(58)).toBe(true);
   });
 
-  it("caps each scope's share and keeps the holdback out of reach of scoped custom runs", async () => {
+  it("caps each share, keeps the preset and custom pools apart, and refunds every counter", async () => {
     const f = vi.fn(async () => ok(results));
     const counter = new MemoryCounter();
-    const daily = { counter, cap: 300 };
-    const ip = { scope: { key: "ip:1.2.3.4", cap: 160 }, globalLimit: 140 };
-    // One caller: its first run fits, the second would pass the global limit for custom runs (140 of 300).
+    const daily = { counter, cap: 400 };
+    const custom = (ip: string) => ({ scopes: [{ key: "pool:custom", cap: 160 }, { key: `ip:${ip}`, cap: 160 }] });
+    const preset = (id: string) => ({ scopes: [{ key: "pool:presets", cap: 240 }, { key: `preset:${id}`, cap: 160 }] });
+    const n = (name: string) => incrDaily(counter, name, Date.now(), 0);
+    // The presets spend their whole pool…
+    for (const id of ["a", "a", "b"]) expect(await client(f, { daily }).reserve(80, preset(id))).toBe(true);
+    expect(await client(f, { daily }).reserve(80, preset("c"))).toBe(false);
+    // …and a preset's own share caps it (two cold runs a day).
+    expect(await client(f, { daily }).reserve(80, preset("a"))).toBe(false);
+    // Custom briefs still have their own pool, shared fairly: one network fills its share, another still gets in.
     const a = client(f, { daily });
-    expect(await a.reserve(80, ip)).toBe(true);
-    expect(await client(f, { daily }).reserve(80, ip)).toBe(false);
-    // The refused reservation took nothing from either count.
-    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(80);
-    expect(await incrDaily(counter, "qloo-scope:ip:1.2.3.4", Date.now(), 0)).toBe(80);
-    // A cold preset can still use the holdback, up to its own share.
-    const preset = { scope: { key: "preset:p", cap: 160 } };
-    expect(await client(f, { daily }).reserve(80, preset)).toBe(true);
-    expect(await client(f, { daily }).reserve(80, preset)).toBe(true);
-    expect(await client(f, { daily }).reserve(80, preset)).toBe(false);
-    // Releasing returns the unspent calls to both counts.
+    expect(await a.reserve(80, custom("1.1.1.1"))).toBe(true);
+    expect(await client(f, { daily }).reserve(80, custom("1.1.1.1"))).toBe(true);
+    expect(await client(f, { daily }).reserve(80, custom("2.2.2.2"))).toBe(false);
+    // A refused reservation took nothing from any counter.
+    expect([await n("qloo-calls"), await n("qloo-scope:pool:custom"), await n("qloo-scope:ip:2.2.2.2")]).toEqual([400, 160, 0]);
+    // Releasing returns the unspent calls to every counter it took from.
+    await a.search("x");
     await a.release();
-    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(160);
-    expect(await incrDaily(counter, "qloo-scope:ip:1.2.3.4", Date.now(), 0)).toBe(0);
+    expect([await n("qloo-calls"), await n("qloo-scope:pool:custom"), await n("qloo-scope:ip:1.1.1.1")]).toEqual([321, 81, 81]);
+  });
+
+  it("charges calls past the reservation to the reserved shares too, so overruns can't eat another pool", async () => {
+    const f = vi.fn(async () => ok(results));
+    const counter = new MemoryCounter();
+    const c = client(f, { daily: { counter, cap: 400 } });
+    expect(await c.reserve(2, { scopes: [{ key: "pool:custom", cap: 3 }] })).toBe(true);
+    await c.search("a");
+    await c.search("b");
+    // The third call is past the reservation: it is charged to the pool, which now has 3 of 3.
+    await c.search("c");
+    expect(await incrDaily(counter, "qloo-scope:pool:custom", Date.now(), 0)).toBe(3);
+    await expect(c.search("d")).rejects.toBeInstanceOf(QlooBudgetError);
+    // The refused call took nothing.
+    expect([await incrDaily(counter, "qloo-calls", Date.now(), 0), await incrDaily(counter, "qloo-scope:pool:custom", Date.now(), 0)]).toEqual([3, 3]);
+  });
+
+  it("fails closed when the budget store is down: no run starts, nothing half-taken stays taken", async () => {
+    const f = vi.fn(async () => ok(results));
+    const store = new MemoryCounter();
+    let down = false;
+    const flaky: Counter = { incr: (k, ttl, by) => (down && k.includes("pool") ? Promise.reject(new Error("KV down")) : store.incr(k, ttl, by)) };
+    const daily = { counter: flaky, cap: 400 };
+    down = true;
+    expect(await client(f, { daily }).reserve(80, { scopes: [{ key: "pool:custom", cap: 160 }] })).toBe(false);
+    down = false;
+    expect(await incrDaily(store, "qloo-calls", Date.now(), 0)).toBe(0);
+    // A call past the reservation while the store is down is refused as a spent budget (the critic then degrades to unscored).
+    const broken: Counter = { incr: () => Promise.reject(new Error("KV down")) };
+    await expect(client(f, { daily: { counter: broken, cap: 400 } }).search("y")).rejects.toBeInstanceOf(QlooBudgetError);
   });
 
   it("gives unspent calls back to the day they were reserved from, across midnight", async () => {

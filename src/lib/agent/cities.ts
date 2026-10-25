@@ -12,8 +12,10 @@ import type { HeatCell } from "./types";
 
 /** Contiguous US bounding box as WKT (longitude first). */
 export const US_WKT = "POLYGON((-125 24, -66 24, -66 50, -125 50, -125 24))";
-/** Cells kept for the map; the API may return thousands. */
+/** Cells kept for the map, in case the host returns more than asked for. */
 export const MAX_MAP_CELLS = 400;
+/** `take` sent on heatmap calls: the documented maximum (1..50, default 20). */
+export const HEATMAP_TAKE = 50;
 /** Cells within this distance of a city centre count toward it. */
 export const FOLD_RADIUS_KM = 60;
 
@@ -48,7 +50,12 @@ export interface CityRanking {
   heatmap: HeatCell[];
   rankedBy: "locality" | "heatmap" | "none";
   heatmapError?: string;
+  /** Set when the locality ranking call failed (the heatmap fold then ranks the cities, if it loaded). */
+  localityError?: string;
 }
+
+const settle = <T>(p: Promise<T>) => p.then((r) => ({ ok: true as const, r })).catch((err: unknown) => ({ ok: false as const, err }));
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): Promise<CityRanking> {
   const found = await Promise.all(
@@ -59,13 +66,12 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): 
   );
   const candidates = found.filter((c): c is NonNullable<typeof c> => !!c);
   const ids = candidates.map((c) => c.entityId);
-  const [ranked, heat] = await Promise.all([
-    ids.length ? ctx.qloo.insights("urn:entity:locality", { ...signalFor(ctx), "filter.results.entities": ids, take: ids.length }) : undefined,
-    ctx.qloo
-      .insights("urn:heatmap", { ...signalFor(ctx), "filter.location": US_WKT })
-      .then((r) => ({ ok: true as const, r }))
-      .catch((err: unknown) => ({ ok: false as const, err })),
+  // Both settle: a failed locality ranking must not throw away the heatmap that would rank the cities instead.
+  const [locality, heat] = await Promise.all([
+    ids.length ? settle(ctx.qloo.insights("urn:entity:locality", { ...signalFor(ctx), "filter.results.entities": ids, take: ids.length })) : undefined,
+    settle(ctx.qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location": US_WKT, take: HEATMAP_TAKE })),
   ]);
+  const ranked = locality?.ok ? locality.r : undefined;
 
   const cells: HeatCell[] = heat.ok
     ? (heat.r.data.results.heatmap ?? []).flatMap((c) =>
@@ -85,6 +91,7 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[]): 
     cities: cities.sort((a, b) => b.affinity - a.affinity),
     heatmap: topCells(cells),
     rankedBy: byLocality.length ? "locality" : cities.length ? "heatmap" : "none",
-    heatmapError: heat.ok ? undefined : heat.err instanceof Error ? heat.err.message : String(heat.err),
+    heatmapError: heat.ok ? undefined : message(heat.err),
+    localityError: locality && !locality.ok ? message(locality.err) : undefined,
   };
 }

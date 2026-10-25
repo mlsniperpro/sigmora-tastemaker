@@ -54,7 +54,7 @@ export function CampaignPack({ side, mode, runSimulated = false }: { side: PlanS
     return (
       <section aria-label="Campaign pack" className="rounded-2xl border border-line bg-panel p-4">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Campaign pack — without Qloo</h2>
-        <p className="mt-2 text-body text-muted">The same model&apos;s draft without Qloo failed on this run ({side.unavailable}). Run the brief again to compare.</p>
+        <p className="mt-2 text-body text-muted">The plan without Qloo isn&apos;t available on this run ({side.unavailable}). Run the brief again to compare.</p>
       </section>
     );
   }

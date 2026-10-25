@@ -44,8 +44,8 @@ export interface Replacement {
   type: PickType;
   role: Role;
   reason: string;
-  /** Every Qloo-approved option for this swap, best first (`to` is the first until the model chooses). */
-  options?: { name: string; type: PickType; affinity: number }[];
+  /** Every Qloo-approved option for this swap, best first (`to` is the first until the model chooses); `own` marks the model's own idea that Qloo passed. */
+  options?: { name: string; type: PickType; affinity: number; own?: boolean }[];
 }
 
 /**

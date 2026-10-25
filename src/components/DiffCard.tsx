@@ -1,6 +1,6 @@
 "use client";
 
-import { placeholderReason } from "@/lib/agent/evidence";
+import { formatRate, placeholderReason } from "@/lib/agent/evidence";
 import type { Receipt, RunResult, Verdict } from "@/lib/agent/types";
 import { VERDICT_STYLE, isSimulated, receiptNote, verdictLabel } from "./Receipt";
 
@@ -19,7 +19,6 @@ export function worstMisses(receipts: readonly Receipt[], n = 3): Receipt[] {
 
 const TEXT: Record<Verdict, string> = { pass: "text-pass", miss: "text-miss", hallucination: "text-invented", fading: "text-fade", unscored: "text-muted" };
 
-const pct = (x: number) => `${Math.round(x * 100)}%`;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function Side({ title, tone, active, big, bigLabel, lines }: { title: string; tone: "bad" | "good"; active: boolean; big: string; bigLabel: string; lines: React.ReactNode[] }) {
@@ -78,11 +77,11 @@ export function DiffCard({ result, mode }: { result: RunResult; mode: "qloo" | "
             bigLabel={noBaseline ? "no draft this run" : `of ${plural(b.picks, "pick")} flagged`}
             lines={
               blank || noBaseline
-                ? [noBaseline ? "The draft without Qloo failed this run." : hidden]
+                ? [noBaseline ? "The plan without Qloo isn’t available on this run." : hidden]
                 : [
                     `${b.hallucinations} invented · ${b.misses} low-affinity · ${b.fading} fading`,
                     <>
-                      Culture Miss Rate <span className="font-mono text-miss">{pct(b.cultureMissRate)}</span>
+                      Culture Miss Rate <span className="font-mono text-miss">{formatRate(b.cultureMissRate)}</span>
                     </>,
                   ]
             }
@@ -99,7 +98,7 @@ export function DiffCard({ result, mode }: { result: RunResult; mode: "qloo" | "
                 : [
                     `${passed} of ${plural(g.picks, "pick")} pass`,
                     <>
-                      Miss Rate after the critic <span className="font-mono text-ink">{pct(g.cultureMissRate)}</span> (low by design)
+                      Miss Rate after the critic <span className="font-mono text-ink">{formatRate(g.cultureMissRate)}</span> (low by design)
                     </>,
                   ]
             }
@@ -140,7 +139,7 @@ export function DiffCard({ result, mode }: { result: RunResult; mode: "qloo" | "
             whether the result is actually better.
           </>
         )}
-        {!blank && noBaseline && <> The same-model draft without Qloo failed this run ({noBaseline}), so there is nothing to compare against.</>}
+        {!blank && noBaseline && <> The same-model plan without Qloo isn&apos;t available on this run ({noBaseline}), so there is nothing to compare against.</>}
       </p>
     </section>
   );

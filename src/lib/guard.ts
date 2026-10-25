@@ -105,15 +105,18 @@ export function ipKey(ip: string): string {
 }
 
 /**
- * How a new run's Qloo calls are reserved. A cold preset spends from its own
- * daily share (so a burst of identical cold requests across instances can't
- * drain the day) and may use the holdback. Custom briefs and "Re-run live"
- * spend from their caller's share and never touch the holdback.
+ * How a new run's Qloo calls are reserved. The day is split into two pools:
+ * cold preset runs draw on the presets' pool (and their own preset's share, so
+ * a burst of identical cold requests across instances can't drain it), custom
+ * briefs and "Re-run live" on the custom pool (and their network's share).
+ * Neither kind can starve the other, and no one network can take the custom pool.
  */
 export function qlooBudget(run: { presetId?: string; fresh: boolean }, ip: string, env: Record<string, string | undefined> = process.env): ReserveOptions {
   const c = loadConfig(env);
-  if (run.presetId && !run.fresh) return { scope: { key: `preset:${run.presetId}`, cap: c.QLOO_PRESET_DAILY_CALLS } };
-  return { scope: { key: `ip:${ip}`, cap: c.QLOO_IP_DAILY_CALLS }, globalLimit: Math.max(0, c.QLOO_DAILY_CALL_CAP - c.QLOO_PRESET_HOLDBACK) };
+  if (run.presetId && !run.fresh) {
+    return { scopes: [{ key: "pool:presets", cap: c.QLOO_PRESET_POOL }, { key: `preset:${run.presetId}`, cap: c.QLOO_PRESET_DAILY_CALLS }] };
+  }
+  return { scopes: [{ key: "pool:custom", cap: c.QLOO_DAILY_CALL_CAP - c.QLOO_PRESET_POOL }, { key: `ip:${ip}`, cap: c.QLOO_IP_DAILY_CALLS }] };
 }
 
 /** Requests per IP per minute to any API route, paid or not. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { applyChoices } from "@/lib/agent/choose";
+import { MAX_OWN_IDEAS, applyChoices, ownProposals, withOwnIdeas } from "@/lib/agent/choose";
+import type { Receipt } from "@/lib/agent/types";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
@@ -42,6 +43,56 @@ describe("applyChoices", () => {
   });
 });
 
+const verdict = (name: string, v: Receipt["verdict"], affinity?: number): Receipt => ({ name, type: "artist", role: "collab", verdict: v, affinity, drivers: [], calls: [], note: "" });
+
+describe("the model's own ideas", () => {
+  const offered = [rep("Ed Sheeran", ["Victony", "Omah Lay"]), rep("Nickelback", ["Ckay"])];
+
+  it("proposes only flagged, new, deduplicated names, one per swap, capped", () => {
+    const choices: Choice[] = [
+      { from: "Ed Sheeran", to: "Burna Boy", why: "w", own: true },
+      { from: "Ed Sheeran", to: "Wizkid", why: "second idea for the same swap", own: true },
+      { from: "Nickelback", to: "Tems", why: "already in the plan", own: true },
+      { from: "Unknown Swap", to: "Rema", why: "no such swap", own: true },
+    ];
+    const p = ownProposals(offered, choices, new Set(["tems"]));
+    expect(p).toEqual([{ from: "Ed Sheeran", pick: { name: "Burna Boy", type: "artist", role: "collab", rationale: "w" } }]);
+    expect(ownProposals(offered, [{ from: "Ed Sheeran", to: "Victony", why: "listed option" }], new Set())).toEqual([]);
+  });
+
+  test.prop([fc.array(fc.record({ from: fc.constantFrom("Ed Sheeran", "Nickelback"), to: fc.string({ maxLength: 12 }), why: fc.constant("w"), own: fc.boolean() }), { maxLength: 8 })])(
+    "never proposes more than the cap, an empty name, or two for one swap",
+    (choices) => {
+      const p = ownProposals(offered, choices, new Set());
+      expect(p.length).toBeLessThanOrEqual(MAX_OWN_IDEAS);
+      expect(new Set(p.map((x) => x.from)).size).toBe(p.length);
+      for (const x of p) expect(x.pick.name.trim()).not.toBe("");
+    },
+  );
+
+  it("uses an own idea only after Qloo passed it, and says what happened either way", () => {
+    const choices: Choice[] = [
+      { from: "Ed Sheeran", to: "Burna Boy", why: "global reach", own: true },
+      { from: "Nickelback", to: "Lagos Velvet Collective", why: "invented", own: true },
+    ];
+    const proposals = ownProposals(offered, choices, new Set());
+    const verdicts = [verdict("Burna Boy", "pass", 0.71), verdict("Lagos Velvet Collective", "hallucination")];
+    const { replacements, notes } = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts);
+    expect(replacements.map((r) => r.to)).toEqual(["Burna Boy", "Ckay"]);
+    expect(notes[0]).toMatch(/the model's own idea, which passed Qloo's check \(affinity 0\.71\): global reach/);
+    expect(replacements[0]?.reason).toMatch(/proposed Burna Boy itself, and Qloo scored it above the bar/);
+    expect(notes[1]).toMatch(/Qloo's top option: the model's own idea "Lagos Velvet Collective" came back hallucination/);
+  });
+
+  it("never uses an own idea Qloo scored below the bar or didn't score", () => {
+    const choices: Choice[] = [{ from: "Ed Sheeran", to: "Coldplay", why: "w", own: true }];
+    const proposals = ownProposals(offered, choices, new Set());
+    for (const v of [[verdict("Coldplay", "miss", 0.1)], [verdict("Coldplay", "unscored")], []]) {
+      expect(applyChoices(withOwnIdeas(offered, proposals, v), choices, v).replacements[0]?.to).toBe("Victony");
+    }
+  });
+});
+
 describe("the model's choice in a run", () => {
   it("is traced, applied and kept within Qloo's options", async () => {
     class Chooser extends DeterministicLLM {
@@ -53,6 +104,22 @@ describe("the model's choice in a run", () => {
     const step = r.trace.find((s) => s.id === "choose-1");
     expect(step?.detail).toMatch(/model's choice from .*closer to the brief/);
     expect(r.metrics.grounded.hallucinations).toBe(0);
+  });
+
+  it("scores the model's own ideas with Qloo: an invented one is refused, a real one above the bar is used", async () => {
+    class Inventive extends DeterministicLLM {
+      override async choose(reps: Replacement[]): Promise<Choice[]> {
+        return reps.map((r, i) => ({ from: r.from, to: i === 0 ? "Lagos Velvet Collective" : r.to, why: "my own idea", own: i === 0 }));
+      }
+    }
+    const r = await runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new Inventive() });
+    const step = r.trace.find((s) => s.id === "choose-1");
+    expect(step?.detail).toMatch(/the model's own idea "Lagos Velvet Collective" came back hallucination/);
+    expect(r.grounded.receipts.some((x) => x.name === "Lagos Velvet Collective")).toBe(false);
+    // The scripted model's own "Telfar" passes Qloo and replaces the low-affinity sponsor, verified again by the next critic pass.
+    const scripted = await runTastemaker(PRESETS[0].brief, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+    expect(scripted.trace.find((s) => s.id === "choose-1")?.detail).toMatch(/→ Telfar \(the model's own idea, which passed Qloo's check/);
+    expect(scripted.grounded.receipts.find((x) => x.name === "Telfar")?.verdict).toBe("pass");
   });
 
   it("keeps Qloo's top options when the model's choice call fails", async () => {

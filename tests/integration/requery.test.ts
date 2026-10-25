@@ -11,7 +11,7 @@ import { must } from "../must";
 const fastRetry = { retries: 2, baseMs: 1, maxMs: 2, sleep: async () => undefined };
 const post = (body: unknown) => new Request("http://x/api", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "5.6.7.8" }, body: JSON.stringify(body) });
 
-const OWNER_KEY = "k".repeat(32);
+const OWNER_KEY = "kO9x2LmQp7zVb4nRt6yHw3sJd8fGc5aE";
 /** The owner's request: only it reaches the real publisher's metrics. */
 const asOwner = (body: unknown) => {
   const r = post(body);
