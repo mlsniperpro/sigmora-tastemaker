@@ -180,6 +180,15 @@ function write(brief: Brief, picks: Pick[], grounding?: DraftInput["grounding"])
   };
 }
 
+/** The scripted model's own replacement ideas per role, tried in order. */
+const OWN_IDEAS: Partial<Record<Role, readonly string[]>> = {
+  collab: ["Burna Boy", "Wizkid"],
+  sponsor: ["Telfar", "Red Bull"],
+  reference: ["Insecure", "The Bear"],
+  podcast: ["The Breakfast Club", "Rap Radar"],
+  presenter: ["Issa Rae", "Druski"],
+};
+
 export class DeterministicLLM implements LLMProvider {
   id = "deterministic";
   label = "Scripted offline model (no LLM key set)";
@@ -194,8 +203,21 @@ export class DeterministicLLM implements LLMProvider {
     return Promise.resolve(draft);
   }
 
-  /** The scripted model keeps Qloo's top option for every swap, and says so. */
+  /**
+   * The scripted model keeps Qloo's top option, except that it offers one idea of
+   * its own per round (from a fixed list, first swap whose role has one), so the
+   * offline demo exercises Qloo checking the model's own proposals too.
+   */
   choose(replacements: Replacement[]): Promise<Choice[]> {
-    return Promise.resolve(replacements.map((r) => ({ from: r.from, to: r.to, why: "scripted stand-in, keeps Qloo's top option" })));
+    let proposed = false;
+    return Promise.resolve(
+      replacements.map((r) => {
+        const taken = new Set([r.from, ...(r.options ?? []).map((o) => o.name)].map((n) => n.toLowerCase()));
+        const idea = proposed ? undefined : OWN_IDEAS[r.role]?.find((n) => !taken.has(n.toLowerCase()));
+        if (!idea) return { from: r.from, to: r.to, why: "scripted stand-in, keeps Qloo's top option" };
+        proposed = true;
+        return { from: r.from, to: idea, why: "scripted stand-in's own idea, for Qloo to check", own: true };
+      }),
+    );
   }
 }

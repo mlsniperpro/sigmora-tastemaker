@@ -1,12 +1,16 @@
 import { requeryBrief } from "@/lib/agent/requery";
 import { runById } from "@/lib/agent/runCache";
-import { admit, guardResponse } from "@/lib/guard";
+import { admit, floodGuard, guardResponse } from "@/lib/guard";
 import { HttpError } from "@/lib/net";
 import { MeasureRequest, MetricsUnavailableError, publisherForRequest } from "@/lib/publisher";
+import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 import { formatZodIssues } from "@/lib/zod";
 
 /** Measure a shipped campaign and return the next brief, seeded with the picks that performed. The client then runs it. */
 export async function POST(req: Request) {
+  if (!sameOrigin(req)) return crossSiteResponse();
+  const flood = await floodGuard(req);
+  if (flood) return flood;
   let json: unknown;
   try {
     json = await req.json();

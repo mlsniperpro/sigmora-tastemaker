@@ -18,6 +18,12 @@ export const EnvSchema = z.object({
   QLOO_RUN_ESTIMATE: int(80, 10, 500),
   /** Live Qloo calls per UTC day, shared across instances when KV is set. */
   QLOO_DAILY_CALL_CAP: int(300, 0, 100000),
+  /** A custom brief or "Re-run live" draws on its caller's own daily share (per IP, or per IPv6 /64) of this many calls. */
+  QLOO_IP_DAILY_CALLS: int(160, 10, 100000),
+  /** Calls custom runs can never touch: kept back so the presets can still run live when their cache is cold. */
+  QLOO_PRESET_HOLDBACK: int(160, 0, 100000),
+  /** Live calls one preset may spend per day across every instance (a cold preset runs once, then serves from cache). */
+  QLOO_PRESET_DAILY_CALLS: int(160, 10, 100000),
   /** Requests per second to the Qloo host (the hackathon key allows ~5). */
   QLOO_RPS: int(4, 1, 50),
   QLOO_TIMEOUT_MS: int(12000, 1000, 60000),

@@ -140,6 +140,48 @@ describe("QlooClient: live", () => {
     expect(await jobs[4]?.reserve(58)).toBe(true);
   });
 
+  it("caps each scope's share and keeps the holdback out of reach of scoped custom runs", async () => {
+    const f = vi.fn(async () => ok(results));
+    const counter = new MemoryCounter();
+    const daily = { counter, cap: 300 };
+    const ip = { scope: { key: "ip:1.2.3.4", cap: 160 }, globalLimit: 140 };
+    // One caller: its first run fits, the second would pass the global limit for custom runs (140 of 300).
+    const a = client(f, { daily });
+    expect(await a.reserve(80, ip)).toBe(true);
+    expect(await client(f, { daily }).reserve(80, ip)).toBe(false);
+    // The refused reservation took nothing from either count.
+    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(80);
+    expect(await incrDaily(counter, "qloo-scope:ip:1.2.3.4", Date.now(), 0)).toBe(80);
+    // A cold preset can still use the holdback, up to its own share.
+    const preset = { scope: { key: "preset:p", cap: 160 } };
+    expect(await client(f, { daily }).reserve(80, preset)).toBe(true);
+    expect(await client(f, { daily }).reserve(80, preset)).toBe(true);
+    expect(await client(f, { daily }).reserve(80, preset)).toBe(false);
+    // Releasing returns the unspent calls to both counts.
+    await a.release();
+    expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(160);
+    expect(await incrDaily(counter, "qloo-scope:ip:1.2.3.4", Date.now(), 0)).toBe(0);
+  });
+
+  it("gives unspent calls back to the day they were reserved from, across midnight", async () => {
+    const f = vi.fn(async () => ok(results));
+    const counter = new MemoryCounter();
+    const daily = { counter, cap: 300 };
+    const before = Date.parse("2026-10-25T23:59:30Z");
+    vi.useFakeTimers({ toFake: ["Date"], now: before });
+    try {
+      const c = client(f, { daily });
+      expect(await c.reserve(80)).toBe(true);
+      vi.setSystemTime(Date.parse("2026-10-26T00:00:30Z"));
+      await c.release();
+      expect(await incrDaily(counter, "qloo-calls", before, 0)).toBe(0);
+      // The new day was never pushed below zero, so it grants no extra budget.
+      expect(await incrDaily(counter, "qloo-calls", Date.now(), 0)).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sends no call after its deadline, so a crowded Qloo phase can't outlast the route", async () => {
     const f = vi.fn(async () => ok(results));
     const c = client(f);

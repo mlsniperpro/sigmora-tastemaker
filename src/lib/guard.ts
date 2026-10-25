@@ -6,7 +6,8 @@
  * bounded in-process map otherwise. Cached results never reach the guard.
  */
 import { loadConfig } from "./config";
-import { defaultCounter, incrDaily, incrPerMinute, type Counter } from "./counter";
+import { MemoryCounter, defaultCounter, incrDaily, incrPerMinute, type Counter } from "./counter";
+import type { ReserveOptions } from "./qloo/client";
 
 export interface GuardConfig {
   /** Uncached runs per IP per minute. */
@@ -76,9 +77,56 @@ export async function admit(req: Request, opts: { costs: boolean; perIp?: boolea
 }
 
 /**
- * The caller's IP as seen by the platform proxy. On Vercel the first
- * x-forwarded-for entry is set by the edge and can't be spoofed by the client.
+ * The caller's IP as the platform proxy saw it. On Vercel, x-vercel-forwarded-for
+ * (and the first x-forwarded-for entry) is set by the edge and can't be spoofed
+ * by the client; the domain must not sit behind another proxy, or every visitor
+ * shares the proxy's address.
  */
 export function clientIp(headers: Headers): string {
-  return headers.get("x-forwarded-for")?.split(",")[0]?.trim() || headers.get("x-real-ip") || "unknown";
+  const first = (h: string | null) => h?.split(",")[0]?.trim() || undefined;
+  return ipKey(first(headers.get("x-vercel-forwarded-for")) ?? first(headers.get("x-forwarded-for")) ?? headers.get("x-real-ip") ?? "unknown");
+}
+
+/**
+ * The rate-limit key for an address: IPv4 as is; IPv6 by its /64, since one
+ * host controls a whole /64 and could rotate through it to dodge per-IP limits.
+ */
+export function ipKey(ip: string): string {
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  if (mapped?.[1]) return mapped[1];
+  if (!ip.includes(":")) return ip;
+  const addr = ip.replace(/^\[|\](:\d+)?$/g, "").split("%")[0] ?? "";
+  const [head = "", tail] = addr.toLowerCase().split("::", 2);
+  const h = head ? head.split(":") : [];
+  const t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array<string>(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return addr.toLowerCase();
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+/**
+ * How a new run's Qloo calls are reserved. A cold preset spends from its own
+ * daily share (so a burst of identical cold requests across instances can't
+ * drain the day) and may use the holdback. Custom briefs and "Re-run live"
+ * spend from their caller's share and never touch the holdback.
+ */
+export function qlooBudget(run: { presetId?: string; fresh: boolean }, ip: string, env: Record<string, string | undefined> = process.env): ReserveOptions {
+  const c = loadConfig(env);
+  if (run.presetId && !run.fresh) return { scope: { key: `preset:${run.presetId}`, cap: c.QLOO_PRESET_DAILY_CALLS } };
+  return { scope: { key: `ip:${ip}`, cap: c.QLOO_IP_DAILY_CALLS }, globalLimit: Math.max(0, c.QLOO_DAILY_CALL_CAP - c.QLOO_PRESET_HOLDBACK) };
+}
+
+/** Requests per IP per minute to any API route, paid or not. */
+export const FREE_ROUTE_PER_MINUTE = 120;
+// In-process on purpose: this limit must cost nothing (no KV round trip) to check.
+const freeCounter = new MemoryCounter(20000);
+
+/**
+ * A cheap per-instance flood guard for every API route, including the free
+ * ones (permalinks, Ship lookups), so scripted floods can't burn the KV quota.
+ * Undefined when the request may go on.
+ */
+export async function floodGuard(req: Request, now = Date.now()): Promise<Response | undefined> {
+  if ((await incrPerMinute(freeCounter, `flood:${clientIp(req.headers)}`, now)) <= FREE_ROUTE_PER_MINUTE) return undefined;
+  return Response.json({ error: "Too many requests from your network. Wait a minute." }, { status: 429, headers: { "Retry-After": String(60 - Math.floor((now / 1000) % 60)) } });
 }

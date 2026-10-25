@@ -128,7 +128,7 @@ describe("LiveLLM.choose", () => {
   const reps = [
     { from: "Ed Sheeran", to: "Victony", type: "artist" as const, role: "collab" as const, reason: "scores 0.10", options: [{ name: "Victony", type: "artist" as const, affinity: 0.8 }, { name: "Omah Lay", type: "artist" as const, affinity: 0.7 }] },
   ];
-  it("asks the model to choose among the listed options only, and parses its choices", async () => {
+  it("asks the model to choose among the listed options, and parses its choices", async () => {
     const f = vi.fn(async (_u: string, init: RequestInit) => {
       const body = sentJson(init) as { messages: { content: string }[] };
       expect(body.messages.at(-1)?.content).toMatch(/Ed Sheeran.*options: Victony \[0\.80\], Omah Lay \[0\.70\]/);
@@ -136,6 +136,14 @@ describe("LiveLLM.choose", () => {
     });
     const brief = Brief.parse(PRESETS[0].brief);
     await expect(live(f).choose(reps, { brief })).resolves.toEqual([{ from: "Ed Sheeran", to: "Omah Lay", why: "late-night fit" }]);
+  });
+  it("lets the model propose its own idea, flagged so the caller has Qloo score it", async () => {
+    const f = vi.fn(async (_u: string, init: RequestInit) => {
+      const body = sentJson(init) as { messages: { content: string }[] };
+      expect(body.messages.at(-1)?.content).toMatch(/propose one real name of your own[\s\S]*"own": true[\s\S]*Qloo scores it/);
+      return openai(JSON.stringify({ choices: [{ from: "Ed Sheeran", to: "Burna Boy", why: "global reach, same lane", own: true }] }));
+    });
+    await expect(live(f).choose(reps, { brief: Brief.parse(PRESETS[0].brief) })).resolves.toEqual([{ from: "Ed Sheeran", to: "Burna Boy", why: "global reach, same lane", own: true }]);
   });
   it("throws a typed error on a malformed answer (the caller then keeps Qloo's top options)", async () => {
     const f = vi.fn(async () => openai(JSON.stringify({ picks: "nope" })));

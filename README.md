@@ -16,7 +16,7 @@ _Screenshot from an offline run (`pnpm screenshots`): the banner says the Qloo d
 
 ## Why it matters
 
-An audience-research brief from an agency takes weeks. Tastemaker produces a checked launch plan (audience, city, references, assets, schedule) in one run, and shows you which of the AI's picks were wrong. LLM marketing agents *hallucinate culture*: they confidently pick artists, shows, brands and places an audience doesn't actually love, and sometimes ones that don't exist. Tastemaker measures that miss rate on every run and fixes it before anything ships.
+Tastemaker produces a checked launch plan (audience, city, references, assets, schedule) in one run, and shows you which of the AI's picks were wrong. LLM marketing agents *hallucinate culture*: they confidently pick artists, shows, brands and places an audience doesn't actually love, and sometimes ones that don't exist. Tastemaker measures that miss rate on every run and fixes it before anything ships.
 
 ## Try it in 10 seconds
 

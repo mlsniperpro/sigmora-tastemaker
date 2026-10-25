@@ -82,6 +82,13 @@ function normalize(params: QlooParams): QlooParams {
 
 let sharedThrottle: Throttle | undefined;
 
+export interface ReserveOptions {
+  /** Refuse when today's shared use would pass this, though it is under the cap. */
+  globalLimit?: number;
+  /** A caller's own daily share (an IP, a preset): `key` names it, `cap` bounds it. */
+  scope?: { key: string; cap: number };
+}
+
 export class QlooClient {
   readonly mode: QlooMode;
   private readonly apiKey?: string;
@@ -95,6 +102,7 @@ export class QlooClient {
   private networkCalls = 0;
   /** Calls already paid for out of today's budget by reserve(), not yet spent. */
   private prepaid = 0;
+  private reservation: { at: number; scopeName?: string } | undefined;
   /** Epoch ms after which no call is sent (set per job by setDeadline). */
   private deadlineAt = Infinity;
 
@@ -203,25 +211,43 @@ export class QlooClient {
    * Takes `calls` out of today's live budget up front, in one atomic step, so a
    * job that starts can finish: concurrent jobs can't all pass a check and then
    * run dry half-way. False (and nothing taken) when today's budget can't cover it.
-   * Free when this client makes no live calls.
+   * Free when this client makes no live calls. One reservation per client (each
+   * run gets a fresh client).
+   *
+   * - `globalLimit` refuses below the daily cap, keeping the rest back for others (preset runs).
+   * - `scope` also counts the calls against its own daily cap (one IP, one preset), so no single
+   *   caller can take the whole day, however many instances serve it.
    */
-  async reserve(calls: number): Promise<boolean> {
+  async reserve(calls: number, opts: ReserveOptions = {}): Promise<boolean> {
     const daily = this.opts.daily;
     if (!daily || this.primarySource !== "live" || calls <= 0) return true;
-    if ((await incrDaily(daily.counter, "qloo-calls", Date.now(), calls)) > daily.cap) {
-      await incrDaily(daily.counter, "qloo-calls", Date.now(), -calls);
+    const at = Date.now();
+    const scopeName = opts.scope && `qloo-scope:${opts.scope.key}`;
+    if (opts.scope && scopeName && (await incrDaily(daily.counter, scopeName, at, calls)) > opts.scope.cap) {
+      await incrDaily(daily.counter, scopeName, at, -calls);
+      return false;
+    }
+    const limit = Math.min(daily.cap, opts.globalLimit ?? daily.cap);
+    if ((await incrDaily(daily.counter, "qloo-calls", at, calls)) > limit) {
+      await incrDaily(daily.counter, "qloo-calls", at, -calls);
+      if (scopeName) await incrDaily(daily.counter, scopeName, at, -calls);
       return false;
     }
     this.prepaid += calls;
+    this.reservation = { at, scopeName };
     return true;
   }
 
-  /** Gives back whatever reserve() took and the job didn't spend. */
+  /** Gives back whatever reserve() took and the job didn't spend, to the day it was taken from. */
   async release(): Promise<void> {
     const daily = this.opts.daily;
     const unspent = this.prepaid;
+    const r = this.reservation;
     this.prepaid = 0;
-    if (daily && unspent > 0) await incrDaily(daily.counter, "qloo-calls", Date.now(), -unspent);
+    this.reservation = undefined;
+    if (!daily || unspent <= 0 || !r) return;
+    await incrDaily(daily.counter, "qloo-calls", r.at, -unspent);
+    if (r.scopeName) await incrDaily(daily.counter, r.scopeName, r.at, -unspent);
   }
 
   private async fetchOnce(path: QlooPath, params: QlooParams): Promise<unknown> {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PRESETS } from "@/lib/agent/presets";
-import type { RunResult } from "@/lib/agent/types";
+import type { RunResult, Served } from "@/lib/agent/types";
 import { entityNames } from "@/lib/agent/evidence";
 import { measureFromUrl, requestFromUrl, runIdFromUrl } from "@/lib/permalink";
 import { BriefForm } from "./BriefForm";
@@ -16,14 +16,22 @@ import { TasteMap } from "./TasteMap";
 import { Trace } from "./Trace";
 import { useRun } from "./useRun";
 
-/** The ROI line, from this run's own measurements. */
-function RoiLine({ result }: { result: RunResult }) {
+/**
+ * The ROI line, from this run's own measurements only. A run served from the
+ * cache or a recording says its time was measured when it first ran.
+ */
+export function RoiLine({ result, served }: { result: RunResult; served?: Served }) {
   const seconds = Math.max(1, Math.round(result.durationMs / 1000));
   const checked = result.grounded.receipts.length + result.baseline.receipts.length;
+  const caught = result.baseline.unavailable ? 0 : result.baseline.receipts.filter((r) => r.verdict !== "pass" && r.verdict !== "unscored").length;
+  const when = served ? (served.from === "recording" ? " (recorded run)" : " (when it first ran)") : "";
   return (
     <p className="mt-1 text-meta text-ink/80">
-      <strong className="text-accent">This plan took {seconds} s</strong> and {result.qloo.calls} Qloo calls, with {checked} cultural picks checked. An
-      agency audience-research brief takes weeks.
+      <strong className="text-accent">
+        This plan took {seconds} s{when}
+      </strong>{" "}
+      and {result.qloo.calls} Qloo calls, with {checked} cultural picks checked
+      {caught > 0 ? `; ${caught} of the plain model's picks would have shipped wrong` : ""}.
     </p>
   );
 }
@@ -51,7 +59,7 @@ export function App() {
   return (
     <main className="mx-auto w-full max-w-[1400px] space-y-4 px-4 py-5 sm:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <Intro>{result && <RoiLine result={result} />}</Intro>
+        <Intro>{result && <RoiLine result={result} served={served} />}</Intro>
         <div role="group" aria-label="Plan view" className="flex rounded-full border border-line bg-panel p-1 text-meta">
           <button type="button" aria-pressed={mode === "qloo"} onClick={() => setMode("qloo")} className={`rounded-full px-3 py-1.5 ${mode === "qloo" ? "bg-accent font-semibold text-accent-ink" : "text-muted"}`}>
             With Qloo

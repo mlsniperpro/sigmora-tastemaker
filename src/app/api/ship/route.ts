@@ -1,9 +1,13 @@
-import { keepShippedRun, runById } from "@/lib/agent/runCache";
-import { admit, guardResponse } from "@/lib/guard";
+import { keepShippedRun, runById, shippableByOwner } from "@/lib/agent/runCache";
+import { admit, floodGuard, guardResponse } from "@/lib/guard";
 import { ShipRequest, publisherForRequest } from "@/lib/publisher";
+import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 import { formatZodIssues } from "@/lib/zod";
 
 export async function POST(req: Request) {
+  if (!sameOrigin(req)) return crossSiteResponse();
+  const flood = await floodGuard(req);
+  if (flood) return flood;
   let json: unknown;
   try {
     json = await req.json();
@@ -26,6 +30,9 @@ export async function POST(req: Request) {
 
   const publisher = publisherForRequest(req);
   if (publisher instanceof Response) return publisher;
+  if (publisher.id === "sigmora" && !(await shippableByOwner(run))) {
+    return Response.json({ error: "Only preset runs and runs you started while signed in as the owner can ship to real channels." }, { status: 403 });
+  }
   const g = await admit(req, { costs: publisher.id === "sigmora" });
   if (!g.ok) return guardResponse(g);
   try {

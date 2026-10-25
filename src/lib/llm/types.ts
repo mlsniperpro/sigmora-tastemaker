@@ -48,11 +48,16 @@ export interface Replacement {
   options?: { name: string; type: PickType; affinity: number }[];
 }
 
-/** The model's pick among a swap's Qloo-approved options, with its reason. */
+/**
+ * The model's answer for one swap, with its reason: one of the swap's
+ * Qloo-approved options, or (`own`) its own idea, which Qloo then scores and
+ * code keeps only if it clears the same bar.
+ */
 export interface Choice {
   from: string;
   to: string;
   why: string;
+  own?: boolean;
 }
 
 export interface DraftInput {
@@ -70,7 +75,7 @@ export interface LLMProvider {
   draft(input: DraftInput): Promise<Draft>;
   /** Polish the copy of a draft whose picks the critic already swapped (the caller keeps the pick list). */
   revise(draft: Draft, replacements: Replacement[], input: DraftInput): Promise<Draft>;
-  /** Choose, for each swap, one of its Qloo-approved options for this brief. The caller validates every choice. */
+  /** For each swap, choose one of its Qloo-approved options or propose an own idea. The caller verifies every answer with Qloo. */
   choose(replacements: Replacement[], input: DraftInput): Promise<Choice[]>;
 }
 

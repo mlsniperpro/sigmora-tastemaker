@@ -3,7 +3,7 @@ import { fc, test } from "@fast-check/vitest";
 import { ConfigError, loadConfig } from "@/lib/config";
 import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
-import { checkGuard, clientIp } from "@/lib/guard";
+import { FREE_ROUTE_PER_MINUTE, checkGuard, clientIp, floodGuard, ipKey, qlooBudget } from "@/lib/guard";
 import { sentJson } from "../must";
 
 describe("MemoryCounter", () => {
@@ -154,5 +154,49 @@ describe("blank env values", () => {
     expect(c.QLOO_DAILY_CALL_CAP).toBe(300);
     expect(c.QLOO_BIAS_TRENDS).toBe("medium");
     expect(c.QLOO_API_KEY).toBeUndefined();
+  });
+});
+
+describe("client IP keys", () => {
+  it("prefers the platform's header and keys IPv6 by its /64", () => {
+    expect(clientIp(new Headers({ "x-vercel-forwarded-for": "5.6.7.8", "x-forwarded-for": "1.1.1.1, 2.2.2.2" }))).toBe("5.6.7.8");
+    expect(clientIp(new Headers({ "x-forwarded-for": "1.1.1.1, 2.2.2.2" }))).toBe("1.1.1.1");
+    expect(clientIp(new Headers())).toBe("unknown");
+    expect(ipKey("2001:db8:abcd:12:1:2:3:4")).toBe("2001:db8:abcd:12::/64");
+    expect(ipKey("2001:db8:abcd:0012:ffff::1")).toBe("2001:db8:abcd:12::/64");
+    expect(ipKey("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(ipKey("::ffff:10.0.0.1")).toBe("10.0.0.1");
+    expect(ipKey("[2001:db8:1:2::9]:443")).toBe("2001:db8:1:2::/64");
+  });
+
+  test.prop([fc.ipV6(), fc.array(fc.integer({ min: 0, max: 0xffff }), { minLength: 4, maxLength: 4 })])(
+    "every address in one /64 shares one key",
+    (ip, tail) => {
+      const key = ipKey(ip);
+      if (!key.endsWith("::/64")) return; // fast-check also emits IPv4-embedded forms, which keep their own key
+      const prefix = key.slice(0, -"::/64".length);
+      expect(ipKey(`${prefix}:${tail.map((t) => t.toString(16)).join(":")}`)).toBe(key);
+    },
+  );
+});
+
+describe("qlooBudget", () => {
+  it("gives a cold preset its own share and custom runs the caller's share minus the holdback", () => {
+    const env = { QLOO_DAILY_CALL_CAP: "1000", QLOO_PRESET_HOLDBACK: "200", QLOO_IP_DAILY_CALLS: "160", QLOO_PRESET_DAILY_CALLS: "240" };
+    expect(qlooBudget({ presetId: "indie-release", fresh: false }, "1.2.3.4", env)).toEqual({ scope: { key: "preset:indie-release", cap: 240 } });
+    expect(qlooBudget({ presetId: "indie-release", fresh: true }, "1.2.3.4", env)).toEqual({ scope: { key: "ip:1.2.3.4", cap: 160 }, globalLimit: 800 });
+    expect(qlooBudget({ fresh: false }, "1.2.3.4", { ...env, QLOO_PRESET_HOLDBACK: "5000" }).globalLimit).toBe(0);
+  });
+});
+
+describe("floodGuard", () => {
+  it("lets a minute's worth of requests through, then 429s that network only", async () => {
+    const at = Date.parse("2026-10-25T10:00:05Z");
+    const req = (ip: string) => new Request("http://x/api/run?id=a", { headers: { "x-forwarded-for": ip } });
+    for (let i = 0; i < FREE_ROUTE_PER_MINUTE; i++) expect(await floodGuard(req("8.8.4.4"), at)).toBeUndefined();
+    const refused = await floodGuard(req("8.8.4.4"), at);
+    expect(refused?.status).toBe(429);
+    expect(refused?.headers.get("Retry-After")).toBe("55");
+    expect(await floodGuard(req("8.8.8.8"), at)).toBeUndefined();
   });
 });

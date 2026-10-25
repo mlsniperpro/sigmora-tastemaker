@@ -1,8 +1,9 @@
 import { after } from "next/server";
-import { cachedRun, costsMoney, getOrRun, recordedRuns, replay, resolveRunRequest, runById } from "@/lib/agent/runCache";
+import { cachedRun, costsMoney, getOrRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById } from "@/lib/agent/runCache";
 import type { RunEvent } from "@/lib/agent/types";
 import { loadConfig } from "@/lib/config";
-import { QLOO_SPENT, admit, guardResponse } from "@/lib/guard";
+import { isOwnerRequest } from "@/lib/publisher";
+import { QLOO_SPENT, admit, clientIp, floodGuard, guardResponse, qlooBudget } from "@/lib/guard";
 
 // A live run is throttled to the Qloo key's rate (the hero preset makes ~73 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
 export const maxDuration = 120;
@@ -54,6 +55,8 @@ function ndjson(work: (send: (e: RunEvent) => void) => Promise<unknown>, headers
  * also covers a refused or failed live run.
  */
 export async function POST(req: Request) {
+  const flood = await floodGuard(req);
+  if (flood) return flood;
   let json: unknown;
   try {
     json = await req.json();
@@ -73,17 +76,28 @@ export async function POST(req: Request) {
   // Presets skip the per-IP limits so the one-click demo always works ("Re-run live" doesn't); they still count toward the daily cap.
   const g = await admit(req, { costs: !lookup.result && costsMoney(lookup.deps), perIp: !request.presetId || request.fresh });
   // A new run takes its Qloo calls out of today's budget before it starts, so it can't run dry half-way.
-  const refusal = !g.ok ? g : !lookup.result && !(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE)) ? QLOO_SPENT : undefined;
+  // Each caller (an IP, or a cold preset) has its own daily share, so no one caller can spend the day.
+  const reserved = () => lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, clientIp(req.headers)));
+  const refusal = !g.ok ? g : !lookup.result && !(await reserved()) ? QLOO_SPENT : undefined;
   if (refusal) {
     if (!recording) return guardResponse(refusal);
     const reason = `a live run was refused (${refusal.message})`;
     return ndjson((send) => Promise.resolve(replay(recording, { from: "recording", reason }, send)), { "X-Run-Cache": "recording" });
   }
-  return ndjson((send) => getOrRun(lookup, send, recording).finally(() => lookup.deps.qloo.release()), { "X-Run-Cache": lookup.result ? "hit" : "miss" });
+  const owner = isOwnerRequest(req.headers);
+  const work = async (send: (e: RunEvent) => void) => {
+    const out = await getOrRun(lookup, send, recording).finally(() => lookup.deps.qloo.release());
+    // The owner was served this run from their own brief, so it may ship to real channels.
+    if (owner) await markOwnerRun(out.result.id, lookup.deps.cache);
+    return out;
+  };
+  return ndjson(work, { "X-Run-Cache": lookup.result ? "hit" : "miss" });
 }
 
 /** GET /api/run?id=<run id> → the finished run as JSON (permalinks). */
 export async function GET(req: Request) {
+  const flood = await floodGuard(req);
+  if (flood) return flood;
   const id = new URL(req.url).searchParams.get("id") ?? "";
   if (!/^[a-z0-9]{1,40}$/.test(id)) return Response.json({ error: "Bad run id" }, { status: 400 });
   const result = await runById(id);

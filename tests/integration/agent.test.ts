@@ -243,7 +243,7 @@ describe("agent loop: failure paths", () => {
 
   it("judges venues in the city the plan chose, not the top-ranked one", async () => {
     const r = await runTastemaker(must(PRESETS[0]).brief, { qloo: qloo(), llm: new SecondCityLLM() });
-    expect(r.cities[0]?.name).toBe("Washington");
+    expect(r.cities[0]?.name).toBe("Washington, DC");
     expect(r.grounded.receipts.find((x) => x.role === "city")).toMatchObject({ name: "Houston", verdict: "pass" });
     const venue = must(r.grounded.receipts.find((x) => x.role === "venue"));
     expect(venue.note).not.toMatch(/Not in/);

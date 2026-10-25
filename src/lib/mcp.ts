@@ -12,7 +12,7 @@ import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from
 import { tasteCheck } from "./agent/tasteCheck";
 import type { Receipt } from "./agent/types";
 import { loadConfig } from "./config";
-import { QLOO_SPENT, type GuardResult } from "./guard";
+import { QLOO_SPENT, qlooBudget, type GuardResult } from "./guard";
 import { qlooFromEnv } from "./qloo/client";
 import { formatZodIssues } from "./zod";
 
@@ -89,14 +89,14 @@ class ToolError extends Error {
   }
 }
 
-async function tasteCheckTool(args: unknown, gate: Gate) {
+async function tasteCheckTool(args: unknown, gate: Gate, ip: string) {
   const a = TasteCheckArgs.parse(args);
   const qloo = qlooFromEnv();
   // Only calls that would spend live Qloo quota are rate-limited, and they reserve their calls first
   // (about two per pick to resolve and score, plus the role pools and trend checks).
   if (qloo.primarySource === "live") {
     await admitOrThrow(gate);
-    if (!(await qloo.reserve(2 * a.picks.length + 12))) throw new ToolError(QLOO_SPENT.message);
+    if (!(await qloo.reserve(2 * a.picks.length + 12, qlooBudget({ fresh: true }, ip)))) throw new ToolError(QLOO_SPENT.message);
   }
   const r = await tasteCheck(a, { qloo }).finally(() => qloo.release());
   const text = [
@@ -113,7 +113,7 @@ async function admitOrThrow(gate: Gate) {
   if (!g.ok) throw new ToolError(g.message);
 }
 
-async function planCampaignTool(args: unknown, gate: Gate) {
+async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
   const request = resolveRunRequest(args ?? {});
   if (!request.ok) throw new ToolError(request.status === 400 ? `Invalid arguments: ${request.error}` : request.error);
   const cached = await cachedRun(request.brief);
@@ -125,7 +125,7 @@ async function planCampaignTool(args: unknown, gate: Gate) {
   else {
     if (!lookup.result && costsMoney(lookup.deps)) {
       await admitOrThrow(gate);
-      if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE))) throw new ToolError(QLOO_SPENT.message);
+      if (!(await lookup.deps.qloo.reserve(loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, ip)))) throw new ToolError(QLOO_SPENT.message);
     }
     r = (await getOrRun(lookup, undefined, recording).finally(() => lookup.deps.qloo.release())).result;
   }
@@ -144,9 +144,9 @@ async function planCampaignTool(args: unknown, gate: Gate) {
   };
 }
 
-async function callTool(name: string, args: unknown, gate: Gate) {
-  if (name === "taste_check") return tasteCheckTool(args, gate);
-  if (name === "plan_campaign") return planCampaignTool(args, gate);
+async function callTool(name: string, args: unknown, gate: Gate, ip: string) {
+  if (name === "taste_check") return tasteCheckTool(args, gate, ip);
+  if (name === "plan_campaign") return planCampaignTool(args, gate, ip);
   throw new RpcError(-32602, `Unknown tool "${name}"`);
 }
 
@@ -161,7 +161,8 @@ const toolErrorText = (err: unknown) =>
  * Handle one JSON-RPC message. Returns undefined for notifications (no reply
  * is sent for them, whatever the method).
  */
-export async function handleRpc(raw: unknown, gate: Gate = () => Promise.resolve({ ok: true })): Promise<RpcReply | undefined> {
+/** `ip` is the caller's rate-limit key: its daily share of the Qloo budget is reserved under it. */
+export async function handleRpc(raw: unknown, gate: Gate = () => Promise.resolve({ ok: true }), ip = "unknown"): Promise<RpcReply | undefined> {
   const parsed = JsonRpcMessage.safeParse(raw);
   if (!parsed.success) {
     const id = typeof raw === "object" && raw !== null && "id" in raw && (typeof raw.id === "string" || typeof raw.id === "number") ? raw.id : null;
@@ -188,7 +189,7 @@ export async function handleRpc(raw: unknown, gate: Gate = () => Promise.resolve
       case "tools/call": {
         const name = typeof msg.params?.name === "string" ? msg.params.name : "";
         try {
-          return ok(id, await callTool(name, msg.params?.arguments, gate));
+          return ok(id, await callTool(name, msg.params?.arguments, gate, ip));
         } catch (err) {
           if (err instanceof RpcError) throw err;
           if (!(err instanceof z.ZodError) && !(err instanceof ToolError)) console.error(`[mcp] ${name}: ${(err as Error).message}`);

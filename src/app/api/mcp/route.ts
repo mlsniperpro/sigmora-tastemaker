@@ -1,5 +1,5 @@
 import { loadConfig } from "@/lib/config";
-import { checkGuard, clientIp } from "@/lib/guard";
+import { checkGuard, clientIp, floodGuard } from "@/lib/guard";
 import { SUPPORTED_VERSIONS, handleRpc } from "@/lib/mcp";
 
 export const maxDuration = 120;
@@ -22,6 +22,7 @@ function originAllowed(req: Request): boolean {
  */
 export async function POST(req: Request) {
   if (!originAllowed(req)) return rpcError(-32600, "Origin not allowed", 403);
+  if (await floodGuard(req)) return rpcError(-32000, "Too many requests from your network. Wait a minute.", 429);
   const version = req.headers.get("mcp-protocol-version");
   if (version && !SUPPORTED_VERSIONS.includes(version)) return rpcError(-32600, `Unsupported MCP-Protocol-Version ${version}`, 400);
   let body: unknown;
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
   // JSON-RPC batching was removed from MCP in 2025-06-18.
   if (Array.isArray(body)) return rpcError(-32600, "Batch requests are not supported", 400);
   const ip = clientIp(req.headers);
-  const reply = await handleRpc(body, () => checkGuard(ip));
+  const reply = await handleRpc(body, () => checkGuard(ip), ip);
   if (!reply) return new Response(null, { status: 202 });
   return Response.json(reply);
 }

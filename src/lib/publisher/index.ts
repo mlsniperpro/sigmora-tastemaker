@@ -18,9 +18,9 @@
  * nothing, so it has nothing to measure and says so.
  */
 import { z } from "zod";
-import { createHash, timingSafeEqual } from "node:crypto";
 import { ConfigError, loadConfig } from "../config";
 import { CampaignId } from "../ids";
+import { ownerCredentialOf, ownerCredentialValid } from "./owner";
 import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
 
 export const ShipRequest = z.object({
@@ -164,39 +164,39 @@ export class OwnerKeyError extends Error {
   }
 }
 
-/** Where the owner's key travels: a header (scripts, curl) or the httpOnly cookie set by /api/owner. */
-export const OWNER_HEADER = "x-tastemaker-owner";
-export const OWNER_COOKIE = "tm_owner";
-
-function ownerKeyOf(headers: Headers): string | undefined {
-  const header = headers.get(OWNER_HEADER)?.trim();
-  if (header) return header;
-  const cookie = headers.get("cookie")?.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${OWNER_COOKIE}=`));
-  return cookie ? decodeURIComponent(cookie.slice(OWNER_COOKIE.length + 1)) : undefined;
-}
-
-/** Constant-time comparison (hashing first makes the lengths equal). */
-export function sameKey(a: string, b: string): boolean {
-  const h = (s: string) => createHash("sha256").update(s).digest();
-  return timingSafeEqual(h(a), h(b));
-}
+export { OWNER_COOKIE, OWNER_HEADER } from "./owner";
 
 /**
  * The publisher for this request. Real channels need live mode on the server
  * AND the owner's key on the request, so the public demo (no key) always gets
- * the labeled sandbox and can never post as the brand. Live mode without an
- * owner key configured is a configuration error, not a quiet sandbox.
+ * the labeled sandbox and can never post as the brand. Live mode with its
+ * settings missing is a configuration error for the owner (a 500), and the
+ * sandbox for everyone else. The
+ * owner is the header key or an unexpired session token from /api/owner.
  */
-export function publisherFor(headers: Headers, raw: Record<string, string | undefined> = process.env): PublisherProvider {
+export function publisherFor(headers: Headers, raw: Record<string, string | undefined> = process.env, now = Date.now()): PublisherProvider {
   const env = loadConfig(raw);
   if (env.SIGMORA_PUBLISH_MODE !== "live") return new SandboxPublisher();
+  const presented = ownerCredentialOf(headers);
   if (!env.SIGMORA_API_URL || !env.SIGMORA_API_TOKEN || !env.SIGMORA_OWNER_KEY) {
-    throw new ConfigError("SIGMORA_PUBLISH_MODE=live needs SIGMORA_API_URL, SIGMORA_API_TOKEN and SIGMORA_OWNER_KEY");
+    const problem = "SIGMORA_PUBLISH_MODE=live needs SIGMORA_API_URL, SIGMORA_API_TOKEN and SIGMORA_OWNER_KEY";
+    // Only the owner is told: visitors get the sandbox they'd get anyway, so one bad env change can't break Ship for judges.
+    if (presented !== undefined) throw new ConfigError(problem);
+    console.error(`[publisher] ${problem}; serving the sandbox`);
+    return new SandboxPublisher();
   }
-  const presented = ownerKeyOf(headers);
   if (presented === undefined) return new SandboxPublisher();
-  if (!sameKey(presented, env.SIGMORA_OWNER_KEY)) throw new OwnerKeyError();
+  if (!ownerCredentialValid(presented, env.SIGMORA_OWNER_KEY, now)) throw new OwnerKeyError();
   return new SigmoraPublisher(env.SIGMORA_API_URL, env.SIGMORA_API_TOKEN);
+}
+
+/** True when the request is the signed-in owner on a correctly configured live deployment. */
+export function isOwnerRequest(headers: Headers, raw: Record<string, string | undefined> = process.env): boolean {
+  try {
+    return publisherFor(headers, raw).id === "sigmora";
+  } catch {
+    return false;
+  }
 }
 
 /** publisherFor as a route needs it: the publisher, or the response that refuses the request. */

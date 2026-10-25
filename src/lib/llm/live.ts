@@ -54,8 +54,10 @@ export function buildDraftPrompt(input: DraftInput): string {
 }
 
 /** The campaign model: drafts and polishes plans through any ChatClient. */
-const CHOOSER = "You are a senior marketing strategist. You choose between options a taste-data API already approved. Return only JSON.";
-const Choices = z.object({ choices: z.array(z.object({ from: z.string().max(200), to: z.string().max(200), why: z.string().max(400) })).max(20) });
+const CHOOSER = "You are a senior marketing strategist. A taste-data API checks every idea you give for this audience. Return only JSON.";
+const Choices = z.object({
+  choices: z.array(z.object({ from: z.string().max(200), to: z.string().max(200), why: z.string().max(400), own: z.boolean().optional() })).max(20),
+});
 
 export class LiveLLM implements LLMProvider {
   readonly id: string;
@@ -87,14 +89,16 @@ export class LiveLLM implements LLMProvider {
 
   /**
    * For each rejected pick, choose one of the Qloo-approved options that best fits
-   * the brief. The model decides; the caller only accepts names from the options.
+   * the brief, or propose an own idea. The model decides; the caller accepts a
+   * listed option as is and an own idea only after Qloo scores it above the bar.
    */
   async choose(replacements: Replacement[], input: DraftInput): Promise<Choice[]> {
     const prompt = [
       `Brief: ${input.brief.subject}: ${input.brief.product}. Goal: ${input.brief.goal}`,
-      "Qloo's taste check rejected these picks. For each, choose the replacement that best serves this brief from the Qloo-approved options (affinity for this audience in brackets). You may only choose a listed option.",
+      "Qloo's taste check rejected these picks. For each, choose the replacement that best serves this brief from the Qloo-approved options (affinity for this audience in brackets).",
+      'If none of the options fits the brief, you may instead propose one real name of your own of the same kind and set "own": true. Qloo scores it for this audience; it is kept only if it clears the same bar, otherwise Qloo\'s top option is used.',
       ...replacements.map((r) => `- ${r.role} "${r.from}" (${r.reason}) → options: ${(r.options ?? [{ name: r.to, affinity: NaN }]).map((o) => `${o.name} [${Number.isNaN(o.affinity) ? "?" : o.affinity.toFixed(2)}]`).join(", ")}`),
-      'Return only JSON: {"choices": [{"from": string, "to": string, "why": string (one short sentence)}]}',
+      'Return only JSON: {"choices": [{"from": string, "to": string, "why": string (one short sentence), "own": boolean (true only for your own idea)}]}',
     ].join("\n");
     const raw = extractJson(await this.chat.complete(CHOOSER, prompt));
     const parsed = Choices.safeParse(raw);

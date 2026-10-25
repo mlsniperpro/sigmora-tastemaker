@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (from session_01GU9AevzaBAt2vnPTdZEP2L)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, took over from session_01GU9AevzaBAt2vnPTdZEP2L on 2026-10-25 08:07 UTC)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -33,30 +33,22 @@
   - an uncommitted pids file.
   - `checks.sh` itself passes.
 
-## In flight
-- Nothing is running.
-- `.agent/win/TASTEMAKER/reaudit.md` and `break-it.md` are stale (they name 3b25d12). Don't trust their numbers; redo both on the final commit.
-
-## Next steps, in order
-1. **Medium:** `"Washington"` in `US_METROS` (src/lib/agent/presets.ts) is ambiguous for `filter.location.query`.
-   - Change it to "Washington, DC"; the simulator catalog has that alias.
-   - Fix the tests that name "Washington" (tests/integration/agent.test.ts, mcp.test.ts).
-2. **Medium:** a hostile CTO may read the agent as a fixed workflow.
-   - Consider letting the model call bounded tools (taste_check, insights by type, trending) in the revise round, with each call shown in the trace.
-3. **Low:** `ownerKeyOf` in src/lib/publisher/index.ts calls `decodeURIComponent`, which throws on a malformed cookie, so the route returns 500. Catch it and treat it as a wrong key (403).
-4. **Low:** owner session hardening.
-   - Store an HMAC(key, expiry) token in the cookie instead of the raw key.
-   - Check Origin on the POST routes ship, requery and owner.
-   - Rate-limit `/api/owner`.
-5. **Low:** the ROI line in src/components/App.tsx ("agency brief takes weeks") needs a source or softening; label recorded or cached durations as such.
-6. **Low:** label custom-brief `?run=` permalinks "user-submitted brief".
-7. Add B18+ items for audit 3 to WIN-CHECKLIST.md.
-8. Run a full hostile audit (one subagent), fix what it finds, and repeat until 2 audits in a row are clean.
-9. **Break-it:**
-   - soak: deep pass with `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`, then about 80 rounds of `FC_NUM_RUNS=500`;
-   - `pnpm test:e2e`;
-   - a fresh clone running the README commands.
-10. Update reaudit.md (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and break-it.md (`TESTED_COMMIT`), clear pids, commit, push, run the gate, update the PR body and post the final status.
+## In flight (2026-10-25, session_01PRg5xX3d1yQyMW528USmNf)
+- Re-audit 3 ran as three parallel audits (security, Qloo depth, judge path) on 9cb77e6. Findings are mapped in WIN-CHECKLIST.md "Re-audit 3" (C1+).
+- **Done locally (squash before push):**
+  - owner session tokens (HMAC, expiring), Origin checks, sign-in rate limit;
+  - per-IP and per-preset Qloo budget shares plus the preset holdback;
+  - IPv6 /64 keys and the flood guard;
+  - owner-only Ship of owner or preset runs;
+  - midnight-safe refunds;
+  - CSP and security headers;
+  - "Washington, DC";
+  - the measured ROI line;
+  - the LLM side of model-proposed replacements (`Choice.own`).
+- **Two worktree agents are running** (under `.claude/worktrees/`, gitignored); merge their commits when they report:
+  - Qloo API contract fixes: trending dates and response shape, compare array, locality catch, diversify on the right types, multi-seed demographics, honest metrics with judged counts, `sameName` sequels, optional audit, body timeout, short TTL for empty replies, stale venue pool, replacements filtered by the bar;
+  - UI: simulated labels on chips, sticky toggle plus a collapsed brief, a first-screen diff card, 12 px trace text, replay wording, metadataBase, styleimagemissing, RoiLine on simulated runs.
+- **After the merge:** wire `Choice.own` in run.ts (score own proposals with the critic and accept only passing ones, in applyChoices), with tests. Then update the BLOCKED.md live-call table rows 5, 11, 12 and 16 to the new request shapes.
 
 ## Key decisions (why)
 - **Qloo is the critic inside the loop:**

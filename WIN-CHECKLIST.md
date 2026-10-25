@@ -140,3 +140,22 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] `median([0, -0, 5e-324])` was order-dependent: fixed with a -0 normalisation; regression test in `util-params.test.ts`
 - [x] `normName("_fC")` wasn't idempotent: tokenise first, drop noise to a fixpoint; regression test
 - [x] Live-stub rate-limit test straddled a minute boundary: clock pinned just after a boundary (`tests/e2e/stub-live.test.ts`)
+
+## Re-audit 3 (2026-10-25, three parallel hostile audits on 9cb77e6: security, Qloo depth, judge path)
+
+Security and robustness:
+
+- [x] C1 One network can't spend the day's Qloo budget: per-IP (IPv6 /64) daily share `QLOO_IP_DAILY_CALLS`, a `QLOO_PRESET_HOLDBACK` custom runs can't touch, reserved atomically with the run (`client.test.ts`: "caps each scope's share…")
+- [x] C2 A burst of cold preset requests across instances is bounded by the preset's own daily share `QLOO_PRESET_DAILY_CALLS` (`qlooBudget`, `counter-guard-config.test.ts`)
+- [x] C3 Free routes (permalinks, Ship lookups, MCP) have a per-instance flood guard that costs no KV round trip (`floodGuard`, 120/min per IP)
+- [x] C4 IPv6 keyed by /64; `x-vercel-forwarded-for` first; IPv4-mapped addresses folded (`ipKey` unit and property tests)
+- [x] C5 A visitor's injected brief can't be posted as the brand: real Ship takes only preset runs and runs served to the signed-in owner (`api.test.ts`: "ships to real channels only presets and runs the owner started")
+- [x] C6 Budget refunds go back to the day they were reserved from, across midnight UTC (`client.test.ts`)
+- [x] C7 Security headers on every route: CSP (tiles host only), frame-ancestors none, nosniff, referrer and permissions policies (`next.config.ts`)
+- [x] C8 Live-mode misconfiguration serves visitors the sandbox; only the owner gets the 500 (`api.test.ts`)
+- [x] C9 Owner cookie holds an HMAC-signed, expiring session token, never the key; a malformed cookie is a 403, not a 500 (`owner.test.ts`, `api.test.ts`)
+- [x] C10 Origin checked on ship, requery and owner POSTs; owner sign-in limited to 5 attempts a minute per IP (`api.test.ts`)
+- [-] C11 KV outage falls back to per-instance counters instead of failing closed: kept on purpose, because failing closed would take the free demo down with KV; the per-IP shares and the flood guard still bound one instance, and the warning is logged
+- [x] C12 "Washington, DC" in the metro list, so `filter.location.query` isn't ambiguous with the state
+- [x] C13 ROI line uses only this run's measured numbers (time, Qloo calls, picks checked, the plain model's wrong picks) and labels recorded or cached timings; the unsourced "agency takes weeks" claim is gone from the UI, README and evidence table
+- [x] C14 The unsourced "10,000 calls a month" quota figure is removed from BLOCKED.md; the budget knobs are documented instead

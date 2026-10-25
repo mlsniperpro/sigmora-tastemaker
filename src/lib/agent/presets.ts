@@ -10,7 +10,7 @@ export interface Preset {
 const US_METROS = [
   "Houston",
   "Atlanta",
-  "Washington",
+  "Washington, DC",
   "New York",
   "Chicago",
   "Los Angeles",
@@ -80,3 +80,4 @@ export const PRESETS: readonly [Preset, ...Preset[]] = [
 ];
 
 export const presetById = (id: string) => PRESETS.find((p) => p.id === id);
+

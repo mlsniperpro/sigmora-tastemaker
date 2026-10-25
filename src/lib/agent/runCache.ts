@@ -12,7 +12,7 @@ import { defaultCache, type CacheStore } from "../qloo/cache";
 import { qlooFromEnv, type QlooClient } from "../qloo/client";
 import { formatZodIssues } from "../zod";
 import { Brief, RunRequest } from "./brief";
-import { presetById } from "./presets";
+import { PRESETS, presetById } from "./presets";
 import { runTastemaker } from "./run";
 import recorded from "../../../fixtures/runs/recorded.json";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult, type Served } from "./types";
@@ -90,6 +90,30 @@ export function recordedRuns(store: Record<string, unknown> = recorded): Map<str
 export async function runById(id: string, cache: CacheStore = defaultCache(), recordings: ReadonlyMap<string, RunResult> = recordedRuns()): Promise<RunResult | undefined> {
   return asRun(await cache.get(resultKey(id))) ?? [...recordings.values()].find((r) => r.id === id);
 }
+
+/** True when `brief` is exactly one of the presets' briefs (our own text, never a visitor's). */
+export function isPresetBrief(brief: Brief): boolean {
+  const json = JSON.stringify(brief);
+  return PRESETS.some((p) => JSON.stringify(Brief.parse(p.brief)) === json);
+}
+
+const ownerRunKey = (id: string) => `owner-run:v${RUN_SCHEMA_VERSION}:${id}`;
+
+/** Records that the signed-in owner was served this run (from their own brief), so it may ship to real channels. */
+export async function markOwnerRun(id: string, cache: CacheStore = defaultCache()): Promise<void> {
+  await cache.set(ownerRunKey(id), { owner: true }, KEEP_TTL);
+}
+
+/**
+ * Whether a run may go to real channels: it came from a preset (our own text) or
+ * was served to the signed-in owner. A permalink to someone else's brief can't
+ * get its text posted as the brand just because the owner clicked Ship on it.
+ */
+export async function shippableByOwner(run: RunResult, cache: CacheStore = defaultCache()): Promise<boolean> {
+  if (isPresetBrief(run.brief)) return true;
+  return OwnerMark.safeParse(await cache.get(ownerRunKey(run.id))).success;
+}
+const OwnerMark = z.object({ owner: z.literal(true) });
 
 /** Keeps a run that was shipped for real until its campaign can be measured. */
 export async function keepShippedRun(run: RunResult, cache: CacheStore = defaultCache()): Promise<void> {
