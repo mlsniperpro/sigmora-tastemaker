@@ -39,10 +39,16 @@ describe("/api/run", () => {
   it("caps unmetered custom runs per network per minute", async () => {
     const brief = (i: number) => ({ family: "music", subject: `Flood Act ${String(i)}`, product: "single", goal: "Grow streams", seeds: ["Tems"], ages: ["25_to_29"] });
     const statuses: number[] = [];
-    for (let i = 0; i < 8; i++) {
-      const res = await run(post({ brief: brief(i) }, "4.4.9.9"));
-      statuses.push(res.status);
-      await res.text();
+    // The cap is per clock minute: start just after a minute begins, so the burst can't straddle two windows.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: new Date("2026-10-26T12:00:01Z") });
+    try {
+      for (let i = 0; i < 8; i++) {
+        const res = await run(post({ brief: brief(i) }, "4.4.9.9"));
+        statuses.push(res.status);
+        await res.text();
+      }
+    } finally {
+      vi.useRealTimers();
     }
     expect(statuses.slice(0, 6).every((s) => s === 200)).toBe(true);
     expect(statuses.slice(6)).toEqual([429, 429]);

@@ -318,7 +318,7 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] J10 (low, Qloo) More than 6 join or split candidates in one text: the rest are read as written. Bounded on purpose (the audit's reservation); MCP `plan_campaign` has no single flight and errors on a refused preset (it's a tool: a clear error is the contract)
 - [x] J11 (medium, security) The narrowest share is reserved first, so a burst from one network can't set a refusal memo on the pool or the day and lock others out (`client.test.ts`, fails without the fix; the auditor's patch)
 - [x] J12 (low, security) A refused preset's simulated fallback is also its last run for 10 minutes: a burst of refused clicks replays one run instead of simulating each (e2e)
-- [x] J13 (low, security) Unmetered custom runs (no key) are capped at 6 per network per minute (`api.test.ts`, `counter-guard-config.test.ts`)
+- [x] J13 (low, security) Unmetered custom runs (no key) are capped at 6 per network per minute (`api.test.ts`, `counter-guard-config.test.ts`) The soak found the api test could straddle a minute window (seed 511810038); its clock is now pinned.
 - [x] J14 (low, security) On a deployment with live Qloo, a simulated fallback run can't ship to real channels (409) (e2e)
 - [x] J15 (low, security) A lone surrogate in a model-written name is replaced before it reaches a Qloo URL (`client.test.ts`)
 - [x] J16 (low, security) The in-memory counter evicts the least recently updated key, never the busy day count (`counter-guard-config.test.ts`)

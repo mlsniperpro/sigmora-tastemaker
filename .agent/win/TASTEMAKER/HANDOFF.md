@@ -47,6 +47,7 @@
   - round 10 of the three-lens audit (Sonnet), each lens in its own scratchpad worktree (`aud10q`, `aud10s`, `aud10j`);
   - the soak (deep pass, then 60 seeded rounds; logs `soak10-*.log` in the scratchpad).
   If this session stops before they report, re-run both on the pushed HEAD.
+- **Soak of 0b38d99:** deep pass clean (499/499, 234 s). Seeded round 34 (FC_SEED=511810038) failed only in `api.test.ts` "caps unmetered custom runs per network per minute": the burst straddled a clock-minute window. Fixed by pinning the test's clock to the start of a minute (not a product bug). The rounds continue.
 - **Last clean soak:** 52a25e1 (deep pass 483/483, then 60 seeded rounds).
 - **Fresh clone of 0b38d99 (18:05 UTC, break-it evidence):** install ok; `pnpm demo` 76 Qloo requests; 35 files / 499 tests; `GET /` 200; `/api/run` streams 15 steps and a result; MCP `tools/list` gives taste_check, audit_plan, plan_campaign.
 - **Audit history:** round 8 found 3 highs and round 9 found 2, all fixed. No round has been clean yet, so two clean rounds in a row are still needed (rounds 10 and 11 at the earliest).
