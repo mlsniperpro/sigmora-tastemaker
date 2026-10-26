@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-26T17:11:23Z; current as of the last push)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, resumed 2026-10-26 18:02 UTC; current as of each push)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -40,14 +40,18 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (wound down 2026-10-26T17:11:23Z; the lease is released, so a successor may claim it)
-- **Code:** HEAD is d85782f plus this handoff commit (docs only). Round-9 fixes are all in d85782f (WIN-CHECKLIST J1–J21).
+## In flight (resumed 2026-10-26 18:02 UTC; lease active again)
+- **Code:** HEAD 0b38d99 has the same code as d85782f. All round-9 fixes are in it (WIN-CHECKLIST J1–J21).
 - **Verified on d85782f:** lint and typecheck clean; `pnpm test` 35 files / 499; `pnpm test:e2e` 24/24 (phone-390, desktop-1440).
-- **Stopped at wind-down, with no results:** round 10 of the three-lens audit on d85782f (Qloo depth, security, judge path: Sonnet subagents in throwaway worktrees). The soak on d85782f and an early gate run were stopped too. Nothing partial was committed. Redo all three on the pushed HEAD.
-- **Last clean soak:** 52a25e1 (deep pass 483/483, then 60 seeded rounds). d85782f has not been soaked yet.
-- **Audit history:** round 8 found 3 highs and round 9 found 2, all fixed. So no round has been clean yet: two clean rounds in a row are still needed (round 10 and round 11 at the earliest).
-- **Stale reports:** `.agent/win/TASTEMAKER/reaudit.md` and `break-it.md` still name 3b25d12. Rewrite them only after two clean rounds and the break-it pass. The successor should rebuild the round table (rounds 1–9, commits and fixes) from the WIN-CHECKLIST sections A–J.
-- **PR #1 body:** last updated for 52a25e1 (round-8 status). Refresh it for the new HEAD.
+- **Running since 18:02 UTC on 0b38d99:**
+  - round 10 of the three-lens audit (Sonnet), each lens in its own scratchpad worktree (`aud10q`, `aud10s`, `aud10j`);
+  - the soak (deep pass, then 60 seeded rounds; logs `soak10-*.log` in the scratchpad).
+  If this session stops before they report, re-run both on the pushed HEAD.
+- **Last clean soak:** 52a25e1 (deep pass 483/483, then 60 seeded rounds).
+- **Fresh clone of 0b38d99 (18:05 UTC, break-it evidence):** install ok; `pnpm demo` 76 Qloo requests; 35 files / 499 tests; `GET /` 200; `/api/run` streams 15 steps and a result; MCP `tools/list` gives taste_check, audit_plan, plan_campaign.
+- **Audit history:** round 8 found 3 highs and round 9 found 2, all fixed. No round has been clean yet, so two clean rounds in a row are still needed (rounds 10 and 11 at the earliest).
+- **Stale reports:** `.agent/win/TASTEMAKER/reaudit.md` and `break-it.md` still name 3b25d12. Rewrite them only after two clean rounds and the break-it pass. Rebuild the round table (rounds 1–9, commits and fixes) from WIN-CHECKLIST sections A–J.
+- **PR #1 body:** last updated for 52a25e1. Refresh it for the new HEAD.
 
 ## Open audit findings
 - None known at critical or high after round 9; round 10 never reported.
