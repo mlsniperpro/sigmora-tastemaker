@@ -117,4 +117,13 @@ describe("LayeredCache", () => {
     await slow.set("result:v5:gone", "later", 60);
     expect(await c.get("result:v5:gone")).toBe("later");
   });
+
+  it("never remembers a store error as a miss: the next read after a KV blip reaches the store", async () => {
+    let calls = 0;
+    const f = async () => (++calls === 1 ? new Response("down", { status: 503 }) : Response.json({ result: JSON.stringify({ ok: 1 }) }));
+    const c = new LayeredCache([new MemoryCache(), new KvCache(new KvRest("https://kv.example", "tok", f), "p:")], () => 0);
+    expect(await c.get("result:v5:abc")).toBeUndefined();
+    expect(await c.get("result:v5:abc")).toEqual({ ok: 1 });
+    expect(calls).toBe(2);
+  });
 });

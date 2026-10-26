@@ -1,5 +1,7 @@
-/** Words that don't distinguish one name from another ("The Weeknd", "Arsenal F.C."). */
-const NOISE = new Set(["the", "fc"]);
+/** Words that don't distinguish one name from another ("The Weeknd", "Arsenal F.C.", "Real Madrid CF", "Nike, Inc."). */
+const NOISE = new Set(["the", "fc", "cf", "inc", "llc", "ltd"]);
+/** One spelling for words written two ways ("St. Vincent" = "Saint Vincent"). */
+const SAME_WORD: Record<string, string> = { st: "saint" };
 
 const pairAt = (t: readonly string[]) => t.findIndex((x, k) => x === "f" && t[k + 1] === "c");
 
@@ -13,7 +15,8 @@ export function normName(s: string): string {
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, " ")
     .split(" ")
-    .filter((t) => t && !NOISE.has(t));
+    .filter((t) => t && !NOISE.has(t))
+    .map((t) => SAME_WORD[t] ?? t);
   // "F.C." arrives as the tokens "f", "c": drop such pairs until none is left (each pass shortens the list).
   for (let i = pairAt(tokens); i !== -1; i = pairAt(tokens)) tokens.splice(i, 2);
   return tokens.join(" ");
@@ -22,9 +25,14 @@ export function normName(s: string): string {
 /** Roman numerals I–XXXIX, the range sequels and editions use (strict, so "mix", "dc" or "civil" never count). */
 const ROMAN = /^(x{0,3})(ix|iv|v?i{0,3})$/;
 
-/** The number a token stands for, when it is one: digits ("2", "182") or a roman numeral ("ii", "vii"). */
+/** Numbers sequels and titles spell out ("Fast Five", "Ocean's Eleven"). */
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
+
+/** The number a token stands for, when it is one: digits ("2", "182"), a roman numeral ("ii", "vii") or a word ("five"). */
 export function numeralValue(token: string): number | undefined {
   if (/^\d+$/.test(token)) return Number(token);
+  const word = NUMBER_WORDS.indexOf(token);
+  if (word >= 0) return word;
   const m = ROMAN.exec(token);
   if (!m || !token) return undefined;
   const tens = (m[1] ?? "").length * 10;
@@ -81,7 +89,8 @@ export function compactKey(s: string): string {
     .replace(/[&+]/g, " and ");
   return folded
     .split(/[^a-z0-9]+/)
-    .filter((t) => t && t !== "the" && t !== "fc")
+    .filter((t) => t && !NOISE.has(t))
+    .map((t) => SAME_WORD[t] ?? t)
     .map((t) => {
       const n = numeralValue(t);
       return n === undefined ? t : `#${String(n)}`;

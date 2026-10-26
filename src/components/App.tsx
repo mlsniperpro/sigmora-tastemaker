@@ -20,7 +20,8 @@ import { useRun } from "./useRun";
 /**
  * The ROI line, from this run's own measurements only. A run served from the
  * cache or a recording says its time was measured when it first ran. A
- * placeholder run (simulated Qloo or a scripted model) is labelled and counts no misses.
+ * placeholder run (simulated Qloo or a scripted model) is labelled an offline demo run and counts neither misses
+ * nor seconds: its timing is a stand-in's, not the product's.
  */
 export function RoiLine({ result, served }: { result: RunResult; served?: Served }) {
   const seconds = Math.max(1, Math.round(result.durationMs / 1000));
@@ -31,10 +32,14 @@ export function RoiLine({ result, served }: { result: RunResult; served?: Served
   const when = served && served.from !== "simulated" ? (served.from === "recording" ? " (recorded run)" : " (when it first ran)") : "";
   return (
     <p className="mt-1 text-meta text-ink/80">
-      <strong className="text-accent">
-        This plan took {seconds} s{when}
-      </strong>{" "}
-      and {result.qloo.calls} {simulated ? "simulated Qloo calls" : "Qloo calls"}, with {checked} cultural picks checked
+      {blank ? (
+        <strong className="text-accent">Offline demo run</strong>
+      ) : (
+        <strong className="text-accent">
+          This plan took {seconds} s{when}
+        </strong>
+      )}{" "}
+      {blank ? "with" : "and"} {result.qloo.calls} {simulated ? "simulated Qloo calls" : "Qloo calls"}, with {checked} cultural picks checked
       {caught > 0 ? `; ${caught} of the plain model's picks would have shipped wrong` : ""}.
       {blank && <span className="ml-1.5 whitespace-nowrap rounded bg-fade/15 px-1.5 py-0.5 text-caption font-medium text-fade">{simulated ? "simulated" : "scripted model"}: no miss count</span>}
     </p>
@@ -115,7 +120,7 @@ function PlanToggle({
 
 export function App() {
   const params = useSearchParams();
-  const { steps, pending, served, result, error, running, run, open, requery } = useRun();
+  const { steps, pending, live, served, result, error, running, run, open, requery } = useRun();
   const [mode, setMode] = useState<"qloo" | "without">("qloo");
   // The URL decides what runs on first load; read it once, at mount.
   const [initial] = useState(() => ({ measure: measureFromUrl(params), runId: runIdFromUrl(params), request: requestFromUrl(params) }));
@@ -207,10 +212,14 @@ export function App() {
               aria-pressed={activePreset === p.id}
               // Switching mid-run is allowed: the request in flight is cancelled.
               onClick={() => {
+                const before = activePreset;
                 setActivePreset(p.id);
                 setDeadLink(undefined);
                 setEditing(false);
-                void run({ preset: p.id });
+                // A refused or failed run leaves the previous result on screen, so its preset stays the highlighted one.
+                void run({ preset: p.id }).then((outcome) => {
+                  if (outcome === "failed" && result) setActivePreset(before);
+                });
               }}
               title={p.blurb}
               className={`rounded-full border px-3 py-1.5 text-meta disabled:opacity-60 ${activePreset === p.id ? "border-accent bg-accent/15 text-accent" : "border-line text-ink hover:border-accent/60"}`}
@@ -268,10 +277,13 @@ export function App() {
             // "Edit brief" starts from the brief on screen, not from empty fields.
             current={result ? { id: result.id, brief: result.brief } : undefined}
             onRun={(b) => {
+              const before = activePreset;
               setActivePreset(undefined);
               setDeadLink(undefined);
               setEditing(false);
-              void run({ brief: b });
+              void run({ brief: b }).then((outcome) => {
+                if (outcome === "failed" && result) setActivePreset(before);
+              });
             }}
           />
         </div>
@@ -286,7 +298,9 @@ export function App() {
             type="button"
             onClick={() => {
               setShared(undefined);
-              void run(shared);
+              void run(shared).then((outcome) => {
+                if (outcome === "failed") setShared(shared);
+              });
             }}
             className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
           >
@@ -294,17 +308,28 @@ export function App() {
           </button>
         </div>
       )}
-      {error && <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">{error}</div>}
-      {result && <DiffCard result={result} mode={mode} />}
+      {running && result && (
+        <p role="status" className="rounded-xl border border-line bg-panel px-3 py-2 text-body text-muted">
+          Planning and taste-checking a new run; the previous result stays below until it is ready.
+        </p>
+      )}
+      {error && (
+        <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">
+          {error}
+          {result && <span className="text-ink/80"> The previous result is still shown below.</span>}
+        </div>
+      )}
+      {result && <DiffCard result={result} mode={mode} served={served} />}
       <AuditPanel seeds={result?.brief.seeds ?? AUDIT_SAMPLE_AUDIENCE.seeds} ages={result?.brief.ages ?? AUDIT_SAMPLE_AUDIENCE.ages} open={auditOpen} setOpen={setAuditOpen} />
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="order-3 min-w-0 lg:sticky lg:top-16 lg:order-1 lg:max-h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto">
           <Trace
             steps={steps}
-            running={running}
+            running={live}
             pending={pending}
-            served={served && result ? { ...served, at: result.createdAt } : undefined}
+            // While a new run streams, the trace is that run's, not the result on screen's.
+            served={!live && served && result ? { ...served, at: result.createdAt } : undefined}
             // A preset served from the cache or a recording can be run again now ("fresh" skips both); live only when Qloo is.
             onRerun={activePreset && served ? () => void run({ preset: activePreset, fresh: true }) : undefined}
             rerunLive={!runSimulated}

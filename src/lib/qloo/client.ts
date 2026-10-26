@@ -109,7 +109,7 @@ let sharedThrottle: Throttle | undefined;
 /** How long a share that refused a reservation is refused again without asking the store. */
 export const SPENT_MEMO_MS = 60_000;
 const memos = new WeakMap<Counter, Map<string, number>>();
-/** Per counter (so separate stores never share a memo): "share|cap|day" → refused-until (epoch ms). Bounded, and cleared by refunds. */
+/** Per counter (so separate stores never share a memo): "share|cap|day|calls" → refused-until (epoch ms). Bounded, and cleared by refunds. */
 function spentMemo(counter: Counter): Map<string, number> {
   let m = memos.get(counter);
   if (!m) {
@@ -320,8 +320,9 @@ export class QlooClient {
     // A share that refused moments ago is refused again without a round trip, so a flood of refused requests costs the store nothing.
     const memo = spentMemo(daily.counter);
     const day = new Date(at).toISOString().slice(0, 10);
-    // Keyed by the share's cap and the UTC day too: a new day or a bigger cap is asked afresh.
-    const memoKey = (c: { name: string; cap: number }) => `${c.name}|${String(c.cap)}|${day}`;
+    // Keyed by the share's cap, the UTC day and the size asked for: a new day, a bigger cap or a smaller request
+    // (a 14-call taste check after a refused 80-call run) is asked afresh.
+    const memoKey = (c: { name: string; cap: number }) => `${c.name}|${String(c.cap)}|${day}|${String(calls)}`;
     const recent = counters.find((c) => (memo.get(memoKey(c)) ?? 0) > at);
     if (recent) {
       this.refusedBy = recent.name.replace(/^qloo-scope:/, "");

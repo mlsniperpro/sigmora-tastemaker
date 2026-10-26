@@ -1,7 +1,8 @@
 import { after } from "next/server";
 import { MALFORMED_TEXT, hasLoneSurrogate } from "@/lib/zod";
-import { cachedRun, costsMoney, getOrRun, isInFlight, lastRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById, type Lookup, type ResolvedRequest } from "@/lib/agent/runCache";
-import type { RunEvent, Served } from "@/lib/agent/types";
+import { cachedRun, costsMoney, getOrRun, isInFlight, keepFallbackRun, lastRun, markOwnerRun, recordedRuns, replay, resolveRunRequest, runById, type Lookup, type ResolvedRequest } from "@/lib/agent/runCache";
+import type { Brief } from "@/lib/agent/brief";
+import type { RunEvent, RunResult, Served } from "@/lib/agent/types";
 import { loadConfig } from "@/lib/config";
 import { isOwnerRequest } from "@/lib/publisher";
 import { admit, clientIp, floodGuard, guardResponse, qlooBudget, qlooRefusal, refundAdmission, type GuardResult } from "@/lib/guard";
@@ -87,22 +88,29 @@ export async function POST(req: Request) {
   let refusal: Extract<GuardResult, { ok: false }> | undefined;
   let settle: ((r: typeof refusal) => void) | undefined;
   if (!lookup.result && !isInFlight(lookup.key) && costsMoney(lookup.deps)) {
-    const pending = admissions.get(lookup.key);
-    const shared = pending ? await pending : undefined;
-    // A leader refused for its own network (its share or per-IP limit: a 429) says nothing about this caller, who is admitted on its own.
-    if (pending && shared?.status !== 429) refusal = shared;
-    else if (pending) refusal = isInFlight(lookup.key) ? undefined : await admitNewRun(req, request, lookup);
-    else {
-      admissions.set(lookup.key, new Promise((resolve) => (settle = resolve)));
-      try {
-        refusal = await admitNewRun(req, request, lookup);
-      } catch (err) {
-        // Never leave waiters hanging: they get a refusal, this request the error.
-        admissions.delete(lookup.key);
-        settle?.(qlooRefusal("store"));
-        throw err;
+    for (;;) {
+      const pending = admissions.get(lookup.key);
+      if (!pending) {
+        admissions.set(lookup.key, new Promise((resolve) => (settle = resolve)));
+        try {
+          refusal = await admitNewRun(req, request, lookup);
+        } catch (err) {
+          // Never leave waiters hanging: they get a refusal, this request the error.
+          admissions.delete(lookup.key);
+          settle?.(qlooRefusal("store"));
+          throw err;
+        }
+        // Released below, once this request's run is in flight (or refused), so the waiters see it.
+        break;
       }
-      // Released below, once this request's run is in flight (or refused), so the waiters see it.
+      const shared = await pending;
+      // A leader refused for its own network (its share or per-IP limit: a 429) says nothing about the waiters:
+      // the first of them to get here leads a new admission, and the rest wait for that one in turn.
+      if (shared?.status !== 429) {
+        refusal = shared;
+        break;
+      }
+      if (isInFlight(lookup.key)) break;
     }
   }
   const done = () => {
@@ -113,10 +121,14 @@ export async function POST(req: Request) {
   if (refusal) {
     done();
     // A refused run shows the preset's recording, else this brief's last finished run, labelled with why.
-    const fallback = recording ?? (await lastRun(lookup));
-    if (!fallback) return guardResponse(refusal);
-    const served: Served = { from: fallback === recording ? "recording" : "cache", reason: `a new live run was refused (${refusal.message})` };
-    return ndjson((send) => Promise.resolve(replay(fallback, served, send)), { "X-Run-Cache": served.from });
+    const reason = `a new live run was refused (${refusal.message})`;
+    if (recording) return ndjson((send) => Promise.resolve(replay(recording, { from: "recording", reason }, send)), { "X-Run-Cache": "recording" });
+    const last = await lastRun(lookup);
+    if (last) return ndjson((send) => Promise.resolve(replay(last, { from: "cache", reason }, send)), { "X-Run-Cache": "cache" });
+    // A preset always answers, on the labelled offline simulator if need be; a custom brief gets the refusal.
+    if (!request.presetId) return guardResponse(refusal);
+    const preset = { brief: request.brief, lookup };
+    return ndjson(async (send) => (await presetFallback(preset, reason, send)).result, { "X-Run-Cache": "simulated" });
   }
   const owner = isOwnerRequest(req.headers);
   // Only the request that was admitted (the leader of a new paid run) has anything to give back.
@@ -124,17 +136,13 @@ export async function POST(req: Request) {
   const work = async (send: (e: RunEvent) => void) => {
     const out = await getOrRun(lookup, send, recording)
       .catch(async (err: unknown) => {
-        // No audience name resolved: the run spent nothing, so it doesn't count toward the limits.
-        if (admitted && err instanceof NoSeedError) await refundAdmission(req, { perIp: !request.presetId || request.fresh });
+        // No audience name resolved: with the scripted model the run spent nothing, so it doesn't count toward the limits.
+        // A live model's baseline draft starts alongside the seed lookup and is already paid for, so that run still counts.
+        if (admitted && err instanceof NoSeedError && lookup.deps.llm.scripted) await refundAdmission(req, { perIp: !request.presetId || request.fresh });
         // A preset is the first thing a visitor sees: if live Qloo fails outright and nothing is recorded, show its last
         // finished run, else the same preset on the labelled offline simulator (never mixed with live data), saying why.
         if (!request.presetId || recording) throw err;
-        const reason = `the live run failed (${err instanceof Error ? err.message : String(err)})`;
-        const last = await lastRun(lookup);
-        if (last) return { result: replay(last, { from: "cache", reason }, send), served: { from: "cache", reason } satisfies Served };
-        const offline = await runTastemaker(request.brief, { qloo: qlooFromEnv({ mode: "replay" }), llm: new DeterministicLLM() });
-        const served: Served = { from: "simulated", reason };
-        return { result: replay(offline, served, send), served };
+        return presetFallback({ brief: request.brief, lookup }, `the live run failed (${err instanceof Error ? err.message : String(err)})`, send);
       })
       .finally(() => lookup.deps.qloo.release());
     // The owner was served this run from their own brief, so it may ship to real channels.
@@ -145,6 +153,24 @@ export async function POST(req: Request) {
   // ndjson starts the work synchronously, so the run is in flight now: waiters join it.
   done();
   return res;
+}
+
+/**
+ * A preset is the first thing a visitor sees, so when no new live run can answer it (refused or failed) and
+ * nothing is recorded: its last finished run, else the same preset on the labelled offline simulator (every
+ * call simulated, never mixed with recorded or live data), saying why. The simulated run is kept briefly by
+ * id, so its permalink opens.
+ */
+async function presetFallback(preset: { brief: Brief; lookup: Lookup }, reason: string, send: (e: RunEvent) => void): Promise<{ result: RunResult; served: Served }> {
+  const last = await lastRun(preset.lookup);
+  if (last) {
+    const served: Served = { from: "cache", reason };
+    return { result: replay(last, served, send), served };
+  }
+  const offline = await runTastemaker(preset.brief, { qloo: qlooFromEnv({ mode: "replay", fixtures: {} }), llm: new DeterministicLLM() });
+  await keepFallbackRun(offline, preset.lookup.deps.cache);
+  const served: Served = { from: "simulated", reason };
+  return { result: replay(offline, served, send), served };
 }
 
 /** Admissions in progress, by brief key: concurrent cold requests for one brief wait for the first one's outcome. */

@@ -113,16 +113,15 @@ export async function auditWithBudget(
   if (hit) return { ok: true, result: hit };
   // Single flight per input on this instance: concurrent identical audits share the first one's result
   // (or a refusal that isn't about the first caller's own network).
-  const pending = auditsInFlight.get(key);
-  if (pending) {
+  // A leader refused for its own network (a 429) says nothing about the waiters: the first of them to get here
+  // leads a new audit, and the rest wait for that one in turn.
+  for (let pending = auditsInFlight.get(key); pending; pending = auditsInFlight.get(key)) {
     const shared = await pending;
     if (shared.ok || shared.refusal.status !== 429) return shared.ok ? { ok: true, result: { ...shared.result, cached: true } } : shared;
   }
   const run = runAudit(input, deps, key);
-  if (!pending) {
-    auditsInFlight.set(key, run);
-    void run.finally(() => auditsInFlight.delete(key)).catch(() => undefined);
-  }
+  auditsInFlight.set(key, run);
+  void run.finally(() => auditsInFlight.get(key) === run && auditsInFlight.delete(key)).catch(() => undefined);
   return run;
 }
 
@@ -147,8 +146,9 @@ async function runAudit(input: AuditRequest, deps: AuditDeps, key: string): Prom
     }
     qloo.setDeadline(Date.now() + AUDIT_DEADLINE_MS);
     const result = await auditPlan(input, { qloo, llm }).catch(async (err: unknown) => {
-      // Nothing to audit against (no audience name resolved): the request cost nothing, so it doesn't count.
-      if (counted && err instanceof NoSeedError) await deps.refund?.();
+      // Nothing to audit against (no audience name resolved): with the scripted model the request cost nothing, so it doesn't count.
+      // A live model's extraction runs before the seeds resolve and is already paid for, so that audit still counts.
+      if (counted && llm.scripted && err instanceof NoSeedError) await deps.refund?.();
       throw err;
     });
     await storeAudit(cache, key, result, qloo.primarySource);

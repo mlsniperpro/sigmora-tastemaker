@@ -280,3 +280,26 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] H15 (low) Run-result misses are remembered for 10 s in-process, so random `?run=` probes can't each cost a store read; a `set` clears it (`cache.test.ts`)
 - [x] H16 (low) The audit panel names entities Qloo knows as a kind this audit doesn't check (a city in prose), instead of calling them unknown (`components.test.tsx`)
 - [x] H17 (security M3, rest) The one-click sample audit always answers: `pnpm runs:record` also records it, live only, and a refused audit of the exact sample serves that recording, labelled with why (`recorded-audit.test.ts`)
+
+## Re-audit 8 (2026-10-26, three lenses on d3fc58a: 3 high from the Qloo lens, 0 high from security and judge)
+
+- [x] I1 (high, Qloo) The last name of an Oxford-comma or "&" list is audited ("A, B, and C", "A, B & C", "A as well as B") (`extract.test.ts`)
+- [x] I2 (high, Qloo) A labelled name that may be two ("Burna Boy & Wizkid", "Drake, the Weeknd") is read as its parts unless Qloo knows it whole ("Simon & Garfunkel", "Tyler, the Creator"), in the same batch of searches as the rejoins; a failed search keeps it whole (`extract.test.ts`)
+- [x] I3 (high, Qloo) A refused cold preset with nothing recorded and no earlier run shows the labelled offline simulator, not a 503; the fallback is fully simulated (no recorded answers mixed in) and kept by id briefly, so its permalink opens (`stub-live-fallback.test.ts`, fails without the fix)
+- [x] I4 (medium, Qloo) "Hook:" lines are copy, read as prose: only names Qloo knows come out of them (`extract.test.ts`)
+- [x] I5 (medium, Qloo) Descriptions aren't audited as names ("5 micro-influencers in Lagos", "Local Coffee Shops", "Pop-up in Lagos"); "50 Cent" and "5 Seconds of Summer" still are (`extract.test.ts`)
+- [x] I6 (medium, Qloo) A titled work keeps its subtitle ("Black Panther: Wakanda Forever", "Law & Order: SVU"); an explanation after a colon is still cut (`extract.test.ts`)
+- [x] I7 (medium, Qloo) Place qualifiers with dots or "City" are dropped after a venue or city ("Washington, D.C.", "New York City", "Harlem", a state code) (`extract.test.ts`)
+- [x] I8 (medium, Qloo) Name matching folds "CF", "Inc.", "Ltd", "St." = "Saint" and spelled-out numbers ("Fast Five" = "Fast 5"), and still tells sequels apart (`util-params.test.ts`)
+- [x] I9 (low, Qloo) City lists spend no searches on joins; labelled picks come before the model's extras, so the cap never cuts them (`extract.test.ts`)
+- [x] I10 (medium, security) No-audience refunds only when nothing was paid for: a live model's draft or extraction already ran, so that run or audit still counts (/api/run, /api/audit, MCP) (`audit.test.ts`, fails without the fix)
+- [x] I11 (medium, security) A KV read error is never remembered as a miss, so a blip can't 404 permalinks or start a paid run for 10 s (`cache.test.ts`)
+- [-] I12 (medium, security) A few networks can use the custom pool for the day (240 calls, 80 per network). Decision: the defaults are deliberately small because Qloo publishes no hackathon quota; presets, permalinks, cached runs and the recorded sample audit keep working, the refusal says so, and the owner scales the pools (BLOCKED.md)
+- [x] I13 (low, security) After a leader refused for its own network (429), one waiter leads a new admission and the rest join it, for runs and audits (`stub-live-fallback.test.ts`, `audit.test.ts`, both fail without the fix)
+- [x] I14 (low, security) The refusal memo is keyed by the size asked for: a refused 80-call run doesn't refuse a 14-call taste check (`client.test.ts`)
+- [-] I15 (low, security) The day's cap is counted before the narrower shares, so an over-share request briefly raises the global count before its rollback. Kept: it reports a day-cap refusal as such, and the rollback is immediate
+- [-] I16 (low, security) A refund just after 00:00 UTC lands on the new day (at most one extra run that day). Accepted
+- [x] I17 (medium, judge) A refused or failed run never clears the screen or the address bar: the previous result stays, with the refusal above it and a "new run in progress" note while one streams (`components.test.tsx`, e2e)
+- [x] I18 (medium, judge) The simulator fallback says live Qloo failed, with the reason, instead of "no key on this deployment"; its permalink opens (I3) (`components.test.tsx`)
+- [x] I19 (low, judge) README lists three MCP tools; placeholder runs claim no duration ("Offline demo run") (`components.test.tsx`, e2e)
+- [-] I20 (low, judge) The keyless demo strikes through famous real names as "Simulated miss". Kept: every such verdict is labelled simulated with a note, and recorded live runs replace it once `pnpm runs:record` runs (BLOCKED.md)

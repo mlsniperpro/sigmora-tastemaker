@@ -209,6 +209,16 @@ describe("QlooClient: live", () => {
     expect(await client(f, { daily }).reserve(80, pool)).toBe(true);
   });
 
+  it("remembers a refusal only for requests at least that big: a small check still fits after a big run is refused", async () => {
+    const f = vi.fn(async () => ok(results));
+    const daily = { counter: new MemoryCounter(), cap: 400 };
+    const pool = { scopes: [{ key: "pool:custom", cap: 100 }] };
+    expect(await client(f, { daily }).reserve(80, pool)).toBe(true);
+    expect(await client(f, { daily }).reserve(80, pool)).toBe(false);
+    // 80 + 14 fits under 100: a 14-call taste check is asked for real, not refused by the 80-call memo.
+    expect(await client(f, { daily }).reserve(14, pool)).toBe(true);
+  });
+
   it("doesn't remember a refusal when a refund landed while it was being refused", async () => {
     const f = vi.fn(async () => ok(results));
     const store = new MemoryCounter();

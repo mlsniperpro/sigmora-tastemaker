@@ -1,7 +1,7 @@
 "use client";
 
 import { SCRIPTED_BASELINE, formatRate, placeholderReason } from "@/lib/agent/evidence";
-import type { Receipt, RunResult, Verdict } from "@/lib/agent/types";
+import type { Receipt, RunResult, Served, Verdict } from "@/lib/agent/types";
 import { VERDICT_STYLE, isSimulated, receiptNote, verdictLabel } from "./Receipt";
 import { SourceBanner } from "./SourceBanner";
 import { LaunchMap, hasLaunchMap } from "./TasteMap";
@@ -55,7 +55,7 @@ const WhatItCounts = ({ children }: { children: React.ReactNode }) => <span clas
  * desktop. Placeholder runs (simulated Qloo or a scripted model) show no counts:
  * the source line at the top says why, in one line.
  */
-export function DiffCard({ result, mode }: { result: RunResult; mode: "qloo" | "without" }) {
+export function DiffCard({ result, mode, served }: { result: RunResult; mode: "qloo" | "without"; served?: Served }) {
   const blank = placeholderReason(result);
   const runSimulated = result.qloo.simulated > 0;
   const noBaseline = result.baseline.unavailable;
@@ -73,7 +73,7 @@ export function DiffCard({ result, mode }: { result: RunResult; mode: "qloo" | "
 
   return (
     <section aria-label="With and without Qloo" className="rounded-2xl border border-line bg-panel p-3 sm:p-4">
-      <SourceBanner result={result} className="mb-3 border-b border-line pb-2" />
+      <SourceBanner result={result} served={served} className="mb-3 border-b border-line pb-2" />
       <div className={`grid gap-3 lg:items-start ${where ? "lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.5fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.8fr)]"}`}>
         <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:grid-rows-2 lg:gap-2 lg:self-stretch">
           <Side

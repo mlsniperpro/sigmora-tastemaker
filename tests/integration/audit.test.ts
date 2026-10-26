@@ -1,7 +1,8 @@
 /** POST /api/audit over the offline stack: validation, origin, the budget refusal path and a full offline audit. */
 import { describe, expect, it, vi } from "vitest";
 import { POST as audit } from "@/app/api/audit/route";
-import { AUDIT_CALL_ESTIMATE, AUDIT_TTL, DEGRADED_AUDIT_TTL, auditPlan, storeAudit, type AuditResult } from "@/lib/agent/audit";
+import { AUDIT_CALL_ESTIMATE, AUDIT_TTL, DEGRADED_AUDIT_TTL, auditPlan, auditWithBudget, storeAudit, type AuditResult } from "@/lib/agent/audit";
+import type { GuardResult } from "@/lib/guard";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { MemoryCache } from "@/lib/qloo/cache";
@@ -150,6 +151,38 @@ describe("/api/audit offline", () => {
     const rs = await Promise.all([1, 2, 3].map(async () => (await (await audit(post(unique))).json()) as AuditResult));
     expect(rs.filter((r) => r.cached === true)).toHaveLength(2);
     expect(new Set(rs.map((r) => JSON.stringify(r.receipts))).size).toBe(1);
+  });
+
+  it("gives the admission back on an unresolvable audience only when no model call was paid for", async () => {
+    const noSeed = { ...sample, seeds: ["Zzqx Nonexistent"], text: `${sample.text}\nRefund check.` };
+    const simulatedQloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+    const gate = vi.fn(async (): Promise<GuardResult> => ({ ok: true }));
+    // A live model listed the names before the audience failed to resolve: that call was paid for, so it counts.
+    const refund = vi.fn(async () => undefined);
+    const liveModel = Object.assign(new DeterministicLLM(), { scripted: false, id: "paid-model" });
+    await expect(auditWithBudget(noSeed, { qloo: simulatedQloo(), llm: liveModel, cache: new MemoryCache(), ip: "10.9.0.1", gate, refund })).rejects.toMatchObject({ name: "NoSeedError" });
+    expect(gate).toHaveBeenCalledTimes(1);
+    expect(refund).not.toHaveBeenCalled();
+    // Live Qloo with the scripted model: nothing was paid for, so the request doesn't count.
+    const liveQloo = new QlooClient({ cache: new MemoryCache(), fixtures: {}, apiKey: "k", mode: "live", fetchImpl: async (u: string | URL | Request) => {
+        const url = new URL(u instanceof Request ? u.url : u);
+        return Response.json(simulate(url.pathname as QlooPath, Object.fromEntries(url.searchParams)));
+      },
+    });
+    await expect(auditWithBudget(noSeed, { qloo: liveQloo, llm: new DeterministicLLM(), cache: new MemoryCache(), ip: "10.9.0.2", gate, refund })).rejects.toMatchObject({ name: "NoSeedError" });
+    expect(refund).toHaveBeenCalledTimes(1);
+  });
+
+  it("after a leader refused for its own network, one waiter leads a new audit and the rest share it", async () => {
+    const unique = { ...sample, text: `${sample.text}\nRe-election check: a sentence only this test sends.` };
+    let n = 0;
+    const gate = vi.fn(async (): Promise<GuardResult> => (++n === 1 ? { ok: false, status: 429, message: "Your network has used today's share", retryAfter: 60 } : { ok: true }));
+    const deps = { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: Object.assign(new DeterministicLLM(), { scripted: false, id: "paid-model-2" }), cache: new MemoryCache(), ip: "10.9.0.3", gate };
+    const outs = await Promise.all([1, 2, 3, 4].map(() => auditWithBudget(unique, deps)));
+    expect(outs.map((o) => o.ok)).toEqual([false, true, true, true]);
+    // The leader's refusal plus exactly one new admission: the other waiters joined it.
+    expect(gate).toHaveBeenCalledTimes(2);
+    expect(outs.filter((o) => o.ok && o.result.cached === true)).toHaveLength(2);
   });
 
   it("keeps a partial audit only briefly", async () => {

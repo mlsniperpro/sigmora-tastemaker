@@ -65,6 +65,12 @@ describe("sameName and numbers", () => {
     expect(sameName("Nia Sol", "Nia Sol Tribute Band")).toBe(false);
     expect(sameName("Grand Theft Auto VII", "Grand Theft Auto V")).toBe(false);
     expect(sameName("The The", "FC")).toBe(false);
+    // Club and company suffixes, "St." and spelled-out numbers (audit 8).
+    for (const [a, b] of [["Real Madrid CF", "Real Madrid"], ["Nike, Inc.", "Nike"], ["St. Vincent", "Saint Vincent"], ["Fast Five", "Fast 5"], ["Ocean's Eleven", "Oceans 11"], ["Maroon Five", "Maroon 5"]]) {
+      expect(sameName(a ?? "", b ?? ""), `${a ?? ""} = ${b ?? ""}`).toBe(true);
+    }
+    expect(sameName("Ocean's Twelve", "Ocean's Eleven")).toBe(false);
+    expect(sameName("Fast Five", "Fast X")).toBe(false);
   });
   it("reads digits and roman numerals I–XXXIX, and nothing else", () => {
     expect([numeralValue("v"), numeralValue("vii"), numeralValue("iv"), numeralValue("ix"), numeralValue("xiv"), numeralValue("xxxix"), numeralValue("23")]).toEqual([5, 7, 4, 9, 14, 39, 23]);

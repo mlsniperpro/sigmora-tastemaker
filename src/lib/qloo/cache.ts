@@ -10,6 +10,8 @@ export interface CacheStore {
   /** Resolves to undefined on a miss. */
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown, ttlSeconds: number): Promise<void>;
+  /** Like get, but tells a store error apart from a miss (stores that can fail implement it). */
+  lookup?(key: string): Promise<{ value: unknown; failed: boolean }>;
 }
 
 /** Approximate in-memory size of a JSON-able value (UTF-16 code units × 2). */
@@ -84,12 +86,16 @@ export class KvCache implements CacheStore {
   ) {}
 
   async get(key: string) {
+    return (await this.lookup(key)).value;
+  }
+
+  async lookup(key: string): Promise<{ value: unknown; failed: boolean }> {
     try {
       const raw = await this.kv.cmd(["GET", this.prefix + key]);
-      return typeof raw === "string" ? (JSON.parse(raw) as unknown) : undefined;
+      return { value: typeof raw === "string" ? (JSON.parse(raw) as unknown) : undefined, failed: false };
     } catch (err) {
       console.warn(`[cache] KV get failed: ${(err as Error).message}`);
-      return undefined;
+      return { value: undefined, failed: true };
     }
   }
 
@@ -119,8 +125,11 @@ export class LayeredCache implements CacheStore {
   async get(key: string) {
     const missedUntil = this.misses.get(key);
     if (missedUntil !== undefined && missedUntil > this.now()) return undefined;
+    let failed = false;
     for (const [i, layer] of this.layers.entries()) {
-      const v = await layer.get(key);
+      const r = layer.lookup ? await layer.lookup(key) : { value: await layer.get(key), failed: false };
+      failed ||= r.failed;
+      const v = r.value;
       if (v !== undefined) {
         this.misses.delete(key);
         // Backfill faster layers briefly: the value's real TTL lives in the slower layer, and a long backfill
@@ -129,7 +138,8 @@ export class LayeredCache implements CacheStore {
         return v;
       }
     }
-    if (NEGATIVE_PREFIXES.some((p) => key.startsWith(p))) {
+    // Only a definitive miss is remembered: a store error (a KV blip) says nothing about the key.
+    if (!failed && NEGATIVE_PREFIXES.some((p) => key.startsWith(p))) {
       if (this.misses.size >= NEGATIVE_MAX) this.misses.clear();
       this.misses.set(key, this.now() + NEGATIVE_TTL_MS);
     }

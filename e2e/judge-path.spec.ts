@@ -76,8 +76,10 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   const chip = pack.getByRole("button", { expanded: false }).first();
   await chip.click();
   await expect(pack.getByRole("button", { expanded: true }).first()).toBeVisible();
-  // The ROI line comes from the run's own measurements.
-  await expect(page.getByText(/This plan took \d+ s/)).toBeVisible();
+  // The ROI line comes from the run's own measurements. This run has a scripted model (and maybe simulated Qloo), so
+  // it is an offline demo run and claims no duration.
+  await expect(page.getByText(/Offline demo run/)).toBeVisible();
+  await expect(page.getByText(/This plan took/)).toHaveCount(0);
 
   // The trace names Qloo surfaces and shows every parameter of a call on demand.
   const trace = page.getByRole("region", { name: "Agent trace" });
@@ -133,9 +135,10 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
 
   // Another preset runs and becomes the permalink.
   await page.getByRole("button", { name: "Sports club: new fan market" }).click();
-  await finished(page);
+  // The hero stays on screen until the new run lands, then the address bar points at the new run.
+  await expect.poll(() => page.url(), { timeout: 60_000 }).not.toBe(heroUrl);
   await expect(page).toHaveURL(/\?run=[a-z0-9]+$/);
-  expect(page.url()).not.toBe(heroUrl);
+  await finished(page);
   await noHorizontalScroll(page);
 
   // Ship goes to the labeled sandbox: a real schedule, nothing posted.

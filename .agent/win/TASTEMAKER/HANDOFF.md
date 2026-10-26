@@ -40,19 +40,16 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (2026-10-26 ~16:05 UTC)
-- **Merged and verified in this push:**
-  - the round-7 UI patch (dead permalinks, simulated labels in the trace and bar, the audit catalog note, prefilled Edit brief);
-  - H10: a preset with live Qloo down shows its last run, or the labelled simulator run;
-  - H11: a monotonic-clock throttle.
-- **Verified on this commit:** lint and typecheck clean; `pnpm test` 463; `pnpm test:e2e` 24.
-- **Next:** round 8 of the three-lens audit (Sonnet), plus a soak, on this commit.
+## In flight (2026-10-26 ~17:00 UTC)
+- **Round 8 (three Sonnet lenses on d3fc58a):** 3 high, all from the Qloo lens: Oxford-comma names, "&"/"the" merges, and a refused cold preset giving a 503. Security and judge found no high. All 3 highs and every medium are fixed in this push (WIN-CHECKLIST I1–I20; the `[-]` items are decisions).
+- **Soak on d3fc58a:** `FC_NUM_RUNS=100000` deep pass 465/465, then 60 seeded rounds with no failure. Fresh clone of 5124c3e: install, demo, 467/467, GET / 200, MCP lists 3 tools. e2e on 5124c3e: 24/24.
+- **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 483; `pnpm test:e2e` 24.
+- **Next:** round 9 of the audit (Sonnet, three lenses) plus a soak on this commit. Then a 10th round; two clean rounds in a row are needed.
 
 ## Open audit findings
-- None from round 7 (WIN-CHECKLIST H1–H16).
+- None at critical or high after round 8.
 - **Owner decision:** making the repo public exposes `docs/PLAYBOOK.md` and `.agent/` (BLOCKED.md).
-- **Security M3, partly open:** the sample audit has no *recorded* fallback (it needs the key: extend `pnpm runs:record`). Its single flight and cache are done.
-- Earlier accepted `[-]` decisions are in WIN-CHECKLIST.
+- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: I12 custom pool size, I15 counter order, I16 refund day, I20 simulated strike-throughs).
 
 ## Next steps, in order
 1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).

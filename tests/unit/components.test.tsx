@@ -1,5 +1,5 @@
 /** Components rendered to HTML on the server: what a reader sees for each verdict and source. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AuditPanel, AuditResults, SIMULATED_CATALOG_NOTE, audienceNames, auditInputProblem, auditSummary, friendlyAuditError } from "@/components/AuditPanel";
 import { CampaignPack } from "@/components/CampaignPack";
@@ -17,10 +17,11 @@ import { must } from "../must";
 import { RoiLine } from "@/components/App";
 import { DiffCard, worstMisses } from "@/components/DiffCard";
 import { SourceBanner } from "@/components/SourceBanner";
+import { followsDraft, initialRunState, runReducer, streamRun, type RunAction, type RunState } from "@/components/useRun";
 import { DEFAULT_CRITIC } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
-import type { Receipt, RunResult } from "@/lib/agent/types";
+import type { Receipt, RunEvent, RunResult } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { Draft } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
@@ -90,10 +91,21 @@ describe("RoiLine", () => {
     expect(html).toMatch(/simulated Qloo calls/);
     expect(html).toMatch(/simulated: no miss count/);
   });
+  it("withholds the duration on a simulated or scripted run and calls it an offline demo run", async () => {
+    const run = await heroRun();
+    const sim = text(renderToStaticMarkup(<RoiLine result={{ ...run, durationMs: 1000 }} />));
+    expect(sim).toMatch(/^ ?Offline demo run with \d+ simulated Qloo calls, with \d+ cultural picks checked/);
+    expect(sim).not.toMatch(/took|\d+ s\b/);
+    // Live Qloo with the scripted model: the stand-in's speed is no better a measure of the product.
+    const scripted = text(renderToStaticMarkup(<RoiLine result={{ ...asLive(run), llm: { ...run.llm, scripted: true }, durationMs: 1000 }} />));
+    expect(scripted).toMatch(/Offline demo run with \d+ Qloo calls/);
+    expect(scripted).not.toMatch(/took|\d+ s\b/);
+  });
   it("states the measured miss count on a live run with a real model", async () => {
     const html = text(renderToStaticMarkup(<RoiLine result={asLive(await heroRun())} served={{ from: "cache" }} />));
     expect(html).toMatch(/\d+ of the plain model's picks would have shipped wrong/);
-    expect(html).toMatch(/\(when it first ran\)/);
+    expect(html).toMatch(/This plan took \d+ s \(when it first ran\)/);
+    expect(html).not.toMatch(/Offline demo run/);
     expect(html).not.toMatch(/simulated/);
   });
 });
@@ -276,6 +288,21 @@ describe("SourceBanner", () => {
     // All live with a real model: nothing to say.
     expect(renderToStaticMarkup(<SourceBanner result={asLive(run)} />)).toBe("");
   });
+  it("says live Qloo failed, with the reason, when the preset was served from the simulator, and never blames a missing key", async () => {
+    const run = await heroRun();
+    const reason = "the live run failed (Qloo 503)";
+    const banner = text(renderToStaticMarkup(<SourceBanner result={run} served={{ from: "simulated", reason }} />)).trim();
+    expect(banner).toBe(
+      "Live Qloo unavailable · Simulated Qloo data · Scripted model. This is the preset on the offline simulator, shown because the live run failed (Qloo 503), with answers in Qloo's shapes (not Qloo data); drafts come from a deterministic stand-in, not a model, so numbers are not shown.",
+    );
+    expect(banner).not.toMatch(/No Qloo|key/);
+    // With a real model only the Qloo half is named; without a reason it still says so.
+    const real = text(renderToStaticMarkup(<SourceBanner result={{ ...run, llm: { ...run.llm, scripted: false } }} served={{ from: "simulated" }} />)).trim();
+    expect(real).toBe("Live Qloo unavailable · Simulated Qloo data. This is the preset on the offline simulator, with answers in Qloo's shapes (not Qloo data), so numbers are not shown.");
+    // The same run served any other way keeps the plain wording, and the diff card shows the note on top.
+    expect(text(renderToStaticMarkup(<SourceBanner result={run} served={{ from: "cache" }} />))).toContain("No Qloo or LLM key on this deployment");
+    expect(text(renderToStaticMarkup(<DiffCard result={run} mode="qloo" served={{ from: "simulated", reason }} />))).toContain("Live Qloo unavailable");
+  });
 });
 
 describe("audit panel notes", () => {
@@ -359,5 +386,73 @@ describe("BriefForm from the current run", () => {
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(hero.ages.length);
     const empty = renderToStaticMarkup(<BriefForm busy={false} onRun={() => undefined} />);
     expect(empty).not.toContain(`value="${hero.subject}"`);
+  });
+});
+
+describe("run state", () => {
+  const hero = heroRun();
+  const reduce = (s: RunState, ...actions: RunAction[]) => actions.reduce(runReducer, s);
+  /** What the hook holds with a finished run on screen. */
+  const onScreen = async (): Promise<RunState> =>
+    reduce(initialRunState, { type: "begin" }, { type: "event", event: { type: "result", result: await hero } }, { type: "end" });
+  /** Answers /api/run with a streamed body, or with a status and a JSON error like a refusal. */
+  const respond = (body: string | { status: number; error: string }) => {
+    const res = typeof body === "string" ? new Response(body) : Response.json({ error: body.error }, { status: body.status });
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(res)));
+  };
+  const ndjson = (...events: RunEvent[]) => events.map((e) => `${JSON.stringify(e)}\n`).join("");
+  /** A new request from `before`, the way the hook drives it. */
+  const request = async (before: RunState) => {
+    let state = runReducer(before, { type: "begin" });
+    const outcome = await streamRun({ preset: PRESETS[0].id }, new AbortController().signal, (a) => (state = runReducer(state, a)));
+    return { state: runReducer(state, { type: "end" }), outcome };
+  };
+
+  it("keeps the result, trace and served label on screen when a new run is refused", async () => {
+    const before = await onScreen();
+    respond({ status: 429, error: "Your network has used today's share of the demo's Qloo budget." });
+    const { state, outcome } = await request(before);
+    expect(outcome).toBe("failed");
+    expect(state.error).toMatch(/used today's share/);
+    expect(state.result).toBe(before.result);
+    expect(state.steps).toBe(before.steps);
+    expect(state.served).toBe(before.served);
+    expect(state.running).toBe(false);
+    // The trace goes on showing the run on screen, not an empty one.
+    expect(followsDraft(state)).toBe(false);
+  });
+  it("keeps the result when a new run fails after it has started streaming, and when it is cut off", async () => {
+    const before = await onScreen();
+    const step = must((await hero).trace[0]);
+    respond(ndjson({ type: "start", id: step.id, title: step.title }, { type: "step", step }, { type: "error", message: "Qloo went away" }));
+    const failed = await request(before);
+    expect(failed.outcome).toBe("failed");
+    expect(failed.state).toMatchObject({ error: "Qloo went away", result: before.result, steps: before.steps });
+    respond(ndjson({ type: "step", step }));
+    const cut = await request(before);
+    expect(cut.state.error).toMatch(/cut off/);
+    expect(cut.state.result).toBe(before.result);
+  });
+  it("shows the new run's progress in the trace while it streams, and the new result once it arrives", async () => {
+    const before = await onScreen();
+    const result = { ...(await hero), id: "newrun" };
+    const step = must(result.trace[0]);
+    let state = runReducer(before, { type: "begin" });
+    expect(followsDraft(state)).toBe(false);
+    state = reduce(state, { type: "event", event: { type: "start", id: step.id, title: step.title } });
+    expect(followsDraft(state)).toBe(true);
+    expect(state.result).toBe(before.result);
+    state = reduce(state, { type: "event", event: { type: "step", step } }, { type: "event", event: { type: "result", result } }, { type: "end" });
+    expect(state).toMatchObject({ result, steps: [step], error: undefined, running: false });
+    expect(followsDraft(state)).toBe(false);
+  });
+  it("with nothing on screen yet, a failed run leaves the steps it got through for the trace", async () => {
+    const step = must((await hero).trace[0]);
+    respond(ndjson({ type: "step", step }, { type: "error", message: "boom" }));
+    const { state } = await request(initialRunState);
+    expect(state.result).toBeUndefined();
+    expect(state.error).toBe("boom");
+    // Through the wire, so undefined fields are gone.
+    expect(state.steps).toEqual([JSON.parse(JSON.stringify(step))]);
   });
 });

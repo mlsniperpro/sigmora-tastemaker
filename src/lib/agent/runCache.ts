@@ -123,6 +123,11 @@ export async function shippableByOwner(run: RunResult, cache: CacheStore = defau
 }
 const OwnerMark = z.object({ owner: z.literal(true) });
 
+/** Keeps a fallback run (a preset on the offline simulator) by id only, briefly: its permalink opens, but no brief points at it. */
+export async function keepFallbackRun(run: RunResult, cache: CacheStore = defaultCache()): Promise<void> {
+  await cache.set(resultKey(run.id), run, DEGRADED_TTL);
+}
+
 /** Keeps a run that was shipped for real until its campaign can be measured. */
 export async function keepShippedRun(run: RunResult, cache: CacheStore = defaultCache()): Promise<void> {
   await cache.set(resultKey(run.id), run, SHIPPED_TTL);

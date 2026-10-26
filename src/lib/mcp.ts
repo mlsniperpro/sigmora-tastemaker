@@ -141,8 +141,9 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
     r = (
       await getOrRun(lookup, undefined, recording)
         .catch(async (err: unknown) => {
-          // No audience name resolved: the run spent nothing, so it doesn't count toward the limits.
-          if (paid && err instanceof NoSeedError) await refundAdmissionFor(ip);
+          // No audience name resolved: with the scripted model the run spent nothing, so it doesn't count toward the limits
+          // (a live model's baseline draft is already paid for).
+          if (paid && lookup.deps.llm.scripted && err instanceof NoSeedError) await refundAdmissionFor(ip);
           throw err;
         })
         .finally(() => lookup.deps.qloo.release())

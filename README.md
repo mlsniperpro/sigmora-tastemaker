@@ -77,7 +77,7 @@ Every request is validated against a per-`filter.type` parameter allow-list befo
 
 ## Use it from any agent (MCP)
 
-Tastemaker is also an MCP server at `POST /api/mcp` (Streamable HTTP per the 2025-06-18 spec: stateless, one JSON-RPC message per POST, JSON responses). Two tools:
+Tastemaker is also an MCP server at `POST /api/mcp` (Streamable HTTP per the 2025-06-18 spec: stateless, one JSON-RPC message per POST, JSON responses). Three tools:
 
 - `taste_check`: give it an audience (`seeds`, `ages`, optional `gender` and `city`) and a list of picks (artists, brands, shows, films, podcasts, venues, creators, cities); get back a verdict per pick (pass, low affinity, not found in Qloo, fading, unscored), the Qloo affinity, explainability, the calls behind it, and Qloo-preferred replacements. Input schemas are generated from the same zod schemas the server enforces.
 - `audit_plan`: paste any model's campaign plan plus the audience; every cultural name in it is checked by the Qloo critic (the same audit as the "Audit any AI's plan" panel).

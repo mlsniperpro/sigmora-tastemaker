@@ -1,7 +1,7 @@
 /** Finding the cultural names in someone else's plan: labelled lines, the prose scan, and the model's list with its fallback. */
 import { describe, expect, it, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { MAX_AUDIT_PICKS, MAX_AUDIT_SEARCHES, MAX_JOIN_SEARCHES, extractPicks, labelledPicks, namesIn, rejoin, scanPicks } from "@/lib/agent/extract";
+import { MAX_AUDIT_PICKS, MAX_AUDIT_SEARCHES, MAX_JOIN_SEARCHES, extractPicks, labelledPicks, namesIn, partsOf, rejoin, scanPicks } from "@/lib/agent/extract";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import type { ChatClient } from "@/lib/llm/chat";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
@@ -72,8 +72,21 @@ describe("labelled lines", () => {
     expect(names(real.picks)).toEqual(["city:Lagos", "podcast:The Breakfast Club", "reference:Insecure", "venue:Echostage", "sponsor:Telfar"]);
   });
 
-  it("reads hook lines as references: 'think Stranger Things meets Euphoria'", () => {
-    expect(names(labelledPicks("Hook: think Stranger Things meets Euphoria").picks)).toEqual(["reference:Stranger Things", "reference:Euphoria"]);
+  it("reads hook lines as copy (prose): only names Qloo knows come out of them (audit 8)", async () => {
+    // "Hooks: Pre-save now" is a line of copy, not an invented name.
+    expect(names(labelledPicks("Hooks: Pre-save now\nKey hook: 'Wrong answers only' challenge").picks)).toEqual([]);
+    const hook = labelledPicks("Hook: think Stranger Things meets Euphoria");
+    expect(hook.picks).toEqual([]);
+    expect(hook.prose).toContain("Stranger Things");
+    const q = offline();
+    vi.spyOn(q, "search").mockImplementation((query: string) =>
+      Promise.resolve({
+        data: { results: query === "Stranger Things" ? [{ name: "Stranger Things", entity_id: "st", types: ["urn:entity:tv_show"] }] : [] },
+        meta: { path: "/search", params: {}, key: `k:${query}`, source: "simulated", cached: false, latencyMs: 0 },
+      } as unknown as Awaited<ReturnType<QlooClient["search"]>>),
+    );
+    const scanned = await scanPicks(q, "Hook: think Stranger Things meets Pre-save Now", []);
+    expect(scanned.picks.map((p) => p.name)).toEqual(["Stranger Things"]);
     expect(namesIn("Insecure x Atlanta vs. The Bear")).toEqual(["Insecure", "Atlanta", "The Bear"]);
   });
 
@@ -111,6 +124,63 @@ describe("labelled lines", () => {
     expect(lines.joins.map((j) => j.name)).toEqual(["Earth, Wind & Fire"]);
     expect(names(await rejoin(q, lines.picks, lines.joins))).toEqual(["collab:Earth, Wind & Fire", "collab:Ayra Starr", "collab:Ed Sheeran"]);
     expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads every name of an Oxford-comma or '&' list (audit 8)", () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Collab targets: Burna Boy, Ayra Starr, and Kemi Adebayo-Rhodes")).toEqual(["collab:Burna Boy", "collab:Ayra Starr", "collab:Kemi Adebayo-Rhodes"]);
+    expect(read("Brand partners: Telfar, Bode, & Kidsuper")).toEqual(["sponsor:Telfar", "sponsor:Bode", "sponsor:Kidsuper"]);
+    expect(read("Collab targets: Ayra Starr as well as Wizkid, or Tems")).toEqual(["collab:Ayra Starr", "collab:Wizkid", "collab:Tems"]);
+  });
+
+  it("splits a name that may be two unless Qloo knows it whole (audit 8)", async () => {
+    expect(partsOf("Burna Boy & Wizkid")).toEqual(["Burna Boy", "Wizkid"]);
+    expect(partsOf("Drake, the Weeknd")).toEqual(["Drake", "the Weeknd"]);
+    expect(partsOf("Florence + the Machine")).toEqual(["Florence", "the Machine"]);
+    expect(partsOf("AC/DC")).toEqual([]);
+    expect(partsOf("Ayra Starr")).toEqual([]);
+    const known = new Set(["Simon & Garfunkel", "Tyler, the Creator", "Earth, Wind & Fire", "Drake", "The Weeknd", "Burna Boy", "Wizkid"]);
+    const q = offline();
+    const search = vi.spyOn(q, "search").mockImplementation((query: string) =>
+      Promise.resolve({
+        data: { results: known.has(query) ? [{ name: query, entity_id: query, types: ["urn:entity:artist"] }] : [] },
+        meta: { path: "/search", params: {}, key: `k:${query}`, source: "simulated", cached: false, latencyMs: 0 },
+      } as unknown as Awaited<ReturnType<QlooClient["search"]>>),
+    );
+    const read = async (t: string) => {
+      const lines = labelledPicks(t);
+      return names(await rejoin(q, lines.picks, lines.joins, lines.splits));
+    };
+    expect(await read("Collab targets: Burna Boy & Wizkid")).toEqual(["collab:Burna Boy", "collab:Wizkid"]);
+    expect(await read("Collab targets: Drake, the Weeknd")).toEqual(["collab:Drake", "collab:the Weeknd"]);
+    expect(await read("Collab targets: Simon & Garfunkel, Tyler, the Creator")).toEqual(["collab:Simon & Garfunkel", "collab:Tyler, the Creator"]);
+    expect(await read("Collab targets: Earth, Wind & Fire")).toEqual(["collab:Earth, Wind & Fire"]);
+    // A part already listed isn't audited twice.
+    expect(await read("Collab targets: Burna Boy & Wizkid, Wizkid")).toEqual(["collab:Burna Boy", "collab:Wizkid"]);
+    // A failed search keeps the name whole (its check then fails visibly, never a silent guess).
+    search.mockRejectedValue(new Error("Qloo down"));
+    expect(await read("Collab targets: Burna Boy & Wizkid")).toEqual(["collab:Burna Boy & Wizkid"]);
+  });
+
+  it("doesn't read descriptions, copy or place qualifiers as names (audit 8)", () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Creators: 5 micro-influencers in Lagos, Three TikTok dance creators")).toEqual([]);
+    expect(read("Venue: Pop-up in Lagos\nSponsors: Local Coffee Shops\nTarget brands: Gen Z fashion labels")).toEqual([]);
+    // Names that start with a number, or end like a description word in the singular, are still names.
+    expect(read("Collab targets: 50 Cent, 5 Seconds of Summer, 21 Savage")).toEqual(["collab:50 Cent", "collab:5 Seconds of Summer", "collab:21 Savage"]);
+    expect(read("Venue: Echostage, Washington D.C.")).toEqual(["venue:Echostage"]);
+    expect(read("Launch city: Washington, D.C.")).toEqual(["city:Washington"]);
+    expect(read("Venue: Madison Square Garden, New York City\nVenue: Apollo Theater, Harlem\nVenue: The Fillmore, MD")).toEqual(["venue:Madison Square Garden", "venue:Apollo Theater", "venue:The Fillmore"]);
+    // City lists spend no searches on joins.
+    expect(labelledPicks("Cities: Lagos, Abuja").joins).toEqual([]);
+  });
+
+  it("keeps a titled work's subtitle, but not an explanation after a colon (audit 8)", () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Reference: Black Panther: Wakanda Forever")).toEqual(["reference:Black Panther: Wakanda Forever"]);
+    expect(read("TV shows: Law & Order: SVU, Insecure")).toEqual(["reference:Law & Order: SVU", "reference:Insecure"]);
+    expect(read("Films: Spider-Man: Into the Spider-Verse")).toEqual(["reference:Spider-Man: Into the Spider-Verse"]);
+    expect(read("Reference: Insecure: it nails the tone")).toEqual(["reference:Insecure"]);
   });
 
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {
@@ -211,7 +281,8 @@ describe("the model's list", () => {
     // A model list that is in the text is used, with the scanner's labelled picks merged in for free.
     const partial = await extractPicks(text, { qloo: offline(), llm: new LiveLLM(chat('{"picks":[{"name":"Taylor Swift","type":"artist","role":"collab"}]}')), seeds: [] });
     expect(partial.by).toBe("model");
-    expect(names(partial.picks)).toEqual(["collab:Taylor Swift", "collab:Ayra Starrr", "collab:Zorblax Quinn"]);
+    // Labelled picks come first, so a long model list can't push the plan's own slots past the cap.
+    expect(names(partial.picks)).toEqual(["collab:Ayra Starrr", "collab:Zorblax Quinn", "collab:Taylor Swift"]);
   });
 
   it("lists the prose names Qloo has no entity for, so the panel can say they weren't audited", async () => {
