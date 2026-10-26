@@ -285,6 +285,8 @@ describe("audit panel notes", () => {
     const note = extractionNote({ ...base, cached: true, extraction: { by: "scanner", capped: false, unmatched: ["Zorvana Blake", "Kelvin Quartz"] } });
     expect(note).toMatch(/Not audited, because no entity has that exact name: Zorvana Blake, Kelvin Quartz/);
     expect(note).toMatch(/identical earlier audit, so no Qloo calls were spent/);
+    const known = extractionNote({ ...base, extraction: { by: "scanner", capped: false, otherTypes: [{ name: "Atlanta", type: "locality" }] } });
+    expect(known).toMatch(/Known to the catalogue as a kind this audit doesn't check: Atlanta \(locality\)/);
     const model = extractionNote({ ...base, extraction: { by: "model", model: "m", capped: false, dropped: ["Taylor Swift"] } });
     expect(model).toMatch(/also listed Taylor Swift, which your text doesn't contain, so it wasn't audited/);
   });

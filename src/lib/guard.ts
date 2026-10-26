@@ -86,10 +86,15 @@ export function guardResponse(g: Extract<GuardResult, { ok: false }>): Response 
  * Gives back what admit() counted, for an admitted request that then failed before spending anything
  * (say, no audience name resolved), so such failures can't use up the day's run cap for everyone.
  */
-export async function refundAdmission(req: Request, opts: { perIp?: boolean } = {}, counter: Counter = defaultCounter(), now = Date.now()): Promise<void> {
+export function refundAdmission(req: Request, opts: { perIp?: boolean } = {}, counter: Counter = defaultCounter(), now = Date.now()): Promise<void> {
+  return refundAdmissionFor(clientIp(req.headers), opts, counter, now);
+}
+
+/** refundAdmission by the caller's rate-limit key (MCP has no Request at that point). */
+export async function refundAdmissionFor(ip: string, opts: { perIp?: boolean } = {}, counter: Counter = defaultCounter(), now = Date.now()): Promise<void> {
   try {
     await incrDaily(counter, "rl:runs", now, -1);
-    if (opts.perIp ?? true) await incrDaily(counter, `rl:ipday:${clientIp(req.headers)}`, now, -1);
+    if (opts.perIp ?? true) await incrDaily(counter, `rl:ipday:${ip}`, now, -1);
   } catch (err) {
     console.warn(`[guard] couldn't refund an admission: ${err instanceof Error ? err.message : String(err)}`);
   }

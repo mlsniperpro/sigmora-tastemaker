@@ -105,21 +105,38 @@ export class KvCache implements CacheStore {
 /** Seconds a value read from a slower layer stays in the faster ones. */
 export const BACKFILL_TTL = 60;
 
+/** A miss on these keys (run results by id: permalinks, Ship) is remembered briefly, so random-id probes can't each cost a store read. */
+const NEGATIVE_PREFIXES = ["result:"];
+export const NEGATIVE_TTL_MS = 10_000;
+const NEGATIVE_MAX = 5000;
+
 export class LayeredCache implements CacheStore {
-  constructor(private readonly layers: CacheStore[]) {}
+  private readonly misses = new Map<string, number>();
+  constructor(
+    private readonly layers: CacheStore[],
+    private readonly now: () => number = () => performance.now(),
+  ) {}
   async get(key: string) {
+    const missedUntil = this.misses.get(key);
+    if (missedUntil !== undefined && missedUntil > this.now()) return undefined;
     for (const [i, layer] of this.layers.entries()) {
       const v = await layer.get(key);
       if (v !== undefined) {
+        this.misses.delete(key);
         // Backfill faster layers briefly: the value's real TTL lives in the slower layer, and a long backfill
         // would keep a short-lived value (a degraded run's 10 minutes) alive past it.
         await Promise.all(this.layers.slice(0, i).map((l) => l.set(key, v, BACKFILL_TTL)));
         return v;
       }
     }
+    if (NEGATIVE_PREFIXES.some((p) => key.startsWith(p))) {
+      if (this.misses.size >= NEGATIVE_MAX) this.misses.clear();
+      this.misses.set(key, this.now() + NEGATIVE_TTL_MS);
+    }
     return undefined;
   }
   async set(key: string, value: unknown, ttlSeconds: number) {
+    this.misses.delete(key);
     await Promise.all(this.layers.map((l) => l.set(key, value, ttlSeconds)));
   }
 }

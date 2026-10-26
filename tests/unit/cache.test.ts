@@ -1,7 +1,7 @@
 import { describe, it, vi, expect } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { KvRest } from "@/lib/kv";
-import { BACKFILL_TTL, KvCache, LayeredCache, MemoryCache } from "@/lib/qloo/cache";
+import { BACKFILL_TTL, KvCache, LayeredCache, MemoryCache, NEGATIVE_TTL_MS } from "@/lib/qloo/cache";
 import { sentJson } from "../must";
 
 describe("MemoryCache", () => {
@@ -95,5 +95,26 @@ describe("LayeredCache", () => {
     expect(await fast.get("k")).toBeUndefined();
     t = 601_000;
     expect(await new LayeredCache([fast, slow]).get("k")).toBeUndefined();
+  });
+
+  it("remembers a run-result miss briefly, so random-id probes don't each reach the store", async () => {
+    let t = 0;
+    const slow = new MemoryCache();
+    const get = vi.spyOn(slow, "get");
+    const c = new LayeredCache([slow], () => t);
+    expect(await c.get("result:v5:nope")).toBeUndefined();
+    expect(await c.get("result:v5:nope")).toBeUndefined();
+    expect(get).toHaveBeenCalledTimes(1);
+    // Other keys are always asked (a brief's pointer may appear any moment from another instance).
+    await c.get("run:v5:x");
+    await c.get("run:v5:x");
+    expect(get).toHaveBeenCalledTimes(3);
+    // Setting the key clears the miss at once; and a miss expires on its own.
+    await c.set("result:v5:nope", "v", 60);
+    expect(await c.get("result:v5:nope")).toBe("v");
+    expect(await c.get("result:v5:gone")).toBeUndefined();
+    t = NEGATIVE_TTL_MS + 1;
+    await slow.set("result:v5:gone", "later", 60);
+    expect(await c.get("result:v5:gone")).toBe("later");
   });
 });

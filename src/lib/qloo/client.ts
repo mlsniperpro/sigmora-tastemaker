@@ -120,6 +120,18 @@ function spentMemo(counter: Counter): Map<string, number> {
   return m;
 }
 
+const refundTimes = new WeakMap<Counter, Map<string, number>>();
+/** Per counter: share name → when calls were last handed back to it (bounded by the number of shares). */
+function refundedAt(counter: Counter): Map<string, number> {
+  let m = refundTimes.get(counter);
+  if (!m) {
+    m = new Map();
+    refundTimes.set(counter, m);
+  }
+  if (m.size > 5000) m.clear();
+  return m;
+}
+
 export interface ReserveOptions {
   /**
    * Daily shares the calls also count against, each with its own cap: a pool
@@ -279,14 +291,14 @@ export class QlooClient {
         const n = await incrDaily(daily.counter, c.name, at);
         taken.push(c.name);
         if (n > c.cap) {
-          await this.giveBack(taken, at, 1);
+          await this.giveBack(taken, at, 1, false);
           throw new QlooBudgetError("day", c.cap);
         }
       }
     } catch (err) {
       if (err instanceof QlooBudgetError) throw err;
       // Fail closed: an unreadable budget is treated as a spent one (the run degrades to unscored picks).
-      await this.giveBack(taken, at, 1);
+      await this.giveBack(taken, at, 1, false);
       throw new QlooBudgetError("day", daily.cap);
     }
   }
@@ -321,8 +333,9 @@ export class QlooClient {
         const n = await incrDaily(daily.counter, c.name, at, calls);
         taken.push(c.name);
         if (n > c.cap) {
-          await this.giveBack(taken, at, calls);
-          memo.set(memoKey(c), at + SPENT_MEMO_MS);
+          await this.giveBack(taken, at, calls, false);
+          // Unless another job refunded this share since the count was taken (the room may be back already).
+          if ((refundedAt(daily.counter).get(c.name) ?? 0) < at) memo.set(memoKey(c), at + SPENT_MEMO_MS);
           this.refusedBy = c.name.replace(/^qloo-scope:/, "");
           return false;
         }
@@ -330,7 +343,7 @@ export class QlooClient {
     } catch (err) {
       console.error(`[qloo] budget store unavailable, refusing the run: ${err instanceof Error ? err.message : String(err)}`);
       this.refusedBy = "store";
-      await this.giveBack(taken, at, calls);
+      await this.giveBack(taken, at, calls, false);
       return false;
     }
     this.prepaid += calls;
@@ -350,12 +363,18 @@ export class QlooClient {
   }
 
   /** Best effort: a refund the store refuses is logged; the day's window expires on its own. */
-  private async giveBack(names: readonly string[], at: number, calls: number) {
+  /** `stamp`: a real refund of reserved calls (false for undoing a refused reservation's own increments, which frees nothing). */
+  private async giveBack(names: readonly string[], at: number, calls: number, stamp = true) {
     const daily = this.opts.daily;
     if (!daily) return;
-    // Calls handed back may make room again: drop the refusal memo for these shares.
+    // Calls handed back may make room again: drop the refusal memo for these shares, and note when.
     const memo = spentMemo(daily.counter);
     for (const key of memo.keys()) if (names.some((n) => key.startsWith(`${n}|`))) memo.delete(key);
+    if (stamp) {
+      const refunds = refundedAt(daily.counter);
+      const when = Date.now();
+      for (const n of names) refunds.set(n, when);
+    }
     for (const name of names) {
       try {
         await incrDaily(daily.counter, name, at, -calls);

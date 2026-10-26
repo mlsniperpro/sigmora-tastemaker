@@ -275,3 +275,7 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] H10 (high, judge) No blank first screen on a total live-Qloo failure: a preset with nothing recorded shows its last finished run, else the same preset on the labelled offline simulator ("Live Qloo unavailable … nothing in it is a Qloo answer"), never mixed with live data (`stub-live-fallback.test.ts`)
 - [x] H11 The Qloo throttle uses the monotonic clock: a wall-clock step backwards (NTP, a test clock) can no longer stall every Qloo call (found while testing H10)
 - [x] H12 (judge, medium/low) A dead `?run=` link says so at the top and loads the hero preset; "simulated" in the trace header and the sticky bar; an offline-catalog note on simulated audits; "Edit brief" and the audit audience start from the brief on screen (e2e, `components.test.tsx`)
+- [x] H13 (low) A refusal isn't memoised when a refund to that share landed while it was being refused; a request's own rollbacks don't count as refunds (`client.test.ts` race test, fails without the fix)
+- [x] H14 (low) MCP `audit_plan` and `plan_campaign` give back their admission when no audience name resolves (as /api/run and /api/audit)
+- [x] H15 (low) Run-result misses are remembered for 10 s in-process, so random `?run=` probes can't each cost a store read; a `set` clears it (`cache.test.ts`)
+- [x] H16 (low) The audit panel names entities Qloo knows as a kind this audit doesn't check (a city in prose), instead of calling them unknown (`components.test.tsx`)

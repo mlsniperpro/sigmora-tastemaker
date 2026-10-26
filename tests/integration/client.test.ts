@@ -209,6 +209,34 @@ describe("QlooClient: live", () => {
     expect(await client(f, { daily }).reserve(80, pool)).toBe(true);
   });
 
+  it("doesn't remember a refusal when a refund landed while it was being refused", async () => {
+    const f = vi.fn(async () => ok(results));
+    const store = new MemoryCounter();
+    // One counter for every client (the refusal memo is per counter), with a race armed after A's reservation.
+    let armed = false;
+    const hook: { release?: () => Promise<void> } = {};
+    const racing: Counter = {
+      incr: async (k, ttl, by) => {
+        const n = await store.incr(k, ttl, by);
+        if (armed && k.includes("ip:1.1.1.1") && (by ?? 1) > 0) {
+          armed = false;
+          // B's count of the share is over the cap; A refunds right now, before B records the refusal.
+          await hook.release?.();
+        }
+        return n;
+      },
+    };
+    const daily = { counter: racing, cap: 400 };
+    const share = { scopes: [{ key: "ip:1.1.1.1", cap: 80 }] };
+    const a = client(f, { daily });
+    expect(await a.reserve(80, share)).toBe(true);
+    hook.release = () => a.release();
+    armed = true;
+    expect(await client(f, { daily }).reserve(80, share)).toBe(false);
+    // The share is free again, and no stale memo refuses the next caller.
+    expect(await client(f, { daily }).reserve(80, share)).toBe(true);
+  });
+
   it("fails closed when the budget store is down: no run starts, nothing half-taken stays taken", async () => {
     const f = vi.fn(async () => ok(results));
     const store = new MemoryCounter();

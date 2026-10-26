@@ -80,8 +80,10 @@ export function extractionNote(r: AuditResult): string {
   // Prose names the catalogue doesn't know by that exact name aren't audited (from prose alone an invention can't be told from an ordinary phrase): say which.
   const unmatched = e.unmatched?.length ? ` Not audited, because no entity has that exact name: ${list(e.unmatched)}. Put a name on a labelled line (“Collab targets: …”) to have it checked.` : "";
   const dropped = e.dropped?.length ? ` The model also listed ${list(e.dropped)}, which your text doesn't contain, so ${e.dropped.length === 1 ? "it wasn't" : "they weren't"} audited.` : "";
+  const kinds = (e.otherTypes ?? []).map((o) => `${o.name} (${o.type.replace(/_/g, " ")})`);
+  const other = kinds.length ? ` Known to the catalogue as a kind this audit doesn't check: ${list(kinds)}.` : "";
   const cached = r.cached ? " Served from an identical earlier audit, so no Qloo calls were spent." : "";
-  return `${how}${e.fallback ? ` The model wasn't used: ${e.fallback}.` : ""}${e.capped ? " Only the first 15 names are audited." : ""}${skipped}${unmatched}${dropped}${cached}`;
+  return `${how}${e.fallback ? ` The model wasn't used: ${e.fallback}.` : ""}${e.capped ? " Only the first 15 names are audited." : ""}${skipped}${unmatched}${other}${dropped}${cached}`;
 }
 
 function AuditRow({ r, suggestion, simulated }: { r: Receipt; suggestion?: string; simulated: boolean }) {

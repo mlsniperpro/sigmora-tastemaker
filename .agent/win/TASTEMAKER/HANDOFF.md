@@ -48,12 +48,10 @@
 - **Verified on this commit:** lint and typecheck clean; `pnpm test` 463; `pnpm test:e2e` 24.
 - **Next:** round 8 of the three-lens audit (Sonnet), plus a soak, on this commit.
 
-## Open audit findings (round 7, not yet fixed)
-- **Judge M3:** `.agent/` and `docs/PLAYBOOK.md` (judge-by-judge tactics) will be public when the repo goes public. Owner decision; it's listed in BLOCKED.md. The gate needs `.agent/` tracked.
-- **Judge L7:** the panel UI doesn't yet render `extraction.otherTypes` ("Qloo knows X as a <type>, which this audit doesn't check").
-- **Security M3, partly open:** the sample audit has no recorded fallback for when its budget is refused. Fix: record the sample audit with the key (extend `pnpm runs:record`) and serve it, labelled, on refusal.
-- **Security L6:** a refusal memo can go stale if a refund lands between `incr` and `memo.set` (it lasts at most 60 s); MCP admissions aren't refunded on NoSeed.
-- **Security L7:** add a short in-memory negative cache for KV misses (cost only).
+## Open audit findings
+- None from round 7 (WIN-CHECKLIST H1–H16).
+- **Owner decision:** making the repo public exposes `docs/PLAYBOOK.md` and `.agent/` (BLOCKED.md).
+- **Security M3, partly open:** the sample audit has no *recorded* fallback (it needs the key: extend `pnpm runs:record`). Its single flight and cache are done.
 - Earlier accepted `[-]` decisions are in WIN-CHECKLIST.
 
 ## Next steps, in order
