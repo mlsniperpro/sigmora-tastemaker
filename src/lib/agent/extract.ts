@@ -32,7 +32,7 @@ export const MAX_AUDIT_CHARS = 4000;
 const LABELS: { re: RegExp; role: Role; type: PickType }[] = [
   { re: /\bpodcasts?\b/i, role: "podcast", type: "podcast" },
   { re: /\bcity\b|\bcities\b/i, role: "city", type: "locality" },
-  { re: /\bcollabs?\b|\bcollaborat(?:ors?|ions?)\b|\bfeat(?:ures?|uring)?\b|\bartists?\b|\bmusicians?\b|\bduets?\b|\bsupport acts?\b|\bproducers?\b|\bdjs?\b/i, role: "collab", type: "artist" },
+  { re: /\bcollabs?\b|\bcollaborat(?:ors?|ions?)\b|\bfeat(?:uring)?\b|\bft\b|\bartists?\b|\bmusicians?\b|\bduets?\b|\bsupport acts?\b|\bproducers?\b|\bdjs?\b/i, role: "collab", type: "artist" },
   { re: /\bsponsors?\b|\bbrands?\b|\bpartners?\b/i, role: "sponsor", type: "brand" },
   { re: /\bvenues?\b|\bpop-?ups?\b/i, role: "venue", type: "place" },
   { re: /\bpresenters?\b|\bhosts?\b|\bcreators?\b|\binfluencers?\b|\bambassadors?\b|\bface of\b/i, role: "presenter", type: "person" },
@@ -44,7 +44,7 @@ const LABELS: { re: RegExp; role: Role; type: PickType }[] = [
 /** Every word a pick label may contain: role nouns and qualifiers. Anything else ("voice", "KPIs", "market") makes the line prose. */
 const LABEL_WORDS = new Set(
   (
-    "podcast podcasts pitch pitches appearance appearances city cities collab collabs collaborator collaborators collaboration collaborations feat feature features featuring artist artists musician musicians duet duets support act acts producer producers dj djs " +
+    "podcast podcasts pitch pitches appearance appearances city cities collab collabs collaborator collaborators collaboration collaborations feat ft featuring artist artists musician musicians duet duets support act acts producer producers dj djs " +
     "sponsor sponsors brand brands partner partners venue venues pop-up pop-ups popup popups presenter presenters host hosts creator creators influencer influencers ambassador ambassadors face of " +
     "film films movie movies reference references tv show shows series touchstone touchstones " +
     "target targets potential suggested proposed key primary secondary launch first featured guest guests lead main hero recommended top possible priority shortlist cultural culture hook hooks option options pick picks name names list " +
@@ -85,7 +85,7 @@ const EMPTY = new Set(["tbd", "tba", "tbc", "pending", "none", "n/a", "na", "var
 const CALENDAR = /^(?:mon|tues|wednes|thurs|fri|satur|sun)day|^(?:january|february|march|april|may|june|july|august|september|october|november|december)\b|^(?:weekend|weekday|morning|evening|night|tonight|today|tomorrow)s?\b/i;
 
 /** Slot fillers that aren't names: "Our agency", "Legal team", "N/A for now", "Coming soon", "Season 1". */
-const PLACEHOLDER = /^(?:our|my|your|their|his|her|its|an?)\s|\bteam$|^coming soon\b|^season\s+\d|^n\/?a\b|^tb[acd]\b|^none\b|^various\b|^for now\b/i;
+const PLACEHOLDER = /^(?:our|my|your|their|his|her|its)\s|\bteam$|^coming soon\b|^season\s+\d|^n\/?a\b|^tb[acd]\b|^none\b|^various\b|^for now\b/i;
 
 /** Descriptions, not names: "5 micro-influencers in Lagos", "Three TikTok dance creators", "Local Coffee Shops", "Pop-up in Lagos". */
 function isDescription(n: string): boolean {
@@ -93,6 +93,9 @@ function isDescription(n: string): boolean {
   if (/^(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|a few|several|some|many)\s/i.test(n) && /^\S+\s+\p{Ll}/u.test(n)) return true;
   return /^pop-?ups?\b|\s(?:creators|influencers|micro-influencers|shops|stores|labels|brands|venues|bars|cafes|restaurants|challenge|accounts|pages|students|campuses|startups|businesses|artists|musicians|djs|podcasters|streamers|athletes|spots)$/i.test(n);
 }
+
+/** "A local DJ", "an agency": an article before a lowercase word is a description; "A Tribe Called Quest" is a name. */
+const ARTICLE = /^[Aa]n?\s+\p{Ll}/u;
 
 /** Countries and regions that follow a city ("Lagos, Nigeria") rather than name another one. */
 const REGIONS = new Set(
@@ -119,8 +122,11 @@ const isCode = (n: string, prev = "") => {
 /** Could this fragment be a name at all (not a placeholder, a date, a description)? A lowercase "the" may lead ("the Weeknd"). */
 export function nameLike(n: string): boolean {
   const bare = n.replace(/^the\s+(?=[\p{Lu}\p{N}])/u, "");
-  return n.length >= 2 && n.length <= 60 && /^[\p{Lu}\p{N}]/u.test(bare) && n.split(/\s+/).length <= 6 && !EMPTY.has(normName(n)) && !CALENDAR.test(bare) && !PLACEHOLDER.test(bare) && !isDescription(bare);
+  return n.length >= 2 && n.length <= 60 && /^[\p{Lu}\p{N}]/u.test(bare) && n.split(/\s+/).length <= 6 && !EMPTY.has(normName(n)) && !CALENDAR.test(bare) && !PLACEHOLDER.test(bare) && !ARTICLE.test(bare) && !isDescription(bare);
 }
+
+/** An initial ("J. ") before a name of one or two capitalised words (or another initial) that ends the item. */
+const INITIAL = /\b(\p{Lu})\.\s(?=(?:\p{Lu}\.\s)?\p{Lu}[\p{L}'’-]*(?:\s\p{Lu}[\p{L}'’-]*)?(?:[,;.:]|$|\s[—–-]\s|\s(?:and|or|&|x|×|\+|\/|plus|meets|vs|feat|ft|featuring|along with|as well as|because|for)\b))/gu;
 
 /** Small words a title keeps lowercase ("Into the Spider-Verse"). */
 const TITLE_SMALL = new Set(["of", "the", "and", "in", "a", "an", "to", "for", "on", "at", "with", "&", "vs", "vs."]);
@@ -158,9 +164,10 @@ export function namesIn(value: string, role?: Role): string[] {
     .replace(/\s*\([^)]*\)/g, "")
     // "Dr. Dre", "Burna Boy feat. Ayra Starr": an abbreviation's dot doesn't end the sentence.
     .replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|Vol|Pt|feat|ft|vs)\.\s/g, "$1 ")
-    // "J. Cole", "A.J. Tracey": an initial's dot doesn't end the sentence either, when the name it starts
-    // ends the list item ("Lil Nas X. Both skew 25-34" is a name, then a sentence).
-    .replace(/\b(\p{Lu})\.\s(?=\p{Lu}[\p{L}'’-]*(?:\s\p{Lu}[\p{L}'’-]*)?\s*(?:[,;]|$|\s(?:and|or|&)\s))/gu, "$1 ")
+    // "J. Cole", "A.J. Tracey", "A. R. Rahman": an initial's dot doesn't end the sentence either, when the name it
+    // starts ends at a list separator or the line ("Lil Nas X. Both skew 25-34" is a name, then a sentence).
+    .replace(INITIAL, "$1 ")
+    .replace(INITIAL, "$1 ")
     // "Nike, Inc.": a company's legal suffix isn't another name.
     // ("Tiffany & Co." keeps its "Co.": after "&" or "and" it's part of the name.)
     .replace(/(?<!&|\band),?\s+(?:Inc|LLC|Ltd|Co|Corp|PLC|GmbH)\b\.?(?=\s*(?:[,;]|$))/g, "");
@@ -266,8 +273,10 @@ export function labelledPicks(text: string): { picks: NamedPick[]; prose: string
       // Only where a split plausibly broke one name: a one-word side ("Earth, Wind & Fire", "Marks and Spencer")
       // or a capitalised "The …" ("Tyler, The Creator"); two full names in a list aren't worth a search.
       // City lists never hold a name with a comma in it ("Lagos, Abuja"), so they spend no searches on joins.
-      // "Burna Boy, Wizkid" (a full name, then another) is two names; "Earth, Wind & Fire" (a word, then more) may be one.
-      const plausible = spec.role !== "city" && ((!prevName.includes(" ") && (!name.includes(" ") || /\s(?:&|and)\s/.test(name))) || /^The\s/.test(name));
+      // Only where a split may have broken one name: a word joined by "and"/"&"/"+" ("Marks and Spencer"), a word
+      // before an "&" name ("Earth, Wind & Fire"), or a "The …" ("Tyler, The Creator"). "Wizkid, Davido" is two names.
+      const between = joined ? joined.slice(prevName.length, joined.length - name.length) : "";
+      const plausible = spec.role !== "city" && ((!prevName.includes(" ") && (/&|\band\b|\+/.test(between) || /\s(?:&|and)\s/.test(name))) || /^The\s/.test(name));
       if (joined && plausible && to - (from + prevName.length) <= 5) joins.push({ a: prevIndex, b: at, name: joined });
       prevIndex = at;
       prevName = name;

@@ -235,7 +235,11 @@ describe("labelled lines", () => {
   });
 
   it("searches subtitled titles before joins, joins only names a split may have broken, and names what the cap leaves out (audit 10)", async () => {
-    const lines = labelledPicks("Collab targets: Burna Boy, Wizkid, Earth, Wind & Fire\nBrand partners: Nike, Spotify, Adidas, Puma, Telfar\nReferences: Euphoria: HBO, Black Panther: Wakanda Forever");
+    const lines = labelledPicks(
+      "Collab targets: Burna Boy, Wizkid, Earth, Wind & Fire\nBrand partners: Marks and Spencer, Dolce and Gabbana, Procter and Gamble, Simon and Schuster, Black and Decker, Ben and Jerry\nReferences: Euphoria: HBO, Black Panther: Wakanda Forever",
+    );
+    // Comma-separated one-word names ("Wizkid, Davido") are two names: no search is spent joining them (audit 11).
+    expect(labelledPicks("Collab targets: Wizkid, Davido, Rema, Tems").joins).toEqual([]);
     // "Burna Boy, Wizkid" is two names; "Earth, Wind & Fire" may be one.
     expect(lines.joins.map((j) => j.name)).not.toContain("Burna Boy, Wizkid");
     expect(lines.joins.map((j) => j.name)).toContain("Earth, Wind & Fire");
@@ -250,6 +254,7 @@ describe("labelled lines", () => {
     });
     const picks = names(await rejoin(q, lines.picks, lines.joins, lines.splits));
     // Seven joins compete for six searches; the two subtitled titles are searched anyway.
+    expect(lines.joins.map((j) => j.name)).toContain("Marks and Spencer");
     expect(lines.joins.length).toBeGreaterThanOrEqual(MAX_JOIN_SEARCHES);
     expect(asked).toEqual(expect.arrayContaining(["Euphoria: HBO", "Black Panther: Wakanda Forever"]));
     expect(picks).toContain("reference:Black Panther: Wakanda Forever");
@@ -258,6 +263,19 @@ describe("labelled lines", () => {
     const e = await scanPicks(offline(), `Collab targets: ${many}`, []);
     expect(e.capped).toBe(true);
     expect(e.cut).toEqual(["ActP", "ActQ", "ActR"]);
+  });
+
+  it("folds an initial before any separator, chained initials too, and never reads a product's features as artists (audit 11)", () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Collab targets: SZA, J. Cole.")).toEqual(["collab:SZA", "collab:J Cole"]);
+    expect(read("Collab targets: J. Cole x Wizkid, Drake")).toEqual(["collab:J Cole", "collab:Wizkid", "collab:Drake"]);
+    expect(read("Collab targets: J. Cole — storytelling, SZA")).toEqual(["collab:J Cole"]);
+    expect(read("Collab targets: A. R. Rahman, Wizkid")).toEqual(["collab:A R Rahman", "collab:Wizkid"]);
+    expect(read("Collab targets: Rema, Lil Nas X. Both skew 25-34.")).toEqual(["collab:Rema", "collab:Lil Nas X"]);
+    expect(read("Key features: Waterproof, Bluetooth 5.0, Long Battery Life\nFeatures: Fast Charging, Dark Mode")).toEqual([]);
+    expect(read("Featured artists: Tems\nFeaturing: Rema\nFeatured brands: Telfar")).toEqual(["collab:Tems", "collab:Rema", "sponsor:Telfar"]);
+    // An article before a capitalised word starts a name; before a lowercase one, a description.
+    expect(read("Collab targets: A Tribe Called Quest, a local DJ")).toEqual(["collab:A Tribe Called Quest"]);
   });
 
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {

@@ -121,7 +121,7 @@ export type Entity = z.infer<typeof Entity>;
 
 /** GET /search and GET /entities */
 export const SearchResponse = z
-  .object({ results: z.array(Entity).default([]) })
+  .object({ results: z.array(Entity).nullish().transform((v) => v ?? []) })
   .loose();
 export type SearchResponse = z.infer<typeof SearchResponse>;
 
@@ -173,7 +173,8 @@ export const InsightsResponse = z
         heatmap: absent(z.array(HeatmapCell)),
       })
       .loose()
-      .default({}),
+      .nullish()
+      .transform((v) => v ?? {}),
     duration: z.number().optional(),
   })
   .loose();
@@ -201,7 +202,7 @@ export type TrendPoint = z.infer<typeof TrendPoint>;
 export const TrendingResponse = z
   .object({
     success: z.boolean().optional(),
-    results: z.object({ trending: z.array(TrendPoint).nullish().transform((v) => v ?? []) }).loose().default({ trending: [] }),
+    results: z.object({ trending: z.array(TrendPoint).nullish().transform((v) => v ?? []) }).loose().nullish().transform((v) => v ?? { trending: [] }),
     duration: z.number().optional(),
   })
   .loose();
@@ -240,6 +241,8 @@ export const CompareItem = z
         delta: absent(z.number()),
       })
       .loose()
+      .nullish()
+      .transform((v) => v ?? undefined)
       .optional(),
   })
   .loose();
@@ -253,7 +256,7 @@ export type CompareItem = z.infer<typeof CompareItem>;
 export const CompareResponse = z
   .object({
     success: z.boolean().optional(),
-    results: z.union([z.array(CompareItem), z.object({ tags: z.array(CompareItem).optional() }).loose()]).default([]),
+    results: z.union([z.array(CompareItem), z.object({ tags: absent(z.array(CompareItem)) }).loose()]).nullish().transform((v) => v ?? []),
     duration: z.number().optional(),
   })
   .loose();

@@ -225,5 +225,8 @@ describe("presetIdOf (audit 10)", () => {
     const { Brief } = await import("@/lib/agent/brief");
     for (const p of PRESETS) expect(presetIdOf(Brief.parse(p.brief))).toBe(p.id);
     expect(presetIdOf({ ...Brief.parse(PRESETS[0].brief), subject: "Someone Else" })).toBeUndefined();
+    // An edited preset (only its seeds or ages changed) is a custom brief (audit 11).
+    expect(presetIdOf({ ...Brief.parse(PRESETS[0].brief), seeds: ["Burna Boy", "Davido"] })).toBeUndefined();
+    expect(presetIdOf({ ...Brief.parse(PRESETS[0].brief), ages: ["24_and_younger"] })).toBeUndefined();
   });
 });

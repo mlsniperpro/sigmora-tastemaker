@@ -101,10 +101,16 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
     : [];
   // The docs call locality insights partly supported: if the host drops the candidate filter, the reply is the top
   // localities nationwide, with places that aren't candidates. Such a reply isn't a ranking of the candidates; a reply of
-  // candidates only is, even if it leaves one out (that city is listed as unranked).
+  // candidates only is, if it ranks at least half of them (the rest are listed as unranked); else the heatmap fold
+  // ranks them all.
   const returned = ranked?.data.results.entities ?? [];
-  const honoured = byLocality.length > 0 && returned.every((e) => ids.includes(e.entity_id));
-  const dropped = ranked && !honoured ? `the reply held ${String(returned.length - byLocality.length)} places that aren't candidates, so the candidate filter was dropped` : undefined;
+  const strangers = returned.filter((e) => !ids.includes(e.entity_id)).length;
+  const honoured = strangers === 0 && byLocality.length > 0 && byLocality.length * 2 >= candidates.length;
+  const dropped = !ranked || honoured
+    ? undefined
+    : strangers > 0
+      ? `the reply held ${String(strangers)} places that aren't candidates, so the candidate filter was dropped`
+      : `the reply ranked ${String(byLocality.length)} of ${String(candidates.length)} candidate cities`;
   const cities = honoured ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
   const placed = new Set(cities.map((c) => c.entityId));
   return {

@@ -57,20 +57,37 @@ describe("QlooClient: live", () => {
     expect(urls[0]).toContain(encodeURIComponent("Tems\ufffd"));
   });
 
-  it("reads a lookup's 404 as no results (docs: \"No results\"), never cached and counted; any other 404 is an error (audits 9, 10)", async () => {
-    const f = vi.fn(async () => new Response('{"error":"No results"}', { status: 404 }));
-    const cache = new MemoryCache();
-    const q = client(f, { cache });
+  it("reads a lookup's 404 as no results: Qloo's JSON answer is cached, a gateway's page is never cached and is counted; other 404s are errors (audits 9-11)", async () => {
+    const qlooAnswer = vi.fn(async () => new Response('{"error":"No results"}', { status: 404 }));
+    const q = client(qlooAnswer, { cache: new MemoryCache() });
     expect((await q.search("Qorvax Blee", ["artist"])).data.results).toEqual([]);
-    expect((await q.entitiesByExternal("spotify", ["687cZJR45JO7jhk1LHIbgq"])).data.results).toEqual([]);
-    // Never cached (a gateway or deploy can 404 too): asked again, asked again; and counted, so the job is kept only briefly.
     await q.search("Qorvax Blee", ["artist"]);
-    expect(f).toHaveBeenCalledTimes(3);
-    expect(q.notFound).toBe(3);
-    expect(await cache.get(requestKey("/search", { query: "Qorvax Blee", types: ["urn:entity:artist"], take: 5 }))).toBeUndefined();
-    await expect(q.insights("urn:entity:artist", { "signal.interests.entities": "R1" })).rejects.toBeInstanceOf(HttpError);
-    // compare documents the same "No results" 404 (audit 10).
-    expect(await q.compare(["R1"], ["R2"])).toBeDefined();
+    expect(qlooAnswer).toHaveBeenCalledTimes(1);
+    expect(q.notFound).toBe(0);
+    expect((await q.compare(["R1"], ["R2"])).data).toBeDefined();
+    const gateway = vi.fn(async () => new Response("<html>404 Not Found</html>", { status: 404 }));
+    const cache = new MemoryCache();
+    const g = client(gateway, { cache });
+    expect((await g.search("Ed Sheeran", ["artist"])).data.results).toEqual([]);
+    expect((await g.entitiesByExternal("spotify", ["687cZJR45JO7jhk1LHIbgq"])).data.results).toEqual([]);
+    await g.search("Ed Sheeran", ["artist"]);
+    expect(gateway).toHaveBeenCalledTimes(3);
+    expect(g.notFound).toBe(3);
+    expect(await cache.get(requestKey("/search", { query: "Ed Sheeran", types: ["urn:entity:artist"], take: 5 }))).toBeUndefined();
+    await expect(g.insights("urn:entity:artist", { "signal.interests.entities": "R1" })).rejects.toBeInstanceOf(HttpError);
+  });
+
+  it("tolerates nulls in optional entity fields, and a lone surrogate in a model-written name (audit 9)", async () => {
+    const urls: string[] = [];
+    const f = vi.fn(async (url: URL) => {
+      urls.push(String(url));
+      return ok({ results: [{ name: "Rema", entity_id: "R1", popularity: null, subtype: null, location: null, tags: null }] });
+    });
+    const q = client(f);
+    const r = await q.search("Tems\ud83c", ["artist"]);
+    expect(r.data.results[0]).toMatchObject({ name: "Rema", entity_id: "R1" });
+    expect(r.data.results[0]?.popularity).toBeUndefined();
+    expect(urls[0]).toContain(encodeURIComponent("Tems\ufffd"));
   });
 
   it("calls the hackathon host with X-Api-Key, caches, and records", async () => {

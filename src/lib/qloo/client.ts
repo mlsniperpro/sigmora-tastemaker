@@ -271,11 +271,12 @@ export class QlooClient {
     }, this.opts.retry ?? DEFAULT_RETRY).catch((err: unknown) => {
       // These calls answer "no results" with a 404 (see NOT_FOUND_IS_EMPTY): that's a finding
       // (the name isn't in Qloo), not a failure, so it reads as an empty list and is cached as one.
-      if (err instanceof HttpError && err.status === 404 && NOT_FOUND_IS_EMPTY.has(path)) return NOT_FOUND;
+      // Qloo's own JSON "No results" is an answer, cached like any empty reply; any other 404 body may be a blip.
+      if (err instanceof HttpError && err.status === 404 && NOT_FOUND_IS_EMPTY.has(path)) return err.jsonBody ? { results: [] } : NOT_FOUND;
       throw err;
     });
     this.parse(path, schema, raw);
-    // A 404 can also come from a gateway or a deploy, not Qloo's catalog: it's read as "no results" but never cached,
+    // A 404 that isn't Qloo's JSON answer can come from a gateway or a deploy: it's read as "no results" but never cached,
     // and the job that saw one is stored only briefly (`notFound`), so a blip can't stand as a verdict for a day.
     if (raw === NOT_FOUND) {
       this.notFound++;

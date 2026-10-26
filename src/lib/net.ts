@@ -12,6 +12,8 @@ export class HttpError extends Error {
     /** Path only; never the query string (it can carry identifiers). */
     readonly path: string,
     readonly retryAfterMs?: number,
+    /** The error body was a JSON object (the service's own answer), not a gateway's page. Read for 404s only. */
+    readonly jsonBody = false,
   ) {
     super(`${service} ${status} on ${path}`);
     this.name = "HttpError";
@@ -49,8 +51,12 @@ export const joinUrl = (base: string, path: string) => base.replace(/\/+$/, "") 
 export function isRetryable(err: unknown): boolean {
   if (err instanceof HttpError) return err.status === 408 || err.status === 425 || err.status === 429 || err.status >= 500;
   if (err instanceof TimeoutError) return true;
-  // fetch() rejects with a TypeError on DNS / connection failures.
-  return err instanceof TypeError;
+  // fetch() rejects with a TypeError on DNS / connection failures; a refused redirect (redirect: "error") is final.
+  if (err instanceof TypeError) {
+    const cause = (err as { cause?: unknown }).cause;
+    return !/redirect/i.test(`${err.message} ${cause instanceof Error ? cause.message : ""}`);
+  }
+  return false;
 }
 
 /** Full-jitter exponential backoff, or the server's Retry-After when it gives one. */
@@ -157,6 +163,21 @@ export async function fetchWithTimeout(
 /** Turns a non-2xx response into an HttpError (draining the body so the socket is freed). */
 export async function ensureOk(res: Response, service: string, url: string | URL): Promise<Response> {
   if (res.ok) return res;
+  const path = new URL(url).pathname;
+  if (res.status === 404) {
+    // A service's own "not found" (a JSON object) is an answer; a gateway's or a router's page is not.
+    const text = await res.text().catch(() => "");
+    throw new HttpError(service, 404, path, undefined, isJsonObject(text));
+  }
   await res.body?.cancel().catch(() => undefined);
-  throw new HttpError(service, res.status, new URL(url).pathname, parseRetryAfter(res.headers.get("retry-after")));
+  throw new HttpError(service, res.status, path, parseRetryAfter(res.headers.get("retry-after")));
+}
+
+function isJsonObject(text: string): boolean {
+  if (!text.trimStart().startsWith("{")) return false;
+  try {
+    return typeof JSON.parse(text) === "object";
+  } catch {
+    return false;
+  }
 }

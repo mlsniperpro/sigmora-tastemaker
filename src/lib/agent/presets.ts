@@ -82,9 +82,14 @@ export const PRESETS: readonly [Preset, ...Preset[]] = [
 export const presetById = (id: string) => PRESETS.find((p) => p.id === id);
 
 /**
- * The preset this brief comes from, by its own words (family, subject, product, goal), for the UI only: a permalink
- * to a preset run highlights that preset and offers "Re-run live". Shipping checks the whole brief (`isPresetBrief`).
+ * The preset this brief is, exactly: every field the preset sets is the same, and every other field is empty. For the
+ * UI (a permalink to a preset run highlights it and offers "Re-run live"); an edited preset is a custom brief.
  */
-export function presetIdOf(brief: Pick<Brief, "family" | "subject" | "product" | "goal">): string | undefined {
-  return PRESETS.find((p) => p.brief.family === brief.family && p.brief.subject === brief.subject && p.brief.product === brief.product && p.brief.goal === brief.goal)?.id;
+export function presetIdOf(brief: Brief): string | undefined {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const empty = (v: unknown) => v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+  return PRESETS.find((p) => {
+    const set = p.brief as Record<string, unknown>;
+    return Object.entries(brief).every(([k, v]) => (k in set ? same(set[k], v) : empty(v)));
+  })?.id;
 }
