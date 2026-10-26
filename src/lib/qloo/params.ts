@@ -148,8 +148,6 @@ const BY_PATH: Record<Exclude<QlooPath, "/v2/insights">, string[]> = {
     "entity_ids",
     "external.spotify.ids",
     "external.imdb.ids",
-    "external.isbn.ids",
-    "external.tmdb.ids",
   ],
   "/v2/trending": ["filter.type", "signal.interests.entities", "filter.start_date", "filter.end_date", "take", "page", "offset"],
   "/v2/tags": ["filter.query", "filter.tag.types", "filter.parents.types", "feature.semantic_search", "take", "page"],

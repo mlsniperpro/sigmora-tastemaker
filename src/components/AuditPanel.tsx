@@ -158,6 +158,8 @@ export function AuditPanel({
   const [audienceAges, setAges] = useState<AgeBucket[]>([...ages]);
   // The audience follows the brief on screen until the reader edits it (adjusting state while rendering, not in an effect).
   const [edited, setEdited] = useState(false);
+  // The one-click sample brings its own audience; once the reader writes their own plan, the brief's comes back.
+  const [sampleAudience, setSampleAudience] = useState(false);
   const briefAudience = `${seeds.join(", ")}|${ages.join(",")}`;
   const [shownAudience, setShownAudience] = useState(briefAudience);
   if (briefAudience !== shownAudience) {
@@ -237,6 +239,7 @@ export function AuditPanel({
                 setText(sample.text);
                 setNames(sample.names);
                 setAges(sample.ages);
+                setSampleAudience(!edited);
                 void audit(sample);
               }}
               disabled={busy}
@@ -257,6 +260,11 @@ export function AuditPanel({
             onChange={(e) => {
               setText(e.target.value);
               if (problem?.field === "text") setProblem(undefined);
+              if (sampleAudience && !edited) {
+                setNames(seeds.join(", "));
+                setAges([...ages]);
+                setSampleAudience(false);
+              }
             }}
             placeholder={"Collab targets: …\nBrand partners: …\nOr paste the whole plan: hooks, captions, schedule."}
             className={`${INPUT} min-h-32 resize-y font-mono text-body-sm leading-snug`}
@@ -265,7 +273,7 @@ export function AuditPanel({
             {text.length.toLocaleString("en-US")} / {MAX_CHARS.toLocaleString("en-US")}
           </p>
           <label className="block text-caption text-muted">
-            The audience already loves (comma-separated)
+            The audience already loves (comma-separated){sampleAudience ? " · the sample's audience" : ""}
             <input
               id={`${id}-names`}
               required

@@ -29,6 +29,12 @@ export function Chips<T extends string>({ label, options, selected, toggle, name
   );
 }
 
+/** The "More details" fields that hold a value, by their labels (they go into the run even while folded away). */
+export function carriedOver(f: FormFields): string[] {
+  const hidden: [keyof FormFields, string][] = [["product", "what's launching"], ["goal", "goal"], ["city", "city"], ["compareTo", "comparable"], ["vibe", "vibe"]];
+  return hidden.filter(([k]) => typeof f[k] === "string" && f[k].trim() !== "").map(([, label]) => label);
+}
+
 const EMPTY_FIELDS: FormFields = { family: "music", subject: "", product: "", seeds: "", link: "", vibe: "", ages: ["25_to_29", "30_to_34"], goal: "", city: "", compareTo: "" };
 
 /** A brief laid back into the form's fields (the reverse of `briefFromForm`), so it can be edited. */
@@ -132,6 +138,15 @@ export function BriefForm({ onRun, busy, current }: { onRun: (b: BriefInput) => 
       <button type="button" onClick={() => setMore((m) => !m)} aria-expanded={more} className="text-caption text-violet hover:underline">
         {more ? "Fewer details" : "More details: what's launching, city, gender, comparable, vibe, goal"}
       </button>
+      {!more && carriedOver(f).length > 0 && (
+        // Fields hidden under "More details" still go into the run: say which, and offer a clean start.
+        <p className="text-caption text-muted">
+          Kept from the brief on screen: {carriedOver(f).join(", ")}.{" "}
+          <button type="button" onClick={() => setF({ ...EMPTY_FIELDS, family: f.family })} className="text-violet hover:underline">
+            Start blank
+          </button>
+        </p>
+      )}
       {more && (
         <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-caption text-muted">

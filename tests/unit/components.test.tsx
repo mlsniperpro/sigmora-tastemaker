@@ -5,7 +5,7 @@ import { AuditPanel, AuditResults, SIMULATED_CATALOG_NOTE, audienceNames, auditI
 import { CampaignPack } from "@/components/CampaignPack";
 import { ReceiptChip, TrendMark } from "@/components/Receipt";
 import { TasteMap } from "@/components/TasteMap";
-import { BriefForm, fieldsFromBrief, showsNewBrief } from "@/components/BriefForm";
+import { BriefForm, carriedOver, fieldsFromBrief, showsNewBrief } from "@/components/BriefForm";
 import { callsLabel, callTally, Trace } from "@/components/Trace";
 import { Brief } from "@/lib/agent/brief";
 import { briefFromForm } from "@/lib/agent/briefForm";
@@ -508,5 +508,15 @@ describe("run state", () => {
     expect(state.error).toBe("boom");
     // Through the wire, so undefined fields are gone.
     expect(state.steps).toEqual([JSON.parse(JSON.stringify(step))]);
+  });
+});
+
+describe("BriefForm carried-over fields (audit 11)", () => {
+  it("names the folded-away fields a prefilled brief still sends", async () => {
+    const { PRESETS } = await import("@/lib/agent/presets");
+    const { Brief } = await import("@/lib/agent/brief");
+    const f = fieldsFromBrief(Brief.parse(PRESETS[PRESETS.length - 1]?.brief ?? PRESETS[0].brief));
+    expect(carriedOver(f).length).toBeGreaterThan(0);
+    expect(carriedOver({ ...f, product: "", goal: "", city: "", compareTo: "", vibe: "" })).toEqual([]);
   });
 });

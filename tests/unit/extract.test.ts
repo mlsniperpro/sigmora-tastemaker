@@ -211,8 +211,12 @@ describe("labelled lines", () => {
     expect(read("Collab targets: A.J. Tracey, Tems")).toEqual(["collab:A.J Tracey", "collab:Tems"]);
     expect(read("Brand partners: Nike, Inc., Adidas")).toEqual(["sponsor:Nike", "sponsor:Adidas"]);
     // City codes are cities; state codes and state names qualify the city before them.
-    expect(read("Launch cities: Atlanta, LA, NYC")).toEqual(["city:Atlanta", "city:LA", "city:NYC"]);
-    expect(read("Launch cities: Atlanta, DC")).toEqual(["city:Atlanta", "city:DC"]);
+    // …and a city's short form is looked up by the city's name (audit 11: Qloo knows "Los Angeles", not "LA").
+    expect(read("Launch cities: Atlanta, LA, NYC")).toEqual(["city:Atlanta", "city:Los Angeles", "city:New York City"]);
+    expect(read("Launch cities: Atlanta, DC")).toEqual(["city:Atlanta", "city:Washington, DC"]);
+    // "Smith & Co.", "Mumford & Sons": a suffix isn't a second name.
+    expect(partsOf("Smith & Co.")).toEqual([]);
+    expect(partsOf("Mumford & Sons")).toEqual([]);
     expect(read("Launch city: Nashville, Tennessee\nHost city: Portland, OR")).toEqual(["city:Nashville", "city:Portland"]);
   });
 

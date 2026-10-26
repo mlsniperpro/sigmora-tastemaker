@@ -76,8 +76,9 @@ const ok = (id: JsonRpcId, result: unknown) => ({ jsonrpc: "2.0" as const, id, r
 const fail = (id: JsonRpcId, code: number, message: string) => ({ jsonrpc: "2.0" as const, id, error: { code, message } });
 type RpcReply = ReturnType<typeof ok> | ReturnType<typeof fail>;
 
-function receiptLine(r: Receipt) {
-  const aff = r.affinity !== undefined ? ` affinity ${r.affinity.toFixed(2)}${r.threshold !== undefined ? ` (bar ${r.threshold.toFixed(2)})` : ""}` : "";
+/** One receipt as a line. On simulated data no number is printed (as in the UI): placeholders aren't Qloo's. */
+function receiptLine(r: Receipt, simulated = false) {
+  const aff = !simulated && r.affinity !== undefined ? ` affinity ${r.affinity.toFixed(2)}${r.threshold !== undefined ? ` (bar ${r.threshold.toFixed(2)})` : ""}` : "";
   return `- [${r.verdict}] ${r.role}: ${r.name}${aff}${r.replaced ? ` — replaced ${r.replaced.name}` : ""}. ${r.note}`;
 }
 
@@ -110,7 +111,7 @@ async function tasteCheckTool(args: unknown, gate: Gate, ip: string) {
   const r = await tasteCheck(a, { qloo }).finally(() => qloo.release());
   const text = [
     `Qloo taste check (${r.sources.join(", ")} data): ${r.metrics.hallucinations} not found in Qloo, ${r.metrics.misses} low-affinity, ${r.metrics.fading} fading, ${r.metrics.unscored} unscored, of ${r.metrics.picks}.${r.sources.includes("simulated") ? " Simulated data: the numbers are placeholders, not Qloo data." : ""}`,
-    ...r.receipts.map(receiptLine),
+    ...r.receipts.map((x) => receiptLine(x, r.sources.includes("simulated"))),
     ...(r.suggestions.length ? ["Qloo-preferred replacements:", ...r.suggestions.map((s) => `- ${s.from} → ${s.to}: ${s.reason}`)] : []),
     ...(r.warnings.length ? [`Warnings: ${r.warnings.join("; ")}`] : []),
   ].join("\n");
@@ -139,7 +140,8 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
     const paid = !lookup.result && costsMoney(lookup.deps);
     if (paid) await reserveThenAdmit(lookup.deps.qloo, loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, ip), gate);
     // Free (keyless) runs still cost CPU and a stored result: the same per-network cap as /api/run.
-    else if (!lookup.result && !isInFlight(lookup.key) && !(await unmeteredAllowed(ip))) throw new ToolError("Too many new plans from your network. Wait a minute.");
+    // (Presets are exempt, as on /api/run: they are the demo's own briefs and cached after the first run.)
+    else if (!lookup.result && !isInFlight(lookup.key) && (!request.presetId || request.fresh) && !(await unmeteredAllowed(ip))) throw new ToolError("Too many new plans from your network. Wait a minute.");
     r = (
       await getOrRun(lookup, undefined, recording)
         .catch(async (err: unknown) => {
@@ -158,7 +160,7 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
     "Hooks:",
     ...r.grounded.draft.hooks.map((h) => `- ${h}`),
     "Verified picks:",
-    ...r.grounded.receipts.map(receiptLine),
+    ...r.grounded.receipts.map((x) => receiptLine(x, r.qloo.simulated > 0)),
   ].join("\n");
   return {
     content: [{ type: "text", text }],
@@ -182,7 +184,7 @@ async function auditPlanTool(args: unknown, gate: Gate, ip: string) {
     r.simulated
       ? `${String(r.receipts.length)} names checked by the offline simulator (no Qloo key on this server): verdicts are placeholders, not Qloo data.`
       : `Qloo audit: ${String(r.metrics.hallucinations)} not found in Qloo, ${String(r.metrics.misses)} low-affinity, ${String(r.metrics.fading)} fading, ${String(r.metrics.unscored)} unscored, of ${String(r.metrics.picks)}.${r.cached ? " (cached)" : ""}`,
-    ...r.receipts.map(receiptLine),
+    ...r.receipts.map((x) => receiptLine(x, r.simulated)),
     ...(r.suggestions.length ? ["Qloo-preferred replacements:", ...r.suggestions.map((x) => `- ${x.from} → ${x.to}: ${x.reason}`)] : []),
     ...(r.extraction.unmatched?.length ? [`Not audited (no entity by that exact name): ${r.extraction.unmatched.join(", ")}`] : []),
   ].join("\n");

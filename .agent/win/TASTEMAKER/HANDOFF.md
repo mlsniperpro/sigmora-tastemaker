@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-26T18:53:01Z; current as of the last push)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, resumed 2026-10-26 18:54 UTC; current as of each push)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -40,57 +40,19 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (wound down 2026-10-26T18:53:01Z; the lease is released, so a successor may claim it)
-- **Last fully verified code:** dfac45a (round-10 fixes). On it:
-  - lint and typecheck clean;
-  - `pnpm test` 35 files / 508;
-  - `pnpm test:e2e` 24/24;
-  - the soak deep pass (100k) was clean.
-  The 60 seeded soak rounds were stopped unfinished.
-- **Round 11 (three Sonnet lenses on dfac45a):**
-  - Qloo lens: 0 critical/high, 5 medium, several low.
-  - Judge lens: 0 critical/high, 3 medium, several low.
-  - Security lens: stopped at wind-down before it reported.
-  So round 11 counts as clean only if a security audit of the same code also finds no high. Treat it as not yet clean: re-run all three lenses on the new HEAD.
-- **This handoff commit (WIP, on top of dfac45a) holds round-11 fixes.** lint and typecheck are clean and the touched test files pass. The full `pnpm test` and e2e were NOT run on it. Run `pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e` first; fix anything red. The fixes:
-  - `src/lib/net.ts`: a 404 records whether its body was a JSON object (`HttpError.jsonBody`); a refused redirect isn't retried.
-  - `src/lib/qloo/client.ts`: Qloo's own JSON "No results" 404 is cached like an empty reply and not counted; a non-JSON (gateway) 404 is never cached and counts in `notFound` (Qloo M3/M4).
-  - `src/lib/qloo/types.ts`: top-level `results: null` and a compare item's `query: null` are tolerated (Qloo L1).
-  - `src/lib/agent/extract.ts`:
-    - the initials fold (`INITIAL`) accepts any separator and chained initials ("SZA, J. Cole.", "J. Cole x Wizkid", "A. R. Rahman") (Qloo M1);
-    - joins are tried only for a one-word name joined by and/&/+, a word before an "&" name, or "The …", so comma lists of one-word names spend no searches (Qloo M2);
-    - "Features"/"Key features" are no longer collab labels (Qloo M5);
-    - an article before a lowercase word is a description, so "A Tribe Called Quest" is a name.
-  - `src/lib/agent/cities.ts`: a locality reply of candidates only is used when it ranks at least half of them, and the trace text counts real non-candidates (Qloo L2/L3).
-  - `src/lib/agent/presets.ts`: `presetIdOf` requires the whole brief to be the preset's, so an edited preset's permalink no longer offers "Re-run live" over it (judge M1).
-  - Tests added or updated in `tests/integration/client.test.ts`, `tests/unit/extract.test.ts` and `tests/unit/agent-pure.test.ts`.
-- **Round-11 findings still open (not started):**
-  - judge M2: "Edit brief" carries a preset's hidden product, goal, city and comparable into a custom brief while "More details" stays collapsed. Plan: auto-open More details when the form is prefilled, or add a note or a "Start blank" button (`src/components/BriefForm.tsx`).
-  - judge M3: after "Try a sample plan" the audit audience stays the sample's (`src/components/AuditPanel.tsx`: restore the brief's audience, or label it "(sample)").
-  - Lows to triage, from both reports:
-    - "LA"/"NYC"/"SF" judged not found (map city codes to canonical names);
-    - an invented "Smith & Co." split into "Smith" and "Co" (don't split when the last part is a legal suffix);
-    - "&" splits starved by subtitle splits;
-    - "J. Cole" displayed as "J Cole";
-    - a double full stop after a seed ending in ".";
-    - a repeated affinity sentence in audit rows;
-    - the audit 429 Retry-After;
-    - "N Qloo calls" counts cache hits;
-    - MCP `taste_check` prints simulator numbers;
-    - `.env.example` still says "one 80-call plan audit";
-    - MCP preset unmetered inconsistency;
-    - the `lastKey` pointer rewritten by a degraded run;
-    - undocumented `external.isbn/tmdb` params in params.ts;
-    - "Atlanta GA" without a comma.
-  Record each in WIN-CHECKLIST as section L (round 11), fixed `[x]` or decided `[-]` with the reason.
-- **Audit history:** rounds 8, 9 and 10 each found highs, all fixed. No two consecutive clean rounds yet.
-- **Stale reports:** `.agent/win/TASTEMAKER/reaudit.md` and `break-it.md` still name 3b25d12. Rewrite them only after two clean rounds and the break-it pass (soak, e2e, fresh clone, failure injection). Rebuild the round table from WIN-CHECKLIST sections A–K.
-- **PR #1 body:** last updated for 52a25e1. Refresh it for the new HEAD.
+## In flight (resumed 2026-10-26 18:54 UTC; lease active again)
+- **b0ac0c5 (round-11 WIP)** was fully verified after resuming: lint and typecheck clean, `pnpm test` 510, `pnpm test:e2e` 24.
+- **This push completes round 11** (WIN-CHECKLIST L1–L10). Its findings came from two lenses, Qloo and judge, both with 0 critical/high; the security lens was stopped at the 18:52 wind-down.
+- **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 511; `pnpm test:e2e` 24.
+- **Next:**
+  - round 12 (three Sonnet lenses) plus a soak on this commit;
+  - two clean rounds in a row are needed (12 and 13 at the earliest, since round 11's security lens didn't report);
+  - then break-it, the reports, the gate, the PR body and the final comment.
 
 ## Open audit findings
-- None known at critical or high (round 11's security lens never reported).
-- **Owner decisions:** the judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
-- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: J10, J21, K12, K13).
+- None known at critical or high.
+- **Owner decisions:** judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
+- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: J10, J21, K12, K13, L10).
 
 ## Next steps, in order
 1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).

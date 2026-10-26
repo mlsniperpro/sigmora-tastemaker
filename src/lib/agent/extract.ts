@@ -102,6 +102,9 @@ const REGIONS = new Set(
   ["nigeria", "kenya", "ghana", "south africa", "uganda", "rwanda", "senegal", "tanzania", "usa", "united states", "uk", "united kingdom", "england", "canada", "france", "germany", "brazil", "mexico", "india", "japan", "australia", "new york state", "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts", "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey", "new mexico", "north carolina", "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont", "virginia", "west virginia", "wisconsin", "wyoming"].map(normName),
 );
 
+/** City short forms, read as the city's name in a city list. */
+const CITY_CODES: Record<string, string> = { LA: "Los Angeles", NYC: "New York City", SF: "San Francisco", ATL: "Atlanta", DC: "Washington, DC", PHL: "Philadelphia", CHI: "Chicago" };
+
 /** Cities that follow a venue ("Madison Square Garden, New York") rather than name another venue. */
 const CITIES = new Set(
   ["new york", "new york city", "nyc", "manhattan", "harlem", "hollywood", "los angeles", "la", "chicago", "houston", "atlanta", "washington", "washington dc", "dc", "miami", "dallas", "seattle", "boston", "nashville", "minneapolis", "philadelphia", "san francisco", "detroit", "denver", "phoenix", "london", "paris", "berlin", "toronto", "lagos", "nairobi", "accra", "johannesburg", "kampala", "kigali", "dakar", "brooklyn"].map(normName),
@@ -195,6 +198,8 @@ export function namesIn(value: string, role?: Role): string[] {
     parts
       // "Atlanta, GA" / "Lagos, Nigeria": the region after a city isn't another city; "Madison Square Garden, New York": nor is the city after a venue.
       .filter((n, i, all) => !(role === "city" && i > 0 && (isCode(n, all[i - 1]) || REGIONS.has(placeKey(n)))))
+      // "LA", "NYC": a city's short form is looked up by its name (Qloo knows "Los Angeles", not "LA").
+      .map((n) => (role === "city" ? (CITY_CODES[n.replace(/\./g, "")] ?? n) : n))
       .filter((n, i, all) => !(role === "venue" && i > 0 && (isCode(n, all[i - 1]) || /^[A-Z]{2,3}$/.test(n.replace(/\./g, "")) || REGIONS.has(placeKey(n)) || CITIES.has(placeKey(n)))))
       .filter((n) => /^[\p{Lu}\p{N}]/u.test(n) && nameLike(n))
   );
@@ -239,6 +244,8 @@ export function partsOf(name: string): string[] {
     .split(/\s+&\s+|\s*,\s*(?=the\s)|\s+(?:\/|and|or|\+|plus|meets|vs|x|feat|ft|featuring)\s+(?=the\s)/u)
     .map((n) => n.trim())
     .filter(Boolean);
+  // "Smith & Co.", "Mumford & Sons": a company or band suffix isn't a second name.
+  if (/^(?:Co|Inc|Ltd|LLC|Corp|Sons|Daughters|Friends)\.?$/i.test(parts.at(-1) ?? "")) return [];
   return parts.length > 1 && parts.every(nameLike) ? parts : [];
 }
 

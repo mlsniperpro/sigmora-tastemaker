@@ -218,7 +218,7 @@ export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void, fal
       await Promise.all([
         deps.cache.set(resultKey(result.id), result, keep),
         ...(replacesHealthy ? [] : [deps.cache.set(key, { id: result.id }, healthy ? RESULT_TTL : DEGRADED_TTL)]),
-        deps.cache.set(lastKey(key), { id: result.id }, keep),
+        ...(replacesHealthy ? [] : [deps.cache.set(lastKey(key), { id: result.id }, keep)]),
       ]);
       return result;
     });

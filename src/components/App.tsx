@@ -277,7 +277,7 @@ export function App() {
               {result ? (
                 <>
                   <span className="text-muted">Brief:</span> {result.brief.subject} — {result.brief.product}. {result.brief.goal}{" "}
-                  <span className="text-muted">Audience loves {result.brief.seeds.join(", ")}.</span>
+                  <span className="text-muted">{endSentence(`Audience loves ${result.brief.seeds.join(", ")}`)}</span>
                 </>
               ) : (
                 <span className="text-muted">Planning and taste-checking…</span>

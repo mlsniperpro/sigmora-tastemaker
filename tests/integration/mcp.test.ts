@@ -93,6 +93,8 @@ describe("MCP tools", () => {
     expect(verdicts).toEqual({ "Ayra Starr": "pass", Nickelback: "miss", "Lagos Velvet Collective": "hallucination", "Madison Square Garden": "miss" });
     expect(out.suggestions.length).toBeGreaterThanOrEqual(2);
     expect(res.result.content[0]?.text).toMatch(/invented/);
+    // Simulated data prints no numbers, as in the UI (audit 11).
+    expect(res.result.content[0]?.text).not.toMatch(/affinity \d|bar \d/);
   });
 
   it("plan_campaign runs a preset, and serves the repeat from the run cache", async () => {
