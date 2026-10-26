@@ -14,7 +14,7 @@ import { CampaignPack } from "./CampaignPack";
 import { DiffCard } from "./DiffCard";
 import { ShipBar } from "./ShipBar";
 import { TasteMap } from "./TasteMap";
-import { Trace } from "./Trace";
+import { callsLabel, callTally, Trace } from "./Trace";
 import { useRun } from "./useRun";
 
 /**
@@ -28,7 +28,7 @@ export function RoiLine({ result, served }: { result: RunResult; served?: Served
   const blank = placeholderReason(result);
   const simulated = result.qloo.simulated > 0;
   const caught = blank || result.baseline.unavailable ? 0 : result.baseline.receipts.filter((r) => r.verdict !== "pass" && r.verdict !== "unscored").length;
-  const when = served ? (served.from === "recording" ? " (recorded run)" : " (when it first ran)") : "";
+  const when = served && served.from !== "simulated" ? (served.from === "recording" ? " (recorded run)" : " (when it first ran)") : "";
   return (
     <p className="mt-1 text-meta text-ink/80">
       <strong className="text-accent">
@@ -56,8 +56,8 @@ function PlanToggle({
   mode: "qloo" | "without";
   setMode: (m: "qloo" | "without") => void;
   result?: RunResult;
-  /** Qloo calls in the trace so far. */
-  calls: number;
+  /** Calls in the trace so far, and how many of them the offline simulator answered. */
+  calls: { calls: number; simulated: number };
   onTrace: () => void;
 }) {
   const flagged = result && !result.baseline.unavailable ? result.baseline.receipts.filter((r) => r.verdict === "miss" || r.verdict === "hallucination").length : 0;
@@ -77,7 +77,7 @@ function PlanToggle({
               </>
             )}
           </p>
-          {calls > 0 && (
+          {calls.calls > 0 && (
             <a
               href="#agent-trace"
               onClick={(e) => {
@@ -86,7 +86,7 @@ function PlanToggle({
               }}
               className="whitespace-nowrap text-meta font-medium text-violet hover:underline lg:hidden"
             >
-              Trace · {calls} Qloo calls ↓
+              Trace · {callsLabel(calls)} ↓
             </a>
           )}
         </div>
@@ -129,18 +129,27 @@ export function App() {
   const [auditOpen, setAuditOpen] = useState(false);
   // A shared `?b=` brief is someone else's text: it is shown, and runs (spending the demo's budget) only on a click.
   const [shared, setShared] = useState(!initial.measure && !initial.runId && "brief" in initial.request ? initial.request : undefined);
+  // A `?run=` link the server doesn't know (or couldn't be asked about): the hero preset is shown instead, with this notice on top.
+  const [deadLink, setDeadLink] = useState<"gone" | "failed">();
 
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
     if (initial.measure) void requery(initial.measure);
-    else if (initial.runId) void open(initial.runId);
-    else if (!("brief" in initial.request)) void run(initial.request);
+    else if (initial.runId) {
+      void open(initial.runId).then((outcome) => {
+        // A dead link never leaves the page empty: say so, and show the hero preset.
+        if (outcome !== "gone" && outcome !== "failed") return;
+        setDeadLink(outcome);
+        setActivePreset(PRESETS[0].id);
+        void run({ preset: PRESETS[0].id });
+      });
+    } else if (!("brief" in initial.request)) void run(initial.request);
   }, [initial, run, open, requery]);
 
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
   const showForm = editing || (!result && !running);
   const runSimulated = !!result && result.qloo.simulated > 0;
-  const traceCalls = steps.reduce((n, s) => n + s.calls.length, 0);
+  const traceCalls = callTally(steps);
   const openAudit = () => {
     setAuditOpen(true);
     // Once the panel's body is shown, so the scroll lands on the final layout and focus on the plan box.
@@ -161,6 +170,16 @@ export function App() {
 
   return (
     <main className="mx-auto w-full max-w-[1400px] space-y-3 px-4 pb-5 pt-4 sm:px-6">
+      {deadLink && (
+        <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-fade/50 bg-fade/10 px-3 py-2 text-body text-ink">
+          <p className="min-w-0">
+            <strong className="font-semibold text-fade">{deadLink === "gone" ? "That shared run has expired or never existed;" : "That shared run couldn't be opened right now;"}</strong> here&apos;s the hero preset instead.
+          </p>
+          <button type="button" onClick={() => setDeadLink(undefined)} className="shrink-0 rounded-full border border-line px-3 py-1 text-meta text-ink hover:border-accent/60">
+            Dismiss
+          </button>
+        </div>
+      )}
       <header className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
         <Intro>{result && <RoiLine result={result} served={served} />}</Intro>
         {/* The second way in: someone else's plan, checked by the same critic. The panel itself stays below the diff card. */}
@@ -189,6 +208,7 @@ export function App() {
               // Switching mid-run is allowed: the request in flight is cancelled.
               onClick={() => {
                 setActivePreset(p.id);
+                setDeadLink(undefined);
                 setEditing(false);
                 void run({ preset: p.id });
               }}
@@ -245,8 +265,11 @@ export function App() {
         <div id="brief-form" hidden={!showForm}>
           <BriefForm
             busy={running}
+            // "Edit brief" starts from the brief on screen, not from empty fields.
+            current={result ? { id: result.id, brief: result.brief } : undefined}
             onRun={(b) => {
               setActivePreset(undefined);
+              setDeadLink(undefined);
               setEditing(false);
               void run({ brief: b });
             }}

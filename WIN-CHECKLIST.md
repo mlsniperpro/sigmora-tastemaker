@@ -272,4 +272,6 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] H7 (low) A lone UTF-16 surrogate is a 400 at the run, audit and MCP boundaries
 - [x] H8 (low) Run single flight: waiters don't inherit a network-specific (429) refusal
 - [x] H9 (low) Cache versions bumped for the matching change (`audit:v2`, run schema 5)
-- [P] H10 (high, judge) A blank first screen on a total live-Qloo failure: the fix (serve the labelled simulator run) is in HANDOFF.md next steps; a recording from `pnpm runs:record` (BLOCKED.md: QLOO_API_KEY) also covers it
+- [x] H10 (high, judge) No blank first screen on a total live-Qloo failure: a preset with nothing recorded shows its last finished run, else the same preset on the labelled offline simulator ("Live Qloo unavailable … nothing in it is a Qloo answer"), never mixed with live data (`stub-live-fallback.test.ts`)
+- [x] H11 The Qloo throttle uses the monotonic clock: a wall-clock step backwards (NTP, a test clock) can no longer stall every Qloo call (found while testing H10)
+- [x] H12 (judge, medium/low) A dead `?run=` link says so at the top and loads the hero preset; "simulated" in the trace header and the sticky bar; an offline-catalog note on simulated audits; "Edit brief" and the audit audience start from the brief on screen (e2e, `components.test.tsx`)

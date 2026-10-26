@@ -95,17 +95,28 @@ export function useRun() {
     [begin, end, show],
   );
 
-  /** Opens a finished run by id (a `?run=` permalink). */
+  /**
+   * Opens a finished run by id (a `?run=` permalink), and says how it went so the caller can decide what to show instead:
+   * "gone" = the server has no such run (expired or never existed), "failed" = it couldn't be asked,
+   * "aborted" = something newer took over the screen.
+   */
   const open = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<"ok" | "gone" | "failed" | "aborted"> => {
       const ctrl = begin();
       try {
         const res = await fetch(`/api/run?id=${encodeURIComponent(id)}`, { signal: ctrl.signal });
         const body = (await res.json().catch(() => ({}))) as { result?: RunResult; error?: string };
-        if (!res.ok || !body.result) throw new Error(body.error ?? `Couldn't open that run (${res.status})`);
+        if (!res.ok || !body.result) {
+          // Only a not-found answer means the link is dead; anything else is a failure to ask.
+          if (res.status === 404) return "gone";
+          throw new Error(body.error ?? `Couldn't open that run (${res.status})`);
+        }
         show(body.result, { from: "cache" });
+        return "ok";
       } catch (err) {
-        if ((err as Error).name !== "AbortError") setError(`${(err as Error).message} Pick a preset to run it again.`);
+        if ((err as Error).name === "AbortError") return "aborted";
+        setError(`${(err as Error).message} Pick a preset to run it again.`);
+        return "failed";
       } finally {
         end(ctrl);
       }

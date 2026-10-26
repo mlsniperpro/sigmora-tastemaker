@@ -14,6 +14,12 @@ const MAX_CHARS = 4000;
 
 const DESCRIPTION = "Paste a campaign written by ChatGPT, Claude or anyone: Qloo checks every name in it against your audience.";
 
+/**
+ * Said above a simulated audit's results. The catalog's size isn't given: it lives in a server-only module
+ * (the browser never imports it, tests/unit/client-bundle.test.ts), and the audit's answer doesn't carry it.
+ */
+export const SIMULATED_CATALOG_NOTE = "Offline demo catalog (small): famous names may be missing or judged by placeholder data. A Qloo key gives real verdicts.";
+
 const STRUCK: ReadonlySet<Verdict> = new Set(["miss", "hallucination"]);
 const NAME_CLS: Record<Verdict, string> = { pass: "text-ink", miss: "text-miss line-through", hallucination: "text-invented line-through", fading: "text-fade", unscored: "text-muted" };
 
@@ -102,6 +108,7 @@ export function AuditResults({ result }: { result: AuditResult }) {
   const swap = (r: Receipt) => result.suggestions.find((s) => s.role === r.role && s.from.toLowerCase() === r.name.toLowerCase())?.to;
   return (
     <div className="space-y-2">
+      {result.simulated && <p className="text-meta leading-snug text-fade">{SIMULATED_CATALOG_NOTE}</p>}
       <p className="text-body text-ink">
         {result.simulated && <span className="mr-1.5 rounded bg-fade/15 px-1.5 py-0.5 text-caption font-medium text-fade">simulated data, not Qloo</span>}
         {auditSummary(result)}
@@ -143,6 +150,17 @@ export function AuditPanel({
   const [text, setText] = useState("");
   const [names, setNames] = useState(seeds.join(", "));
   const [audienceAges, setAges] = useState<AgeBucket[]>([...ages]);
+  // The audience follows the brief on screen until the reader edits it (adjusting state while rendering, not in an effect).
+  const [edited, setEdited] = useState(false);
+  const briefAudience = `${seeds.join(", ")}|${ages.join(",")}`;
+  const [shownAudience, setShownAudience] = useState(briefAudience);
+  if (briefAudience !== shownAudience) {
+    setShownAudience(briefAudience);
+    if (!edited) {
+      setNames(seeds.join(", "));
+      setAges([...ages]);
+    }
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [problem, setProblem] = useState<ReturnType<typeof auditInputProblem>>();
@@ -251,6 +269,7 @@ export function AuditPanel({
               aria-describedby={problem?.field === "names" ? `${id}-problem` : undefined}
               onChange={(e) => {
                 setNames(e.target.value);
+                setEdited(true);
                 if (problem?.field === "names") setProblem(undefined);
               }}
               placeholder="Tems, Rema, Asake"
@@ -260,7 +279,10 @@ export function AuditPanel({
             label="Audience ages"
             options={AGE_BUCKETS}
             selected={(a) => audienceAges.includes(a)}
-            toggle={(a: AgeBucket) => setAges((xs) => (xs.includes(a) ? (xs.length > 1 ? xs.filter((x) => x !== a) : xs) : [...xs, a]))}
+            toggle={(a: AgeBucket) => {
+              setEdited(true);
+              setAges((xs) => (xs.includes(a) ? (xs.length > 1 ? xs.filter((x) => x !== a) : xs) : [...xs, a]));
+            }}
             name={AGE_LABEL}
           />
           {problem && (

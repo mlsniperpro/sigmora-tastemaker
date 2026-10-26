@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import type { BriefInput } from "@/lib/agent/brief";
+import type { Brief, BriefInput } from "@/lib/agent/brief";
 import { briefFormProblem, briefFromForm, type FormFields } from "@/lib/agent/briefForm";
 import { AGE_BUCKETS, type AgeBucket } from "@/lib/vocab";
 
@@ -29,12 +29,41 @@ export function Chips<T extends string>({ label, options, selected, toggle, name
   );
 }
 
-/** The brief bar: who's launching, who the audience loves (names or a Spotify/IMDb link) and their ages up front; the rest on demand. */
-export function BriefForm({ onRun, busy }: { onRun: (b: BriefInput) => void; busy: boolean }) {
+const EMPTY_FIELDS: FormFields = { family: "music", subject: "", product: "", seeds: "", link: "", vibe: "", ages: ["25_to_29", "30_to_34"], goal: "", city: "", compareTo: "" };
+
+/** A brief laid back into the form's fields (the reverse of `briefFromForm`), so it can be edited. */
+export function fieldsFromBrief(b: Brief): FormFields {
+  return {
+    family: b.family,
+    subject: b.subject,
+    product: b.product,
+    seeds: b.seeds.join(", "),
+    link: b.seedLinks[0] ?? "",
+    vibe: b.vibe ?? "",
+    ages: [...b.ages],
+    gender: b.gender,
+    goal: b.goal,
+    city: b.targetCity ?? "",
+    compareTo: b.compareTo ?? "",
+  };
+}
+
+/**
+ * The brief bar: who's launching, who the audience loves (names or a Spotify/IMDb link) and their ages up front; the rest on demand.
+ * `current` is the brief on screen: the fields start from it, and follow it whenever a different run is shown.
+ */
+export function BriefForm({ onRun, busy, current }: { onRun: (b: BriefInput) => void; busy: boolean; current?: { id: string; brief: Brief } }) {
   const id = useId();
-  const [f, setF] = useState<FormFields>({ family: "music", subject: "", product: "", seeds: "", link: "", vibe: "", ages: ["25_to_29", "30_to_34"], goal: "", city: "", compareTo: "" });
+  const [f, setF] = useState<FormFields>(current ? fieldsFromBrief(current.brief) : EMPTY_FIELDS);
   const [more, setMore] = useState(false);
   const [problem, setProblem] = useState<ReturnType<typeof briefFormProblem>>();
+  // Adjusting state while rendering (not in an effect): a new run on screen replaces the fields with its brief.
+  const [shownRun, setShownRun] = useState(current?.id);
+  if (current && current.id !== shownRun) {
+    setShownRun(current.id);
+    setF(fieldsFromBrief(current.brief));
+    setProblem(undefined);
+  }
   const set = <K extends keyof FormFields>(k: K) => (v: FormFields[K]) => setF((x) => ({ ...x, [k]: v }));
   const text = (k: "subject" | "product" | "seeds" | "link" | "vibe" | "goal" | "city" | "compareTo") => ({
     id: `${id}-${k}`,
@@ -56,7 +85,12 @@ export function BriefForm({ onRun, busy }: { onRun: (b: BriefInput) => void; bus
         const bad = briefFormProblem(f);
         setProblem(bad);
         if (bad) document.getElementById(`${id}-${bad.field}`)?.focus();
-        else onRun(briefFromForm(f));
+        else {
+          const brief = briefFromForm(f);
+          // The form has no field for the metros to compare, so an edited brief keeps the ones it came with.
+          const kept = current?.brief.candidateCities;
+          onRun(!brief.targetCity && kept?.length ? { ...brief, candidateCities: kept } : brief);
+        }
       }}
     >
       <div className="grid gap-2 sm:grid-cols-2 sm:items-end lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">

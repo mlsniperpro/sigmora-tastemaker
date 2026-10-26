@@ -6,6 +6,9 @@ import { loadConfig } from "@/lib/config";
 import { isOwnerRequest } from "@/lib/publisher";
 import { admit, clientIp, floodGuard, guardResponse, qlooBudget, qlooRefusal, refundAdmission, type GuardResult } from "@/lib/guard";
 import { NoSeedError } from "@/lib/agent/context";
+import { runTastemaker } from "@/lib/agent/run";
+import { DeterministicLLM } from "@/lib/llm/deterministic";
+import { qlooFromEnv } from "@/lib/qloo/client";
 import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 
 // A live run is throttled to the Qloo key's rate (the hero preset makes ~76 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
@@ -123,7 +126,15 @@ export async function POST(req: Request) {
       .catch(async (err: unknown) => {
         // No audience name resolved: the run spent nothing, so it doesn't count toward the limits.
         if (admitted && err instanceof NoSeedError) await refundAdmission(req, { perIp: !request.presetId || request.fresh });
-        throw err;
+        // A preset is the first thing a visitor sees: if live Qloo fails outright and nothing is recorded, show its last
+        // finished run, else the same preset on the labelled offline simulator (never mixed with live data), saying why.
+        if (!request.presetId || recording) throw err;
+        const reason = `the live run failed (${err instanceof Error ? err.message : String(err)})`;
+        const last = await lastRun(lookup);
+        if (last) return { result: replay(last, { from: "cache", reason }, send), served: { from: "cache", reason } satisfies Served };
+        const offline = await runTastemaker(request.brief, { qloo: qlooFromEnv({ mode: "replay" }), llm: new DeterministicLLM() });
+        const served: Served = { from: "simulated", reason };
+        return { result: replay(offline, served, send), served };
       })
       .finally(() => lookup.deps.qloo.release());
     // The owner was served this run from their own brief, so it may ship to real channels.

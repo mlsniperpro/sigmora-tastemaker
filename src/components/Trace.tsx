@@ -72,6 +72,21 @@ function finishedAt(iso: string): string {
   return `${hhmm} UTC on ${d.getUTCDate()} ${d.toLocaleString("en-GB", { month: "short", timeZone: "UTC" })}`;
 }
 
+/** The Qloo calls in a trace, how many of them the offline simulator answered, and how many distinct surfaces they exercised. */
+export function callTally(steps: readonly TraceStep[]) {
+  const calls = steps.flatMap((s) => s.calls);
+  return { calls: calls.length, simulated: calls.filter((c) => c.source === "simulated").length, surfaces: new Set(calls.map((c) => surfaceOf(c.key))).size };
+}
+
+/**
+ * "76 Qloo calls"; "76 simulated calls" when the offline simulator answered all of them (they are not Qloo's);
+ * "76 Qloo calls (12 simulated)" when it answered only some.
+ */
+export function callsLabel({ calls, simulated }: { calls: number; simulated: number }): string {
+  if (simulated === 0) return `${calls} Qloo calls`;
+  return simulated === calls ? `${calls} simulated calls` : `${calls} Qloo calls (${simulated} simulated)`;
+}
+
 export function Trace({
   steps,
   running,
@@ -98,14 +113,14 @@ export function Trace({
   setCollapsed: (c: boolean) => void;
   names?: ReadonlyMap<string, string>;
 }) {
-  const calls = steps.reduce((n, s) => n + s.calls.length, 0);
-  const surfaces = new Set(steps.flatMap((s) => s.calls.map((c) => surfaceOf(c.key))));
+  const tally = callTally(steps);
+  const allSimulated = tally.calls > 0 && tally.simulated === tally.calls;
   return (
     <section id="agent-trace" tabIndex={-1} aria-label="Agent trace" className="scroll-mt-16 rounded-2xl border border-line bg-panel p-4 outline-none">
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Agent trace</h2>
         <span className="font-mono text-meta text-muted">
-          {calls} Qloo calls · {surfaces.size} Qloo surfaces
+          {callsLabel(tally)} · {tally.surfaces} Qloo surfaces{allSimulated ? " exercised (simulated)" : ""}
         </span>
         <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="text-meta text-violet hover:underline">
           {collapsed ? "Show steps" : "Hide steps"}
@@ -118,11 +133,18 @@ export function Trace({
               {rerunLive ? "Re-run live" : "Re-run"}
             </button>
           )}
-          <p>
-            <strong className="font-semibold text-ink">Instant:</strong> this exact run finished at {finishedAt(served.at)}
-            {served.from === "recording" ? ", a recorded live run of this preset" : ""}
-            {served.reason ? `, shown because ${served.reason}` : ""}. Its own timings and sources are shown.
-          </p>
+          {served.from === "simulated" ? (
+            <p>
+              <strong className="font-semibold text-fade">Live Qloo unavailable:</strong> this is the preset on the offline simulator, with placeholder data
+              {served.reason ? `, shown because ${served.reason}` : ""}. Nothing in it is a Qloo answer.
+            </p>
+          ) : (
+            <p>
+              <strong className="font-semibold text-ink">Instant:</strong> this exact run finished at {finishedAt(served.at)}
+              {served.from === "recording" ? ", a recorded live run of this preset" : ""}
+              {served.reason ? `, shown because ${served.reason}` : ""}. Its own timings and sources are shown.
+            </p>
+          )}
         </div>
       )}
       <p className="sr-only" aria-live="polite">

@@ -80,3 +80,25 @@ describe("e2e: a burst of clicks on one cold preset shares one run", () => {
     expect(new Set(results).size).toBe(1);
   }, 60_000);
 });
+
+describe("e2e: live Qloo down for a preset with nothing recorded", () => {
+  it("shows the preset on the labelled offline simulator, never a blank first screen", async () => {
+    vi.stubEnv("QLOO_API_KEY", "a-wrong-key");
+    vi.stubEnv("QLOO_BASE_URL", QLOO);
+    vi.stubEnv("QLOO_MODE", "live");
+    vi.stubEnv("QLOO_RPS", "50");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Every live call fails, as with a wrong key or a host outage.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unauthorized", { status: 401 })));
+    const { POST } = await import("@/app/api/run/route");
+    const res = await POST(new Request("http://tm.example/api/run", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "5.5.5.9" }, body: JSON.stringify({ preset: "indie-release" }) }));
+    const { events, result } = await readStream(res);
+    const r = must(result, "result");
+    expect(r.sources).toEqual(["simulated"]);
+    expect(r.llm.scripted).toBe(true);
+    const served = (events.find((e) => e.type === "result") as Extract<RunEvent, { type: "result" }>).served;
+    expect(served?.from).toBe("simulated");
+    expect(served?.reason).toMatch(/the live run failed/);
+  }, 60_000);
+});

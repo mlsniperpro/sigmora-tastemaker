@@ -1,11 +1,14 @@
 /** Components rendered to HTML on the server: what a reader sees for each verdict and source. */
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AuditPanel, AuditResults, audienceNames, auditInputProblem, auditSummary, friendlyAuditError } from "@/components/AuditPanel";
+import { AuditPanel, AuditResults, SIMULATED_CATALOG_NOTE, audienceNames, auditInputProblem, auditSummary, friendlyAuditError } from "@/components/AuditPanel";
 import { CampaignPack } from "@/components/CampaignPack";
 import { ReceiptChip, TrendMark } from "@/components/Receipt";
 import { TasteMap } from "@/components/TasteMap";
-import { Trace } from "@/components/Trace";
+import { BriefForm, fieldsFromBrief } from "@/components/BriefForm";
+import { callsLabel, callTally, Trace } from "@/components/Trace";
+import { Brief } from "@/lib/agent/brief";
+import { briefFromForm } from "@/lib/agent/briefForm";
 import { auditPlan } from "@/lib/agent/audit";
 import { metricsOf } from "@/lib/agent/critic";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
@@ -284,5 +287,75 @@ describe("audit panel notes", () => {
     expect(note).toMatch(/identical earlier audit, so no Qloo calls were spent/);
     const model = extractionNote({ ...base, extraction: { by: "model", model: "m", capped: false, dropped: ["Taylor Swift"] } });
     expect(model).toMatch(/also listed Taylor Swift, which your text doesn't contain, so it wasn't audited/);
+  });
+});
+
+describe("Trace header", () => {
+  const header = (steps: RunResult["trace"]) => text(renderToStaticMarkup(<Trace steps={steps} running={false} pending={[]} collapsed setCollapsed={() => undefined} />));
+  /** The trace with its first `only` calls (all of them by default) answered by `source`. */
+  const asSource = (steps: RunResult["trace"], source: "live" | "simulated", only = Infinity): RunResult["trace"] => {
+    let n = 0;
+    return steps.map((s) => ({ ...s, calls: s.calls.map((c) => ({ ...c, source: n++ < only ? source : c.source })) }));
+  };
+
+  it("calls a simulated run's calls simulated, with the surfaces they exercised", async () => {
+    const run = await heroRun();
+    expect(run.qloo.simulated).toBeGreaterThan(0);
+    const tally = callTally(run.trace);
+    expect(tally.simulated).toBe(tally.calls);
+    const html = header(run.trace);
+    expect(html).toContain(`${String(tally.calls)} simulated calls · ${String(tally.surfaces)} Qloo surfaces exercised (simulated)`);
+    expect(html).not.toMatch(/\d+ Qloo calls/);
+    // The sticky bar uses the same label.
+    expect(callsLabel(tally)).toBe(`${String(tally.calls)} simulated calls`);
+  });
+  it("keeps 'Qloo calls' for answers that came from Qloo, and says how many were simulated when only some were", async () => {
+    const run = await heroRun();
+    const live = asSource(run.trace, "live");
+    const tally = callTally(live);
+    expect(header(live)).toContain(`${String(tally.calls)} Qloo calls · ${String(tally.surfaces)} Qloo surfaces`);
+    expect(header(live)).not.toMatch(/simulated/);
+    const some = asSource(live, "simulated", 3);
+    const mixed = callTally(some);
+    expect(mixed.simulated).toBe(3);
+    expect(callsLabel(mixed)).toBe(`${String(mixed.calls)} Qloo calls (3 simulated)`);
+    expect(header(some)).not.toContain("exercised (simulated)");
+  });
+});
+
+describe("audit results on a simulated result", () => {
+  const audited = () => auditPlan({ text: AUDIT_SAMPLE, ...AUDIT_SAMPLE_AUDIENCE }, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+  it("says above the results that the catalog is a small offline one, and not on Qloo data", async () => {
+    const sim = await audited();
+    const html = text(renderToStaticMarkup(<AuditResults result={sim} />));
+    expect(html.trimStart()).toMatch(/^Offline demo catalog \(small\): famous names may be missing or judged by placeholder data\. A Qloo key gives real verdicts\./);
+    expect(html.indexOf("Offline demo catalog")).toBeLessThan(html.indexOf("names found and checked"));
+    // No catalog size it didn't count.
+    expect(SIMULATED_CATALOG_NOTE).not.toMatch(/\d/);
+    const live = { ...sim, simulated: false, receipts: sim.receipts.map((x) => ({ ...x, source: "live" as const })) };
+    expect(text(renderToStaticMarkup(<AuditResults result={live} />))).not.toContain("Offline demo catalog");
+  });
+});
+
+describe("BriefForm from the current run", () => {
+  it("lays a brief back into the form's fields and reads it out again unchanged", () => {
+    for (const p of PRESETS) {
+      const back = briefFromForm(fieldsFromBrief(Brief.parse(p.brief)));
+      expect(back).toMatchObject({ family: p.brief.family, subject: p.brief.subject, product: p.brief.product, seeds: p.brief.seeds, ages: p.brief.ages, goal: p.brief.goal });
+      expect(back.targetCity).toBe(p.brief.targetCity);
+      expect(back.compareTo).toBe(p.brief.compareTo);
+      expect(back.vibe).toBe(p.brief.vibe);
+    }
+  });
+  it("starts with the run's subject, seeds and link instead of empty fields", () => {
+    const hero = Brief.parse(PRESETS[0].brief);
+    const html = renderToStaticMarkup(<BriefForm busy={false} onRun={() => undefined} current={{ id: "abc", brief: hero }} />);
+    expect(html).toContain(`value="${hero.subject}"`);
+    expect(html).toContain(`value="${hero.seeds.join(", ")}"`);
+    expect(html).toContain(`value="${hero.seedLinks[0] ?? ""}"`);
+    // Ages are the run's, not the form's defaults.
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(hero.ages.length);
+    const empty = renderToStaticMarkup(<BriefForm busy={false} onRun={() => undefined} />);
+    expect(empty).not.toContain(`value="${hero.subject}"`);
   });
 });

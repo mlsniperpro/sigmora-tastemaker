@@ -138,10 +138,11 @@ export interface RunResult {
 
 /**
  * Where a result that wasn't computed for this request came from:
- * "cache" = the same brief ran before; "recording" = a recorded live run of the preset.
+ * "cache" = the same brief ran before; "recording" = a recorded live run of the preset;
+ * "simulated" = live Qloo failed with nothing recorded, so the preset ran on the labelled offline simulator.
  * `reason` says why it was served instead of a new run (a refused or failed live run).
  */
-export type Served = { from: "cache" | "recording"; reason?: string };
+export type Served = { from: "cache" | "recording" | "simulated"; reason?: string };
 
 export type RunEvent =
   /** A step began; the trace shows it as running until its "step" event arrives. */

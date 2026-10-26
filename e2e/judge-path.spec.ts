@@ -81,7 +81,15 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
 
   // The trace names Qloo surfaces and shows every parameter of a call on demand.
   const trace = page.getByRole("region", { name: "Agent trace" });
-  await expect(trace).toContainText(/\d+ Qloo calls · (1\d|[2-9]\d) Qloo surfaces/);
+  // Calls the offline simulator answered are called simulated, in the trace header and in the sticky bar.
+  if (simulated) {
+    await expect(trace).toContainText(/\d+ simulated calls · (1\d|[2-9]\d) Qloo surfaces exercised \(simulated\)/);
+    await expect(trace).not.toContainText(/\d+ Qloo calls/);
+    if ((page.viewportSize()?.width ?? 0) < 1024) await expect(page.getByRole("link", { name: /^Trace · \d+ simulated calls/ })).toBeVisible();
+  } else {
+    await expect(trace).toContainText(/\d+ Qloo calls · (1\d|[2-9]\d) Qloo surfaces/);
+    await expect(trace).not.toContainText("simulated calls");
+  }
   await trace.getByRole("button", { name: /Qloo critic, pass 1/ }).click();
   await expect(trace).toContainText("feature.explainability=true");
   await expect(trace).toContainText("filter.results.entities=");
@@ -181,10 +189,65 @@ test("a run permalink opens that exact run, in a fresh browser", async ({ page, 
   await other.close();
 });
 
-test("an unknown run permalink explains itself and offers the presets", async ({ page }) => {
+test("an unknown run permalink says so at the top and shows the hero preset instead of an empty page", async ({ page }) => {
   await page.goto("/?run=doesnotexist1");
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("expired or never existed");
-  await expect(page.getByRole("button", { name: "Indie artist: single launch" })).toBeEnabled();
+  const notice = page.getByRole("status").filter({ hasText: "expired or never existed" });
+  await expect(notice).toContainText("That shared run has expired or never existed; here's the hero preset instead.");
+  // At the top of the page, above the header and in the first viewport, not below the fold.
+  const box = await notice.boundingBox();
+  expect(box?.y ?? Infinity, "the notice is in the first viewport").toBeLessThan(page.viewportSize()?.height ?? 0);
+  expect(await page.getByRole("main").evaluate((m) => m.firstElementChild?.getAttribute("role"))).toBe("status");
+  // The hero preset loads on its own: a finished plan, its permalink, and the preset marked as the one shown.
+  await finished(page);
+  await expect(page).toHaveURL(/\?run=[a-z0-9]+$/);
+  expect(page.url()).not.toContain("doesnotexist1");
+  await expect(page.getByRole("button", { name: "Indie artist: single launch" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("Brief: Nia Sol")).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await noHorizontalScroll(page);
+  // Picking something else clears the notice, which was about the link.
+  await page.getByRole("button", { name: "Sports club: new fan market" }).click();
+  await expect(notice).toHaveCount(0);
+  await finished(page);
+});
+
+test("Edit brief opens with the brief on screen, and the audit panel's audience follows it until edited", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const bar = page.getByRole("form", { name: "Your own brief" });
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  await expect(bar.getByLabel("Who's launching")).toHaveValue("Nia Sol");
+  await expect(bar.getByLabel(/Your audience already loves/)).toHaveValue("Tems, Rema, Asake");
+  await expect(bar.getByLabel(/Spotify artist \/ IMDb link/)).toHaveValue(/open\.spotify\.com\/artist\//);
+  await expect(bar.getByRole("button", { name: "25 to 29" })).toHaveAttribute("aria-pressed", "true");
+  await expect(bar.getByRole("button", { name: "24 & under" })).toHaveAttribute("aria-pressed", "false");
+  await bar.getByRole("button", { name: /More details/ }).click();
+  await expect(bar.getByLabel("What")).not.toHaveValue("");
+  await expect(bar.getByLabel("Goal")).not.toHaveValue("");
+
+  // Another run replaces the fields with its own brief.
+  await page.getByRole("button", { name: "Sports club: new fan market" }).click();
+  await finished(page);
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  await expect(bar.getByLabel("Who's launching")).toHaveValue("Southbank FC");
+
+  // The audit panel's audience is the brief's, and follows it while untouched.
+  const panel = page.getByRole("region", { name: "Audit any AI's plan" });
+  const names = panel.getByLabel(/The audience already loves/);
+  await page.getByRole("link", { name: "Paste any AI's plan" }).click();
+  const seeds = await names.inputValue();
+  expect(seeds).not.toBe("");
+  expect(seeds).not.toContain("Tems");
+  await page.getByRole("button", { name: "Indie artist: single launch" }).click();
+  await finished(page);
+  await expect(names).toHaveValue("Tems, Rema, Asake");
+  await expect(panel.getByRole("button", { name: "25 to 29" })).toHaveAttribute("aria-pressed", "true");
+  // Once the reader has edited it, a new run leaves it alone.
+  await names.fill("Phoebe Bridgers");
+  await page.getByRole("button", { name: "Sports club: new fan market" }).click();
+  await finished(page);
+  await expect(names).toHaveValue("Phoebe Bridgers");
+  await noHorizontalScroll(page);
 });
 
 test("the city map draws real tiles, and falls back to the SVG map when the tile host is down", async ({ page }) => {
@@ -213,6 +276,8 @@ test("a custom brief asks for who's launching instead of inventing a name", asyn
   });
   await page.getByRole("button", { name: "Edit brief" }).click();
   const bar = page.getByRole("form", { name: "Your own brief" });
+  // "Edit brief" starts from the brief on screen; this one leaves "Who's launching" blank on purpose.
+  await bar.getByLabel("Who's launching").fill("");
   await bar.getByLabel(/Your audience already loves/).fill("Phoebe Bridgers, boygenius");
   await bar.getByRole("button", { name: "Plan & taste-check" }).click();
   await expect(bar.getByRole("alert")).toHaveText("Say who's launching: the artist, brand or club the plan is for.");
@@ -316,7 +381,7 @@ test("the header's \"Paste any AI's plan\" opens the audit panel and lands on th
 test("the toggle bar jumps to the trace below the desktop layout", async ({ page }) => {
   await page.goto("/?preset=indie-release");
   await finished(page);
-  const jump = page.getByRole("link", { name: /^Trace · \d+ Qloo calls/ });
+  const jump = page.getByRole("link", { name: /^Trace · \d+ (Qloo|simulated) calls/ });
   if ((page.viewportSize()?.width ?? 0) >= 1024) {
     // On desktop the trace is the left rail, already in view, so there is nothing to jump to.
     await expect(jump).toBeHidden();

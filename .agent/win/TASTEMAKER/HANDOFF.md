@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-25 ~14:15 UTC)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, resumed 2026-10-26 15:48 UTC; current as of each push)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -40,29 +40,15 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight at wind-down (2026-10-25 ~14:15 UTC)
-- **Pushed with this handoff:** the round-7 fixes, verified locally (lint and typecheck clean, `pnpm test` 457 passed; e2e NOT re-run on this exact commit).
-  - The Qloo lens's two highs: subtitle matching only on whole title segments of titled media; Qloo-confirmed rejoining of names a split broke, plus the lowercase "the …" rule and dropping venue cities.
-  - A spelling-blind second matching key (P!nk, Ke$ha, N.W.A., AC/DC, Mø …).
-  - Plan-city venue failures contained (tasteCheck and the baseline audit).
-  - Other-type hits kept out of "unmatched"; that list now shows only plausible names; "-style" suffixes stripped.
-  - Lone UTF-16 surrogates rejected with a 400 (run, audit, MCP).
-  - Partial audits cached briefly (failed searches, warnings, fallback sources).
-  - Audit single flight.
-  - Run single flight: waiters don't inherit 429 refusals.
-  - Admissions refunded when a run or audit fails before spending (NoSeed).
-  - Cache versions bumped (`audit:v2`, `RUN_SCHEMA_VERSION` 5).
-  - The MCP `audit_plan` tool (pushed earlier in a5b3314).
-- **WIP patch, not applied:** `.agent/win/TASTEMAKER/wip-judge-audit7-ui.patch` is the uncommitted work of a stopped UI agent, a diff against a5b3314 limited to src/components, e2e and tests/unit/components.test.tsx. It is UNTESTED. Its goals were judge-audit-7 items:
-  1. a dead `?run=` permalink shows a top message and loads the hero preset;
-  2. "simulated" in the trace header and the sticky bar;
-  3. an offline-catalog note in the audit panel;
-  4. Edit brief and the audit audience prefilled from the current brief.
-  Apply it with `git apply --3way`, review, test (including `rm -rf .next` before e2e), then delete the patch.
-- **Soak on 14951cf:** done (100k deep pass plus 60 seeded rounds, results in the old session scratchpad, so treat it as unrecorded). Redo it on the final commit.
+## In flight (2026-10-26 ~16:05 UTC)
+- **Merged and verified in this push:**
+  - the round-7 UI patch (dead permalinks, simulated labels in the trace and bar, the audit catalog note, prefilled Edit brief);
+  - H10: a preset with live Qloo down shows its last run, or the labelled simulator run;
+  - H11: a monotonic-clock throttle.
+- **Verified on this commit:** lint and typecheck clean; `pnpm test` 463; `pnpm test:e2e` 24.
+- **Next:** round 8 of the three-lens audit (Sonnet), plus a soak, on this commit.
 
 ## Open audit findings (round 7, not yet fixed)
-- **Judge H1 (high):** a total live-Qloo failure (wrong key, or a host error on every call) leaves a blank first screen, because `fixtures/runs/recorded.json` is `{}` and there is no last run. Fix: when a whole preset run fails with no recording or cache, serve the labelled offline-simulator run of that preset with a banner ("Live Qloo unavailable: offline simulator"), never mixed with live data; also map raw errors like "fetch failed" to a human message at the top.
 - **Judge M3:** `.agent/` and `docs/PLAYBOOK.md` (judge-by-judge tactics) will be public when the repo goes public. Owner decision; it's listed in BLOCKED.md. The gate needs `.agent/` tracked.
 - **Judge L7:** the panel UI doesn't yet render `extraction.otherTypes` ("Qloo knows X as a <type>, which this audit doesn't check").
 - **Security M3, partly open:** the sample audit has no recorded fallback for when its budget is refused. Fix: record the sample audit with the key (extend `pnpm runs:record`) and serve it, labelled, on refusal.

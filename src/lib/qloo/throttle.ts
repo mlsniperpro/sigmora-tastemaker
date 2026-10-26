@@ -14,7 +14,8 @@ export class Throttle {
   constructor(
     private readonly perSecond: number,
     private readonly maxConcurrent: number,
-    private readonly now: () => number = Date.now,
+    // Monotonic: a wall-clock step backwards (NTP, a test clock) must never stall the queue.
+    private readonly now: () => number = () => performance.now(),
     private readonly sleep: (ms: number) => Promise<void> = realSleep,
   ) {
     this.tokens = perSecond;
