@@ -40,11 +40,13 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (2026-10-26 ~17:00 UTC)
+## In flight (2026-10-26 ~16:35 UTC)
 - **Round 8 (three Sonnet lenses on d3fc58a):** 3 high, all from the Qloo lens: Oxford-comma names, "&"/"the" merges, and a refused cold preset giving a 503. Security and judge found no high. All 3 highs and every medium are fixed in this push (WIN-CHECKLIST I1–I20; the `[-]` items are decisions).
 - **Soak on d3fc58a:** `FC_NUM_RUNS=100000` deep pass 465/465, then 60 seeded rounds with no failure. Fresh clone of 5124c3e: install, demo, 467/467, GET / 200, MCP lists 3 tools. e2e on 5124c3e: 24/24.
 - **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 483; `pnpm test:e2e` 24.
-- **Next:** round 9 of the audit (Sonnet, three lenses) plus a soak on this commit. Then a 10th round; two clean rounds in a row are needed.
+- **Running now (started ~16:30 UTC on 52a25e1):** round 9 of the audit (three Sonnet lenses, each in its own scratchpad worktree `aud9q`, `aud9s`, `aud9j`), and a soak (deep pass, then 60 seeded rounds; logs `soak9-*.log` in the scratchpad). If this session ends before they report, re-run both on the pushed HEAD.
+- **Then:** fix what round 9 finds, then a 10th round; two clean rounds in a row are needed.
+- **PR body:** updated for 52a25e1 (round-8 status, decisions, self-review).
 
 ## Open audit findings
 - None at critical or high after round 8.
