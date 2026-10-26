@@ -55,7 +55,8 @@ export class HttpChat implements ChatClient {
       this.fetchImpl,
       SERVICE,
       url,
-      { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) },
+      // No redirects: the API key header must never follow a reply to another origin.
+      { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body), redirect: "error" },
       this.o.timeoutMs ?? 25000,
     );
   }

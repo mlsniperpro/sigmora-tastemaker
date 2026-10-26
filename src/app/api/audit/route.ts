@@ -1,7 +1,7 @@
 import { AuditRequest, auditWithBudget } from "@/lib/agent/audit";
 import { defaultCache } from "@/lib/qloo/cache";
 import { NoSeedError } from "@/lib/agent/context";
-import { admit, clientIp, floodGuard, guardResponse, refundAdmission } from "@/lib/guard";
+import { admit, clientIp, floodGuard, guardResponse, refundAdmission, unmeteredAllowed } from "@/lib/guard";
 import { llmFromEnv } from "@/lib/llm";
 import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 import { qlooFromEnv } from "@/lib/qloo/client";
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   if (!body.success) return Response.json({ error: formatZodIssues(body.error, { root: "body" }) }, { status: 400 });
 
   try {
-    const outcome = await auditWithBudget(body.data, { qloo: qlooFromEnv(), llm: llmFromEnv(), cache: defaultCache(), ip: clientIp(req.headers), gate: () => admit(req, { costs: true }), refund: () => refundAdmission(req) });
+    const outcome = await auditWithBudget(body.data, { qloo: qlooFromEnv(), llm: llmFromEnv(), cache: defaultCache(), ip: clientIp(req.headers), gate: () => admit(req, { costs: true }), refund: () => refundAdmission(req), unmetered: () => unmeteredAllowed(clientIp(req.headers)) });
     return outcome.ok ? Response.json(outcome.result) : guardResponse(outcome.refusal);
   } catch (err) {
     if (err instanceof NoSeedError) return Response.json({ error: "None of the audience's names resolved in Qloo; try other names they love." }, { status: 422 });

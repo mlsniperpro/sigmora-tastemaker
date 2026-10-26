@@ -62,10 +62,13 @@ const TTL = 60 * 60 * 24 * 7;
 export const EMPTY_TTL = 60 * 10;
 const SERVICE = "Qloo";
 
-/** True when a reply carries no results at all: `results` is an empty array, or an object whose lists are all empty. */
-/** Lookups whose 404 means "no results" rather than an error. */
-const NOT_FOUND_IS_EMPTY: ReadonlySet<QlooPath> = new Set(["/search", "/entities"]);
+/** Calls whose 404 means "no results" rather than an error (docs.qloo.com: get-search, get-entities, analysis-compare). */
+const NOT_FOUND_IS_EMPTY: ReadonlySet<QlooPath> = new Set(["/search", "/entities", "/v2/analysis/compare"]);
 
+/** The reply a "no results" 404 stands for. */
+const NOT_FOUND = { results: [] } as const;
+
+/** True when a reply carries no results at all: `results` is an empty array, or an object whose lists are all empty. */
 export function isEmptyReply(raw: unknown): boolean {
   if (!raw || typeof raw !== "object") return true;
   const results = (raw as { results?: unknown }).results;
@@ -164,6 +167,8 @@ export class QlooClient {
   refusedBy: string | undefined;
   /** The shares calls past the reservation are charged to (kept after release, for a client that keeps calling). */
   private shares: { name: string; cap: number }[] = [];
+  /** Lookups this client read as "no results" from a 404 (not cached; a job that saw one is kept only briefly). */
+  notFound = 0;
   /** Epoch ms after which no call is sent (set per job by setDeadline). */
   private deadlineAt = Infinity;
 
@@ -264,12 +269,18 @@ export class QlooClient {
       await this.spendBudget();
       return this.fetchOnce(path, params);
     }, this.opts.retry ?? DEFAULT_RETRY).catch((err: unknown) => {
-      // The lookups answer "no results" with a 404 (docs.qloo.com: get-search, get-entities): that's a finding
+      // These calls answer "no results" with a 404 (see NOT_FOUND_IS_EMPTY): that's a finding
       // (the name isn't in Qloo), not a failure, so it reads as an empty list and is cached as one.
-      if (err instanceof HttpError && err.status === 404 && NOT_FOUND_IS_EMPTY.has(path)) return { results: [] };
+      if (err instanceof HttpError && err.status === 404 && NOT_FOUND_IS_EMPTY.has(path)) return NOT_FOUND;
       throw err;
     });
     this.parse(path, schema, raw);
+    // A 404 can also come from a gateway or a deploy, not Qloo's catalog: it's read as "no results" but never cached,
+    // and the job that saw one is stored only briefly (`notFound`), so a blip can't stand as a verdict for a day.
+    if (raw === NOT_FOUND) {
+      this.notFound++;
+      return { raw: { results: [] }, cached: false };
+    }
     await this.cache.set(key, raw, isEmptyReply(raw) ? EMPTY_TTL : TTL);
     if (this.opts.recorder) this.opts.recorder[key] = raw;
     return { raw, cached: false };
@@ -410,7 +421,8 @@ export class QlooClient {
         this.fetchImpl,
         SERVICE,
         url,
-        { method: "GET", headers: { "X-Api-Key": apiKey, Accept: "application/json" }, cache: "no-store" },
+        // No redirects: the API key header must never follow a reply to another origin.
+        { method: "GET", headers: { "X-Api-Key": apiKey, Accept: "application/json" }, cache: "no-store", redirect: "error" },
         this.opts.timeoutMs ?? 12000,
       );
       await ensureOk(res, SERVICE, url);

@@ -8,7 +8,7 @@ import { BriefFields, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
 import { RunRequest } from "./agent/brief";
 import { formatRate, placeholderReason } from "./agent/evidence";
-import { cachedRun, costsMoney, getOrRun, recordedRuns, resolveRunRequest } from "./agent/runCache";
+import { cachedRun, costsMoney, getOrRun, isInFlight, recordedRuns, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import { AuditRequest, auditWithBudget } from "./agent/audit";
 import { NoSeedError } from "./agent/context";
@@ -17,7 +17,7 @@ import { defaultCache } from "./qloo/cache";
 import { isQlooStop } from "./qloo/errors";
 import type { Receipt } from "./agent/types";
 import { loadConfig } from "./config";
-import { qlooBudget, qlooRefusal, refundAdmissionFor, type GuardResult } from "./guard";
+import { qlooBudget, qlooRefusal, refundAdmissionFor, unmeteredAllowed, type GuardResult } from "./guard";
 import { qlooFromEnv, type QlooClient, type ReserveOptions } from "./qloo/client";
 import { MALFORMED_TEXT, formatZodIssues, hasLoneSurrogate } from "./zod";
 
@@ -138,6 +138,8 @@ async function planCampaignTool(args: unknown, gate: Gate, ip: string) {
   else {
     const paid = !lookup.result && costsMoney(lookup.deps);
     if (paid) await reserveThenAdmit(lookup.deps.qloo, loadConfig().QLOO_RUN_ESTIMATE, qlooBudget(request, ip), gate);
+    // Free (keyless) runs still cost CPU and a stored result: the same per-network cap as /api/run.
+    else if (!lookup.result && !isInFlight(lookup.key) && !(await unmeteredAllowed(ip))) throw new ToolError("Too many new plans from your network. Wait a minute.");
     r = (
       await getOrRun(lookup, undefined, recording)
         .catch(async (err: unknown) => {
@@ -168,7 +170,7 @@ async function auditPlanTool(args: unknown, gate: Gate, ip: string) {
   const input = AuditRequest.parse(args);
   let outcome;
   try {
-    outcome = await auditWithBudget(input, { qloo: qlooFromEnv(), llm: llmFromEnv(), cache: defaultCache(), ip, gate, refund: () => refundAdmissionFor(ip) });
+    outcome = await auditWithBudget(input, { qloo: qlooFromEnv(), llm: llmFromEnv(), cache: defaultCache(), ip, gate, refund: () => refundAdmissionFor(ip), unmetered: () => unmeteredAllowed(ip) });
   } catch (err) {
     if (err instanceof NoSeedError) throw new ToolError("None of the audience's names resolved in Qloo; try other names they love.");
     if (isQlooStop(err)) throw new ToolError(`The audit ran out of Qloo budget or time (${err.message}).`);

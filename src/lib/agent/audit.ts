@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { CacheStore } from "../qloo/cache";
 import { qlooBudget, qlooRefusal, type GuardResult } from "../guard";
-import { AUDIT_CALL_ESTIMATE } from "../config";
+import { AUDIT_RESERVE } from "../config";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "../auditSample";
 import recordedAudits from "../../../fixtures/audits/recorded.json";
 import type { QlooClient, QlooSource } from "../qloo/client";
@@ -75,9 +75,10 @@ export async function cachedAudit(cache: CacheStore, key: string): Promise<Audit
 }
 
 /** Keeps a finished audit; a degraded one is kept briefly so it is redone soon. */
-export async function storeAudit(cache: CacheStore, key: string, r: AuditResult, primary: string): Promise<void> {
-  // Anything partial (unscored picks, failed searches, warnings, the model's list not used, answers from a fallback source) is redone soon.
-  const degraded = r.metrics.unscored > 0 || r.extraction.fallback !== undefined || (r.extraction.failedSearches ?? 0) > 0 || r.warnings.length > 0 || r.sources.some((x) => x !== primary);
+export async function storeAudit(cache: CacheStore, key: string, r: AuditResult, primary: string, opts: { brief?: boolean } = {}): Promise<void> {
+  // Anything partial (unscored picks, failed searches, warnings, the model's list not used, answers from a fallback source) is redone soon,
+  // and so is anything `brief` (a lookup answered by a 404, or a free audit on a keyless deployment that costs nothing to redo).
+  const degraded = opts.brief === true || r.metrics.unscored > 0 || r.extraction.fallback !== undefined || (r.extraction.failedSearches ?? 0) > 0 || r.warnings.length > 0 || r.sources.some((x) => x !== primary);
   await cache.set(key, r, degraded ? DEGRADED_AUDIT_TTL : AUDIT_TTL);
 }
 
@@ -93,6 +94,8 @@ export interface AuditDeps {
   gate: () => Promise<GuardResult>;
   /** Gives back what `gate` counted, when the audit then fails before spending anything. */
   refund?: () => Promise<void>;
+  /** For an audit that costs nothing (keyless, scripted): may this caller start another now? Bounds CPU and store writes. */
+  unmetered?: () => Promise<boolean>;
 }
 
 export type AuditOutcome = { ok: true; result: AuditResult } | { ok: false; refusal: Extract<GuardResult, { ok: false }> };
@@ -137,12 +140,14 @@ const auditsInFlight = new Map<string, Promise<AuditOutcome>>();
 async function runAudit(input: AuditRequest, deps: AuditDeps, key: string): Promise<AuditOutcome> {
   const { qloo, llm, cache } = deps;
   const live = qloo.primarySource === "live";
-  if (live && !(await qloo.reserve(AUDIT_CALL_ESTIMATE, qlooBudget({ fresh: true }, deps.ip)))) return refusedOrRecorded(input, qlooRefusal(qloo.refusedBy));
+  if (live && !(await qloo.reserve(AUDIT_RESERVE, qlooBudget({ fresh: true }, deps.ip)))) return refusedOrRecorded(input, qlooRefusal(qloo.refusedBy));
   try {
     const counted = live || !llm.scripted;
     if (counted) {
       const g = await deps.gate();
       if (!g.ok) return refusedOrRecorded(input, g);
+    } else if (deps.unmetered && !(await deps.unmetered())) {
+      return { ok: false, refusal: { ok: false, status: 429, message: "Too many new audits from your network. Wait a minute.", retryAfter: 60 } };
     }
     qloo.setDeadline(Date.now() + AUDIT_DEADLINE_MS);
     const result = await auditPlan(input, { qloo, llm }).catch(async (err: unknown) => {
@@ -151,7 +156,7 @@ async function runAudit(input: AuditRequest, deps: AuditDeps, key: string): Prom
       if (counted && llm.scripted && err instanceof NoSeedError) await deps.refund?.();
       throw err;
     });
-    await storeAudit(cache, key, result, qloo.primarySource);
+    await storeAudit(cache, key, result, qloo.primarySource, { brief: !counted || qloo.notFound > 0 });
     return { ok: true, result };
   } finally {
     await qloo.release();

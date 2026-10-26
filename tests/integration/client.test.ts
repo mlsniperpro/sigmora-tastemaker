@@ -57,16 +57,20 @@ describe("QlooClient: live", () => {
     expect(urls[0]).toContain(encodeURIComponent("Tems\ufffd"));
   });
 
-  it("reads a lookup's 404 as no results (docs: \"No results\"), cached as empty; any other 404 is an error (audit 9)", async () => {
+  it("reads a lookup's 404 as no results (docs: \"No results\"), never cached and counted; any other 404 is an error (audits 9, 10)", async () => {
     const f = vi.fn(async () => new Response('{"error":"No results"}', { status: 404 }));
     const cache = new MemoryCache();
     const q = client(f, { cache });
     expect((await q.search("Qorvax Blee", ["artist"])).data.results).toEqual([]);
     expect((await q.entitiesByExternal("spotify", ["687cZJR45JO7jhk1LHIbgq"])).data.results).toEqual([]);
-    // Cached as an empty reply: asked again, no second request.
+    // Never cached (a gateway or deploy can 404 too): asked again, asked again; and counted, so the job is kept only briefly.
     await q.search("Qorvax Blee", ["artist"]);
-    expect(f).toHaveBeenCalledTimes(2);
+    expect(f).toHaveBeenCalledTimes(3);
+    expect(q.notFound).toBe(3);
+    expect(await cache.get(requestKey("/search", { query: "Qorvax Blee", types: ["urn:entity:artist"], take: 5 }))).toBeUndefined();
     await expect(q.insights("urn:entity:artist", { "signal.interests.entities": "R1" })).rejects.toBeInstanceOf(HttpError);
+    // compare documents the same "No results" 404 (audit 10).
+    expect(await q.compare(["R1"], ["R2"])).toBeDefined();
   });
 
   it("calls the hackathon host with X-Api-Key, caches, and records", async () => {

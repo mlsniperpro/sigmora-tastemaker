@@ -218,3 +218,12 @@ describe("placeholderReason", () => {
     expect(placeholderReason({ qloo: health({ live: 0, replay: 10 }), llm: llm(false) })).toBeUndefined();
   });
 });
+
+describe("presetIdOf (audit 10)", () => {
+  it("names the preset a run's brief came from, and none for a custom brief", async () => {
+    const { PRESETS, presetIdOf } = await import("@/lib/agent/presets");
+    const { Brief } = await import("@/lib/agent/brief");
+    for (const p of PRESETS) expect(presetIdOf(Brief.parse(p.brief))).toBe(p.id);
+    expect(presetIdOf({ ...Brief.parse(PRESETS[0].brief), subject: "Someone Else" })).toBeUndefined();
+  });
+});

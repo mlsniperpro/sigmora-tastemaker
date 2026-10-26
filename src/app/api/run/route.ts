@@ -100,7 +100,7 @@ export async function POST(req: Request) {
   let settle: ((r: typeof refusal) => void) | undefined;
   // A fresh "Re-run live" draws on other shares than a plain preset click, so it never shares that click's admission.
   const flight = request.fresh ? `${lookup.key}|fresh` : lookup.key;
-  if (!lookup.result && !costsMoney(lookup.deps) && !request.presetId) {
+  if (!lookup.result && !costsMoney(lookup.deps) && !isInFlight(lookup.key) && (!request.presetId || request.fresh)) {
     // Unmetered (no key): nothing is spent, but each run still costs CPU and a stored result.
     const tooMany = await unmeteredGuard(req);
     if (tooMany) return tooMany;
@@ -139,7 +139,8 @@ export async function POST(req: Request) {
   if (refusal) {
     done();
     // A refused run shows the preset's recording, else this brief's last finished run, labelled with why.
-    const reason = `a new live run was refused (${refusal.message})`;
+    // The refusal's first sentence only: its advice ("try a new brief tomorrow") is for custom briefs, not a preset's banner.
+    const reason = `a new live run was refused (${(refusal.message.split(/(?<=[.!?])\s/)[0] ?? refusal.message).replace(/[.!?]$/, "")})`;
     if (recording) return ndjson((send) => Promise.resolve(replay(recording, { from: "recording", reason }, send)), { "X-Run-Cache": "recording" });
     const last = await lastRun(lookup);
     if (last) {

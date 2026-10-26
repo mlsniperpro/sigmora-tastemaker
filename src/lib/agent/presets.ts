@@ -1,4 +1,4 @@
-import type { BriefInput } from "./brief";
+import type { Brief, BriefInput } from "./brief";
 
 export interface Preset {
   id: string;
@@ -81,3 +81,10 @@ export const PRESETS: readonly [Preset, ...Preset[]] = [
 
 export const presetById = (id: string) => PRESETS.find((p) => p.id === id);
 
+/**
+ * The preset this brief comes from, by its own words (family, subject, product, goal), for the UI only: a permalink
+ * to a preset run highlights that preset and offers "Re-run live". Shipping checks the whole brief (`isPresetBrief`).
+ */
+export function presetIdOf(brief: Pick<Brief, "family" | "subject" | "product" | "goal">): string | undefined {
+  return PRESETS.find((p) => p.brief.family === brief.family && p.brief.subject === brief.subject && p.brief.product === brief.product && p.brief.goal === brief.goal)?.id;
+}

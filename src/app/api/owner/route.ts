@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { loadConfig } from "@/lib/config";
 import { defaultCounter, incrPerMinute } from "@/lib/counter";
-import { clientIp } from "@/lib/guard";
+import { clientIp, floodGuard } from "@/lib/guard";
 import { OWNER_ATTEMPTS_PER_MINUTE, OWNER_COOKIE, OWNER_SESSION_SECONDS, crossSiteResponse, ownerToken, sameKey, sameOrigin } from "@/lib/publisher/owner";
 
 const OwnerRequest = z.object({ key: z.string().min(1).max(200) });
@@ -14,6 +14,9 @@ const OwnerRequest = z.object({ key: z.string().min(1).max(200) });
  */
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return crossSiteResponse();
+  // In-process first, so a flood of sign-in attempts can't each cost a store round trip.
+  const flood = await floodGuard(req);
+  if (flood) return flood;
   const now = Date.now();
   if ((await incrPerMinute(defaultCounter(), `rl:owner:${clientIp(req.headers)}`, now)) > OWNER_ATTEMPTS_PER_MINUTE) {
     return Response.json({ error: "Too many sign-in attempts. Wait a minute." }, { status: 429, headers: { "Retry-After": String(60 - Math.floor((now / 1000) % 60)) } });

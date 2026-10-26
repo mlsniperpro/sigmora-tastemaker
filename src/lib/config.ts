@@ -95,8 +95,14 @@ function parseEnv(env: Record<string, string | undefined>): Env {
   return r.data;
 }
 
-/** Live Qloo calls one "Audit any AI's plan" request reserves (unspent ones go back); tests/integration/audit.test.ts holds a worst-case plan to it. */
+/** Most live Qloo calls one "Audit any AI's plan" request makes; tests/integration/audit.test.ts holds a worst-case plan to it. */
 export const AUDIT_CALL_ESTIMATE = 80;
+/**
+ * Live Qloo calls an audit reserves up front (unspent ones go back). A typical plan spends about 20, so reserving
+ * the worst case would let one audit block a network's next action for the day; calls past the reservation are
+ * charged one by one to the same shares, and a cut audit degrades per name (unscored), never overspends.
+ */
+export const AUDIT_RESERVE = 30;
 /** The custom pool must hold at least this many networks' full daily shares. */
 export const NETWORKS_PER_POOL = 3;
 

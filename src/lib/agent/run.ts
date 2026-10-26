@@ -217,7 +217,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           where.heatmap = r.heatmap;
           where.rankedBy = r.rankedBy;
           const top = r.cities.slice(0, 3).map((c) => (sim.on ? c.name : `${c.name} ${c.affinity.toFixed(2)}`)).join(" › ");
-          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.localityError ? ` (locality ranking not used: ${r.localityError})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}`;
+          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.localityError ? ` (locality ranking not used: ${r.localityError})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}${r.unranked.length ? ` · unranked: ${r.unranked.join(", ")}` : ""}`;
         });
       }
       ctx.city = brief.targetCity ?? ctx.candidates.city?.[0]?.name;

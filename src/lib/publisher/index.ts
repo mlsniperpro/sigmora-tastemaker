@@ -151,7 +151,7 @@ export class SigmoraPublisher implements PublisherProvider {
   private request<S extends z.ZodType>(path: string, schema: S, init: { method: "GET" | "POST"; headers: Record<string, string>; body?: string }): Promise<z.infer<S>> {
     const url = joinUrl(this.baseUrl, path);
     return withRetry(async () => {
-      const res = await fetchWithTimeout(this.fetchImpl, "Sigmora", url, { ...init, headers: { ...init.headers, authorization: `Bearer ${this.token}` } }, this.timeoutMs);
+      const res = await fetchWithTimeout(this.fetchImpl, "Sigmora", url, { ...init, redirect: "error", headers: { ...init.headers, authorization: `Bearer ${this.token}` } }, this.timeoutMs);
       await ensureOk(res, "Sigmora", url);
       return schema.parse(await res.json());
     }, this.retry);

@@ -186,3 +186,28 @@ describe("e2e: refused presets on a keyed deployment (audit 9)", () => {
     expect((await ship(shipReq)).status).toBe(409);
   }, 60_000);
 });
+
+describe("e2e: a judge's network on default budgets (audit 10)", () => {
+  it("can audit the sample (cached for everyone after the day's first) and then its own plan", async () => {
+    vi.stubEnv("QLOO_API_KEY", "qloo-secret");
+    vi.stubEnv("QLOO_BASE_URL", QLOO);
+    vi.stubEnv("QLOO_MODE", "live");
+    vi.stubEnv("QLOO_RPS", "50");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", stubQloo());
+    vi.resetModules();
+    const { POST: audit } = await import("@/app/api/audit/route");
+    const { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } = await import("@/lib/auditSample");
+    const post = (text: string, ip = "6.1.2.3") =>
+      new Request("http://tm.example/api/audit", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip, host: "tm.example" }, body: JSON.stringify({ text, ...AUDIT_SAMPLE_AUDIENCE }) });
+    // The day's first visitor pays for the sample; everyone after gets it from the audit cache.
+    expect((await audit(post(AUDIT_SAMPLE, "6.9.9.9"))).status).toBe(200);
+    const sample = await audit(post(AUDIT_SAMPLE));
+    expect(sample.status).toBe(200);
+    expect(((await sample.json()) as { cached?: boolean }).cached).toBe(true);
+    // An audit reserves 30 calls, not its worst case of 80, so the judge's own plan still fits their network's share.
+    expect((await audit(post("Collab targets: Burna Boy, Ayra Starr, and Qorvax Blee\nBrand partners: Telfar"))).status).toBe(200);
+    // And a second plan of theirs: with the worst case reserved up front, the first would have left no room for it.
+    expect((await audit(post("Collab targets: Tems, Rema\nPodcast pitch: Zorvana Talks"))).status).toBe(200);
+  }, 60_000);
+});

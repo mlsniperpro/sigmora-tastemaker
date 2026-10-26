@@ -40,24 +40,19 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (resumed 2026-10-26 18:02 UTC; lease active again)
-- **Code:** HEAD 0b38d99 has the same code as d85782f. All round-9 fixes are in it (WIN-CHECKLIST J1–J21).
-- **Verified on d85782f:** lint and typecheck clean; `pnpm test` 35 files / 499; `pnpm test:e2e` 24/24 (phone-390, desktop-1440).
-- **Running since 18:02 UTC on 0b38d99:**
-  - round 10 of the three-lens audit (Sonnet), each lens in its own scratchpad worktree (`aud10q`, `aud10s`, `aud10j`);
-  - the soak (deep pass, then 60 seeded rounds; logs `soak10-*.log` in the scratchpad).
-  If this session stops before they report, re-run both on the pushed HEAD.
-- **Soak of 0b38d99:** deep pass clean (499/499, 234 s). Seeded round 34 (FC_SEED=511810038) failed only in `api.test.ts` "caps unmetered custom runs per network per minute": the burst straddled a clock-minute window. Fixed by pinning the test's clock to the start of a minute (not a product bug). The rounds continue.
-- **Last clean soak:** 52a25e1 (deep pass 483/483, then 60 seeded rounds).
-- **Fresh clone of 0b38d99 (18:05 UTC, break-it evidence):** install ok; `pnpm demo` 76 Qloo requests; 35 files / 499 tests; `GET /` 200; `/api/run` streams 15 steps and a result; MCP `tools/list` gives taste_check, audit_plan, plan_campaign.
-- **Audit history:** round 8 found 3 highs and round 9 found 2, all fixed. No round has been clean yet, so two clean rounds in a row are still needed (rounds 10 and 11 at the earliest).
-- **Stale reports:** `.agent/win/TASTEMAKER/reaudit.md` and `break-it.md` still name 3b25d12. Rewrite them only after two clean rounds and the break-it pass. Rebuild the round table (rounds 1–9, commits and fixes) from WIN-CHECKLIST sections A–J.
-- **PR #1 body:** last updated for 52a25e1. Refresh it for the new HEAD.
+## In flight (2026-10-26 ~19:00 UTC)
+- **Round 10 (three Sonnet lenses on 0b38d99):** not clean. The judge lens found 1 config-dependent high (K1: an audit reserved a network's whole share). Qloo and security found no high. All are fixed in this push, with every medium and most lows (WIN-CHECKLIST K1–K14).
+- **Soak of 0b38d99:**
+  - deep pass 499/499;
+  - 60 seeded rounds: 59 clean, and round 34 (seed 511810038) failed only on a test whose burst crossed a clock-minute window (fixed in db2dff2).
+- **Fresh clone of 0b38d99:** install ok, demo 76 Qloo requests, 499 tests, GET / 200, /api/run streams, MCP lists 3 tools.
+- **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 508; `pnpm test:e2e` 24.
+- **Next:** round 11 (three Sonnet lenses) plus a soak on this commit. Two clean rounds in a row are still needed.
 
 ## Open audit findings
-- None known at critical or high after round 9; round 10 never reported.
-- **Owner decision:** making the repo public exposes `docs/PLAYBOOK.md` and `.agent/` (BLOCKED.md).
-- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: I12, I16, I20, J10, J21).
+- None at critical or high after round 10.
+- **Owner decisions:** judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
+- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: J10, J21, K12, K13).
 
 ## Next steps, in order
 1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).

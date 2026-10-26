@@ -92,7 +92,7 @@ export const Tag = z
     name: z.string(),
     type: absent(z.string()),
     subtype: absent(z.string()),
-    query: z.object({ affinity: z.number().nullish() }).loose().optional(),
+    query: absent(z.object({ affinity: z.number().nullish() }).loose()),
   })
   .loose();
 export type Tag = z.infer<typeof Tag>;
@@ -105,7 +105,7 @@ export const Entity = z
     subtype: absent(z.string()),
     types: absent(z.array(z.string())),
     popularity: absent(z.number()),
-    properties: z.record(z.string(), z.unknown()).optional(),
+    properties: absent(z.record(z.string(), z.unknown())),
     location: z
       .object({ lat: absent(z.number()), lon: absent(z.number()) })
       .loose()
@@ -113,8 +113,8 @@ export const Entity = z
       .transform((v) => v ?? undefined)
       .optional(),
     tags: absent(z.array(Tag)),
-    external: z.record(z.string(), z.unknown()).optional(),
-    query: EntityQuery.optional(),
+    external: absent(z.record(z.string(), z.unknown())),
+    query: absent(EntityQuery),
   })
   .loose();
 export type Entity = z.infer<typeof Entity>;
@@ -129,11 +129,11 @@ export { AGE_BUCKETS, type AgeBucket } from "../vocab";
 
 export const DemographicsRow = z
   .object({
-    entity_id: z.string().optional(),
+    entity_id: absent(z.string()),
     query: z
       .object({
-        age: z.record(z.string(), z.number()).optional(),
-        gender: z.record(z.string(), z.number()).optional(),
+        age: absent(z.record(z.string(), z.number())),
+        gender: absent(z.record(z.string(), z.number())),
       })
       .loose(),
   })
@@ -145,16 +145,16 @@ export const HeatmapCell = z
       .object({
         latitude: z.number(),
         longitude: z.number(),
-        geohash: z.string().optional(),
-        name: z.string().optional(),
-        entity_id: z.string().optional(),
+        geohash: absent(z.string()),
+        name: absent(z.string()),
+        entity_id: absent(z.string()),
       })
       .loose(),
     query: z
       .object({
         affinity: z.number().nullish(),
         affinity_rank: z.number().nullish(),
-        popularity: z.number().optional(),
+        popularity: absent(z.number()),
       })
       .loose(),
   })
@@ -167,10 +167,10 @@ export const InsightsResponse = z
     success: z.boolean().optional(),
     results: z
       .object({
-        entities: z.array(Entity).optional(),
-        tags: z.array(Tag).optional(),
-        demographics: z.array(DemographicsRow).optional(),
-        heatmap: z.array(HeatmapCell).optional(),
+        entities: absent(z.array(Entity)),
+        tags: absent(z.array(Tag)),
+        demographics: absent(z.array(DemographicsRow)),
+        heatmap: absent(z.array(HeatmapCell)),
       })
       .loose()
       .default({}),
@@ -188,11 +188,11 @@ export type InsightsResponse = z.infer<typeof InsightsResponse>;
 export const TrendPoint = z
   .object({
     date: z.string(),
-    population_percentile: z.number().optional(),
-    population_rank: z.number().int().optional(),
-    population_rank_velocity: z.number().int().optional(),
-    velocity_fold_change: z.number().optional(),
-    population_percent_delta: z.number().optional(),
+    population_percentile: absent(z.number()),
+    population_rank: absent(z.number().int()),
+    population_rank_velocity: absent(z.number().int()),
+    velocity_fold_change: absent(z.number()),
+    population_percent_delta: absent(z.number()),
   })
   .loose();
 export type TrendPoint = z.infer<typeof TrendPoint>;
@@ -201,7 +201,7 @@ export type TrendPoint = z.infer<typeof TrendPoint>;
 export const TrendingResponse = z
   .object({
     success: z.boolean().optional(),
-    results: z.object({ trending: z.array(TrendPoint).default([]) }).loose().default({ trending: [] }),
+    results: z.object({ trending: z.array(TrendPoint).nullish().transform((v) => v ?? []) }).loose().default({ trending: [] }),
     duration: z.number().optional(),
   })
   .loose();
@@ -228,16 +228,16 @@ const CompareSide = z.object({ affinity: z.number().nullish() }).loose().nullish
 export const CompareItem = z
   .object({
     name: z.string(),
-    tag_id: z.string().optional(),
-    id: z.string().optional(),
-    entity_id: z.string().optional(),
-    type: z.string().optional(),
-    subtype: z.string().optional(),
+    tag_id: absent(z.string()),
+    id: absent(z.string()),
+    entity_id: absent(z.string()),
+    type: absent(z.string()),
+    subtype: absent(z.string()),
     query: z
       .object({
         a: CompareSide,
         b: CompareSide,
-        delta: z.number().optional(),
+        delta: absent(z.number()),
       })
       .loose()
       .optional(),

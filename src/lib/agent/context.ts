@@ -248,13 +248,15 @@ export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], set
 }
 
 export class NoSeedError extends Error {
-  constructor() {
-    super("None of the seeds resolved to a Qloo entity; try different names.");
+  /** `failure`: why a pasted link couldn't be looked up, when one couldn't (so the cause isn't hidden as "no match"). */
+  constructor(failure?: string) {
+    super(failure ? `None of the seeds resolved to a Qloo entity, and the pasted links couldn't be looked up (${failure}); try names instead.` : "None of the seeds resolved to a Qloo entity; try different names.");
     this.name = "NoSeedError";
   }
 }
 
-const SPOTIFY = /^https:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?artist\/([A-Za-z0-9]{10,30})(?:[/?#]|$)/;
+/** An artist link as Spotify shares it: https://open.spotify.com (any locale) or a `spotify:artist:` URI. */
+const SPOTIFY = /^(?:https:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?artist\/|spotify:artist:)([A-Za-z0-9]{10,30})(?:[/?#]|$)/;
 const IMDB = /^https:\/\/(?:www\.|m\.)?imdb\.com\/(?:title|name)\/((?:tt|nm)\d{5,10})(?:[/?#]|$)/;
 
 /** Pure: pull catalog IDs out of pasted links. Links are parsed, never fetched. */
@@ -275,11 +277,13 @@ export function parseSeedLinks(links: readonly string[]): { spotify: string[]; i
  * unresolved, like an id Qloo doesn't know: the brief's names still seed the run, and if none resolve the
  * run says so (NoSeedError). Only a budget or deadline stop ends it.
  */
-async function resolveLinks(qloo: QlooClient, kind: "spotify" | "imdb", ids: string[]): Promise<Seed[]> {
+async function resolveLinks(qloo: QlooClient, kind: "spotify" | "imdb", ids: string[], failures: string[]): Promise<Seed[]> {
   if (!ids.length) return [];
   const r = await qloo.entitiesByExternal(kind, ids).catch((err: unknown) => {
     if (isQlooStop(err)) throw err;
-    console.warn(`[qloo] ${kind} link lookup failed, using the brief's names: ${err instanceof Error ? err.message : String(err)}`);
+    const why = err instanceof Error ? err.message : String(err);
+    console.warn(`[qloo] ${kind} link lookup failed, using the brief's names: ${why}`);
+    failures.push(why);
     return undefined;
   });
   if (!r) return ids.map((id) => ({ name: `${kind}:${id}` }));
@@ -289,9 +293,10 @@ async function resolveLinks(qloo: QlooClient, kind: "spotify" | "imdb", ids: str
 
 export async function resolveSeeds(qloo: QlooClient, seeds: Pick<Brief, "seeds" | "seedLinks">): Promise<Seed[]> {
   const links = parseSeedLinks(seeds.seedLinks);
+  const failures: string[] = [];
   const groups = await Promise.all([
-    resolveLinks(qloo, "spotify", links.spotify),
-    resolveLinks(qloo, "imdb", links.imdb),
+    resolveLinks(qloo, "spotify", links.spotify, failures),
+    resolveLinks(qloo, "imdb", links.imdb, failures),
     ...seeds.seeds.map(async (name): Promise<Seed[]> => {
       const { hit } = await resolveByName(qloo, name, { acceptTop: true });
       return [{ name, entityId: hit?.entity_id, type: hit ? entityTypesOf(hit)[0] : undefined, matched: hit?.name }];
@@ -305,7 +310,7 @@ export async function resolveSeeds(qloo: QlooClient, seeds: Pick<Brief, "seeds" 
     seen.add(x.entityId);
     return true;
   });
-  if (!all.some((x) => x.entityId)) throw new NoSeedError();
+  if (!all.some((x) => x.entityId)) throw new NoSeedError(failures[0]);
   return all;
 }
 

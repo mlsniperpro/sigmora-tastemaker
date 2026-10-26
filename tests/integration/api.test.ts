@@ -36,6 +36,32 @@ describe("/api/run", () => {
     expect(runErrorMessage(new Error("Done already."))).toBe("Done already.");
   });
 
+  it("caps unmetered fresh preset runs and audits per network too, and floods of owner sign-ins never reach the store (audit 10)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: new Date("2026-10-26T13:00:01Z") });
+    try {
+      const fresh: number[] = [];
+      for (let i = 0; i < 7; i++) {
+        const res = await run(post({ preset: "sports-club", fresh: true }, "4.4.8.8"));
+        fresh.push(res.status);
+        await res.text();
+      }
+      expect(fresh.at(-1)).toBe(429);
+      const { POST: audit } = await import("@/app/api/audit/route");
+      const audits: number[] = [];
+      for (let i = 0; i < 7; i++) {
+        const req = new Request("http://tm.example/api/audit", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "4.4.7.7", host: "tm.example" }, body: JSON.stringify({ text: `Collab targets: Burna Boy, Act ${String(i)}`, seeds: ["Tems"], ages: ["25_to_29"] }) });
+        audits.push((await audit(req)).status);
+      }
+      expect(audits.slice(0, 6).every((s) => s === 200)).toBe(true);
+      expect(audits.at(-1)).toBe(429);
+    } finally {
+      vi.useRealTimers();
+    }
+    const statuses = new Set<number>();
+    for (let i = 0; i < 125; i++) statuses.add((await owner(post({ key: "w".repeat(32) }, "4.4.6.6"))).status);
+    expect(statuses.has(429)).toBe(true);
+  });
+
   it("caps unmetered custom runs per network per minute", async () => {
     const brief = (i: number) => ({ family: "music", subject: `Flood Act ${String(i)}`, product: "single", goal: "Grow streams", seeds: ["Tems"], ages: ["25_to_29"] });
     const statuses: number[] = [];
@@ -95,6 +121,23 @@ describe("/api/run", () => {
 });
 
 describe("result cache health", () => {
+  it("never lets a degraded run replace the healthy result other visitors are served (audit 10)", async () => {
+    const cache = new MemoryCache();
+    const brief = Brief.parse(PRESETS[0].brief);
+    const deps = { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM(), cache };
+    const first = await cachedRun(brief, deps);
+    const healthy = (await getOrRun(first)).result;
+    const key = first.key;
+    expect(await cache.get(key)).toEqual({ id: healthy.id });
+    // The next run of the brief comes back degraded (one lookup answered by a 404).
+    const qloo = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+    qloo.notFound = 1;
+    const fresh = { ...(await cachedRun(brief, { ...deps, qloo })), result: undefined };
+    const degraded = (await getOrRun(fresh)).result;
+    expect(degraded.id).not.toBe(healthy.id);
+    expect(await cache.get(key)).toEqual({ id: healthy.id });
+  });
+
   class DownCompare extends QlooClient {
     override compare(): never {
       throw new Error("Qloo 500 on /v2/analysis/compare");

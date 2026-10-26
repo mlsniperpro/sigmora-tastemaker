@@ -87,7 +87,7 @@ export function extractionNote(r: AuditResult): string {
     : r.cached
       ? " Served from an identical earlier audit, so no Qloo calls were spent."
       : "";
-  return `${how}${e.fallback ? ` The model wasn't used: ${e.fallback}.` : ""}${e.capped ? " Only the first 15 names are audited." : ""}${skipped}${unmatched}${other}${dropped}${cached}`;
+  return `${how}${e.fallback ? ` The model wasn't used: ${e.fallback}.` : ""}${e.capped ? ` Only the first 15 names are audited${e.cut?.length ? ` (not checked: ${e.cut.join(", ")})` : ""}.` : ""}${skipped}${unmatched}${other}${dropped}${cached}`;
 }
 
 function AuditRow({ r, suggestion, simulated }: { r: Receipt; suggestion?: string; simulated: boolean }) {

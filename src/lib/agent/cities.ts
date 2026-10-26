@@ -51,8 +51,10 @@ export interface CityRanking {
   heatmap: HeatCell[];
   rankedBy: "locality" | "heatmap" | "none";
   heatmapError?: string;
-  /** Set when the locality ranking call failed (the heatmap fold then ranks the cities, if it loaded). */
+  /** Set when the locality ranking failed or wasn't one (the heatmap fold then ranks the cities, if it loaded). */
   localityError?: string;
+  /** Candidate cities neither signal ranked. */
+  unranked: string[];
 }
 
 const settle = <T>(p: Promise<T>) => p.then((r) => ({ ok: true as const, r })).catch((err: unknown) => ({ ok: false as const, err }));
@@ -74,7 +76,8 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
       return { name, type: "locality" as const, affinity: 0, entityId: hit.entity_id, lat: hit.location?.lat, lon: hit.location?.lon };
     }),
   );
-  const candidates = found.filter((c): c is NonNullable<typeof c> => !!c);
+  // Two names for one place ("New York", "NYC") are one candidate: the first name given is kept.
+  const candidates = found.filter((c, i): c is NonNullable<typeof c> => !!c && found.findIndex((d) => d?.entityId === c.entityId) === i);
   const ids = candidates.map((c) => c.entityId);
   // Both settle: a failed locality ranking must not throw away the heatmap that would rank the cities instead.
   const [locality, heat] = await Promise.all([
@@ -97,15 +100,19 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
       })
     : [];
   // The docs call locality insights partly supported: if the host drops the candidate filter, the reply is the top
-  // localities nationwide, holding only some (or none) of the candidates. A ranking that leaves a candidate out isn't one.
-  const complete = byLocality.length > 0 && byLocality.length === candidates.length;
-  const partial = ranked && !complete ? `the locality ranking covered ${String(byLocality.length)} of ${String(candidates.length)} candidate cities` : undefined;
-  const cities = complete ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
+  // localities nationwide, with places that aren't candidates. Such a reply isn't a ranking of the candidates; a reply of
+  // candidates only is, even if it leaves one out (that city is listed as unranked).
+  const returned = ranked?.data.results.entities ?? [];
+  const honoured = byLocality.length > 0 && returned.every((e) => ids.includes(e.entity_id));
+  const dropped = ranked && !honoured ? `the reply held ${String(returned.length - byLocality.length)} places that aren't candidates, so the candidate filter was dropped` : undefined;
+  const cities = honoured ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
+  const placed = new Set(cities.map((c) => c.entityId));
   return {
     cities: cities.sort((a, b) => b.affinity - a.affinity),
     heatmap: topCells(cells),
-    rankedBy: complete ? "locality" : cities.length ? "heatmap" : "none",
+    rankedBy: honoured ? "locality" : cities.length ? "heatmap" : "none",
     heatmapError: heat.ok ? undefined : message(heat.err),
-    localityError: locality && !locality.ok ? message(locality.err) : partial,
+    localityError: locality && !locality.ok ? message(locality.err) : dropped,
+    unranked: candidates.filter((c) => !placed.has(c.entityId)).map((c) => c.name),
   };
 }

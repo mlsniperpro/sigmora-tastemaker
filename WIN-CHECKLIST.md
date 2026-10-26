@@ -327,3 +327,20 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] J19 (medium, judge) A failed run says what failed in a sentence ("Live Qloo couldn't answer (HTTP 503 on /search)… The presets still load.") (`api.test.ts`, `components.test.tsx`)
 - [x] J20 (low, judge) "Edit brief" follows every new result, the highlighted preset is the one behind the result on screen, the banner's reason is its own sentence, the pass chip reads "Passes the Qloo bar", BLOCKED.md names the simulator outcome (`components.test.tsx`, e2e)
 - [-] J21 (low, judge) Audit results stay on screen when the brief changes. Accepted: re-running the audit for the new audience is one click
+
+## Re-audit 10 (2026-10-26, three lenses on 0b38d99: 0 high from Qloo and security; 1 config-dependent high from the judge path)
+
+- [x] K1 (high, judge) An audit reserved its worst case (80 calls, a network's whole share), so one audit blocked a judge's next one. It now reserves 30; calls past that are charged one by one to the same shares, and a cut audit leaves names unscored. The worst case stays at most 80 (`audit.test.ts`); a judge can run the (cached) sample and two plans (e2e, fails with the old reservation). Default quotas stay deliberately small; judging-period settings are in BLOCKED.md
+- [x] K2 (medium, Qloo; medium, judge) "Show: Network" items past the 6-search cap read as the show, unsearched; subtitled titles are searched before joins, so "Black Panther: Wakanda Forever" is never cut to "Black Panther" (`extract.test.ts`)
+- [x] K3 (medium, Qloo) "Tiffany & Co." keeps its "Co." (`extract.test.ts`)
+- [x] K4 (medium, Qloo) Two names for one city are one candidate; a locality reply of candidates only is a ranking even if it leaves one out (listed as unranked); only a reply with non-candidates means the filter was dropped (`failure-paths.test.ts`)
+- [x] K5 (medium, Qloo) An initial folds only when its name ends the list item ("Lil Nas X. Both skew…" is a name, then a sentence) (`extract.test.ts`)
+- [x] K6 (low, Qloo) "along with" and "×" split lists; a compare 404 reads as no results; null tolerance across insights, trending, heatmap, demographics and compare replies; a link-only brief whose lookup failed says so, not "no match"; `spotify:artist:` URIs are read (`extract.test.ts`, `client.test.ts`, `failure-paths.test.ts`)
+- [x] K7 (low, judge) Joins only where a split may have broken a name ("Burna Boy, Wizkid" is two names); the audit note lists the names past the 15-name cap; a refused preset's banner gives the refusal's first sentence only; a preset run's permalink highlights its preset (and offers Re-run live); a replaced pick's label keeps its case (`extract.test.ts`, `agent-pure.test.ts`)
+- [x] K8 (medium, security) The keyless (unmetered) cap covers fresh preset runs, `/api/audit`, MCP `audit_plan` and `plan_campaign` too, plus an instance-wide 60 a minute; keyless custom runs are kept an hour, not 45 days; free audits are kept 10 minutes (`api.test.ts`)
+- [x] K9 (medium, security) `/api/owner` runs the in-process flood guard before its store-backed attempt limit (`api.test.ts`)
+- [x] K10 (medium, security) A "no results" 404 is never cached, and a run or audit that saw one is kept only 10 minutes (and never replaces a healthy run's pointer), so a gateway blip can't stand as an "invented" verdict for a day (`client.test.ts`, `api.test.ts`, `audit.test.ts`)
+- [x] K11 (low, security) No redirects on Qloo, model or Sigmora calls (keys never follow a reply to another origin); `ipKey` drops an IPv4 source port; a degraded "Re-run live" never replaces a preset's healthy result
+- [-] K12 (low, security) A store timeout after an increment applied leaks that reservation until midnight UTC (fails closed; a variant of F15)
+- [-] K13 (low, judge) "Edit brief" wording, the 10% "low by design" threshold, counted (not named) unreplaced picks, "J Cole" shown without the initial's dot, failed live calls counting toward a share (they were sent): kept as is
+- [x] K14 (soak) A test could straddle a clock-minute window (seed 511810038); its clock is pinned

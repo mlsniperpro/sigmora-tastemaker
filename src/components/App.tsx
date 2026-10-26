@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { PRESETS } from "@/lib/agent/presets";
+import { PRESETS, presetIdOf } from "@/lib/agent/presets";
 import type { RunResult, Served } from "@/lib/agent/types";
 import { entityNames, placeholderReason } from "@/lib/agent/evidence";
 import { measureFromUrl, requestFromUrl, runIdFromUrl } from "@/lib/permalink";
@@ -159,8 +159,13 @@ export function App() {
   useEffect(() => {
     if (initial.measure) void requery(initial.measure).then((outcome) => settle(undefined, outcome));
     else if (initial.runId) {
-      void open(initial.runId).then((outcome) => {
-        settle(undefined, outcome);
+      let preset: string | undefined;
+      // A permalink to a preset's run highlights that preset (and offers "Re-run live").
+      void open(initial.runId, (r) => {
+        preset = presetIdOf(r.brief);
+        if (preset) setActivePreset(preset);
+      }).then((outcome) => {
+        settle(preset, outcome);
         // A dead link never leaves the page empty: say so, and show the hero preset.
         if (outcome !== "gone" && outcome !== "failed") return;
         setDeadLink(outcome);

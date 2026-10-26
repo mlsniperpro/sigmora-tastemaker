@@ -194,6 +194,9 @@ describe("/api/audit offline", () => {
     await storeAudit(cache, "k", { ...r, extraction: { ...r.extraction, failedSearches: 2 } }, "simulated");
     await storeAudit(cache, "k", r, "live");
     expect(ttls).toEqual([AUDIT_TTL, DEGRADED_AUDIT_TTL, DEGRADED_AUDIT_TTL, DEGRADED_AUDIT_TTL]);
+    // A lookup answered by a 404, or a free keyless audit, is kept only briefly too (audit 10).
+    await storeAudit(cache, "k", r, "simulated", { brief: true });
+    expect(ttls.at(-1)).toBe(DEGRADED_AUDIT_TTL);
   });
 
   it("returns an empty audit, without a Qloo check, when the text names nothing", async () => {

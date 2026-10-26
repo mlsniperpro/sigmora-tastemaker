@@ -158,10 +158,12 @@ export function namesIn(value: string, role?: Role): string[] {
     .replace(/\s*\([^)]*\)/g, "")
     // "Dr. Dre", "Burna Boy feat. Ayra Starr": an abbreviation's dot doesn't end the sentence.
     .replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|Vol|Pt|feat|ft|vs)\.\s/g, "$1 ")
-    // "J. Cole", "A.J. Tracey": an initial's dot doesn't end the sentence either.
-    .replace(/\b(\p{Lu})\.\s(?=\p{Lu})/gu, "$1 ")
+    // "J. Cole", "A.J. Tracey": an initial's dot doesn't end the sentence either, when the name it starts
+    // ends the list item ("Lil Nas X. Both skew 25-34" is a name, then a sentence).
+    .replace(/\b(\p{Lu})\.\s(?=\p{Lu}[\p{L}'’-]*(?:\s\p{Lu}[\p{L}'’-]*)?\s*(?:[,;]|$|\s(?:and|or|&)\s))/gu, "$1 ")
     // "Nike, Inc.": a company's legal suffix isn't another name.
-    .replace(/,?\s+(?:Inc|LLC|Ltd|Co|Corp|PLC|GmbH)\b\.?(?=\s*(?:[,;]|$))/g, "");
+    // ("Tiffany & Co." keeps its "Co.": after "&" or "and" it's part of the name.)
+    .replace(/(?<!&|\band),?\s+(?:Inc|LLC|Ltd|Co|Corp|PLC|GmbH)\b\.?(?=\s*(?:[,;]|$))/g, "");
   // "think Stranger Things meets Euphoria": a lead-in like "think" or "like" isn't part of a name.
   const lead0 = plain.replace(/^\s*(?:think|like|e\.g\.|eg|ie|i\.e\.|such as|imagine)\s+/i, "");
   const lead = role === "reference" || role === "podcast" ? keepSubtitle(lead0) : lead0;
@@ -169,7 +171,7 @@ export function namesIn(value: string, role?: Role): string[] {
   const head = lead.split(/\s[—–-]\s|\s*\(|:\s|\.\s|\s+because\s|\s+for\s+(?:its|their|the)\s/u)[0] ?? "";
   const split = head
     // "/" splits only with spaces around it, so "AC/DC" stays one name; "feat" joins two artists.
-    .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|plus|as well as|meets|vs|x|feat|ft|featuring)\s+/u)
+    .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|plus|as well as|along with|meets|vs|x|×|feat|ft|featuring)\s+/u)
     // "A, B, and C" / "A, B & C": the list's last joiner isn't part of the last name.
     .map((n) => n.trim().replace(/^(?:and|or|&|plus|as well as|along with|featuring|feat|ft|with|x)\s+/, "").replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").replaceAll(TITLE_COLON, ":").trim());
   // "Tyler, the Creator" / "Florence + the Machine": a lowercase "the …" part belongs to the name before it, as written.
@@ -211,6 +213,8 @@ export interface Split {
   /** Index of the name in `picks`. */
   at: number;
   parts: string[];
+  /** A "Title: More" item: past the search cap it reads as the title, unsearched (most such items are "Show: Network"). */
+  subtitle?: boolean;
 }
 
 /**
@@ -254,7 +258,7 @@ export function labelledPicks(text: string): { picks: NamedPick[]; prose: string
       picks.push({ name, type: spec.type, role: spec.role });
       const at = picks.length - 1;
       const parts = partsOf(name);
-      if (parts.length) splits.push({ at, parts });
+      if (parts.length) splits.push({ at, parts, ...(name.includes(": ") ? { subtitle: true } : {}) });
       // The two names exactly as the line wrote them together, separator and all.
       const from = m?.value.indexOf(prevName) ?? -1;
       const to = from >= 0 ? (m?.value.indexOf(name, from + prevName.length) ?? -1) : -1;
@@ -262,7 +266,8 @@ export function labelledPicks(text: string): { picks: NamedPick[]; prose: string
       // Only where a split plausibly broke one name: a one-word side ("Earth, Wind & Fire", "Marks and Spencer")
       // or a capitalised "The …" ("Tyler, The Creator"); two full names in a list aren't worth a search.
       // City lists never hold a name with a comma in it ("Lagos, Abuja"), so they spend no searches on joins.
-      const plausible = spec.role !== "city" && (!prevName.includes(" ") || !name.includes(" ") || /^The\s/.test(name));
+      // "Burna Boy, Wizkid" (a full name, then another) is two names; "Earth, Wind & Fire" (a word, then more) may be one.
+      const plausible = spec.role !== "city" && ((!prevName.includes(" ") && (!name.includes(" ") || /\s(?:&|and)\s/.test(name))) || /^The\s/.test(name));
       if (joined && plausible && to - (from + prevName.length) <= 5) joins.push({ a: prevIndex, b: at, name: joined });
       prevIndex = at;
       prevName = name;
@@ -282,9 +287,14 @@ export const MAX_JOIN_SEARCHES = 6;
  *   Qloo knows it whole ("Simon & Garfunkel", "Tyler, the Creator"). A failed search keeps it whole.
  */
 export async function rejoin(qloo: QlooClient, picks: readonly NamedPick[], joins: readonly Join[], splits: readonly Split[] = []): Promise<NamedPick[]> {
-  const tried = joins.slice(0, MAX_JOIN_SEARCHES);
-  const triedSplits = splits.slice(0, MAX_JOIN_SEARCHES - tried.length);
-  if (!tried.length && !triedSplits.length) return [...picks];
+  // Subtitled titles first (a wrong guess there audits a different work: "Black Panther" for "Black Panther: Wakanda
+  // Forever"), then joins, then "A & B" names. Past the cap, a "Title: More" item reads as its title, unsearched.
+  const subtitled = splits.filter((sp) => sp.subtitle);
+  const triedSubtitled = subtitled.slice(0, MAX_JOIN_SEARCHES);
+  const tried = joins.slice(0, MAX_JOIN_SEARCHES - triedSubtitled.length);
+  const triedSplits = [...triedSubtitled, ...splits.filter((sp) => !sp.subtitle).slice(0, MAX_JOIN_SEARCHES - triedSubtitled.length - tried.length)];
+  const unsearched = subtitled.slice(triedSubtitled.length);
+  if (!tried.length && !triedSplits.length) return applyUnsearched(picks, unsearched);
   const wholes = triedSplits.flatMap((sp) => (picks[sp.at] ? [picks[sp.at]?.name ?? ""] : []));
   const known = await knownNames(qloo, [...tried.map((j) => j.name), ...wholes], "");
   const exact = new Set(known.picks.map((p) => normName(p.name)));
@@ -304,8 +314,23 @@ export async function rejoin(qloo: QlooClient, picks: readonly NamedPick[], join
     if (!p || drop.has(sp.at) || replace.has(sp.at) || whole.has(normName(p.name)) || failed.has(p.name)) continue;
     replace.set(sp.at, sp.parts.map((name) => ({ ...p, name })));
   }
+  for (const sp of unsearched) {
+    const p = picks[sp.at];
+    if (p && !drop.has(sp.at) && !replace.has(sp.at)) replace.set(sp.at, sp.parts.map((name) => ({ ...p, name })));
+  }
+  return dedupe(picks.flatMap((p, i) => (drop.has(i) ? [] : (replace.get(i) ?? [p]))));
+}
+
+/** `picks` with every unsearched subtitle split read as its title. */
+function applyUnsearched(picks: readonly NamedPick[], splits: readonly Split[]): NamedPick[] {
+  const at = new Map(splits.map((sp) => [sp.at, sp.parts]));
+  return dedupe(picks.flatMap((p, i) => (at.get(i) ?? [p.name]).map((name) => ({ ...p, name }))));
+}
+
+/** One pick per role and name, first kept. */
+function dedupe(picks: readonly NamedPick[]): NamedPick[] {
   const seen = new Set<string>();
-  return picks.flatMap((p, i) => (drop.has(i) ? [] : (replace.get(i) ?? [p]))).filter((p) => {
+  return picks.filter((p) => {
     const k = `${p.role}:${normName(p.name)}`;
     if (seen.has(k)) return false;
     seen.add(k);
@@ -321,6 +346,8 @@ export interface Extraction {
   model?: string;
   /** More names than the cap were found; the first MAX_AUDIT_PICKS are audited. */
   capped: boolean;
+  /** The names past the cap, never checked (so the panel can say which). */
+  cut?: string[];
   /** Searches that failed (Qloo error, budget or time): their names went unchecked. */
   failedSearches?: number;
   /** Scanner only: unlabelled capitalised phrases past the search cap, never looked up. */
@@ -356,8 +383,11 @@ export async function scanPicks(qloo: QlooClient, text: string, seeds: readonly 
   const known2 = new Set(known.otherTypes.map((o) => normName(o.name)));
   // Only plausible names are listed as not audited: two or more words, not an "A and B" chain (a lone capitalised word is usually ordinary English).
   const unmatched = searched.filter((n) => !found.has(normName(n)) && !known2.has(normName(n)) && !failedNames.has(n) && n.split(/\s+/).length >= 2 && !/\s(?:and|&)\s/.test(n));
-  return { picks: all.slice(0, MAX_AUDIT_PICKS), by: "scanner", capped: all.length > MAX_AUDIT_PICKS, unsearched: candidates.length - searched.length + failed, failedSearches: failed, unmatched, otherTypes: known.otherTypes };
+  return { picks: all.slice(0, MAX_AUDIT_PICKS), by: "scanner", capped: all.length > MAX_AUDIT_PICKS, ...cutOf(all), unsearched: candidates.length - searched.length + failed, failedSearches: failed, unmatched, otherTypes: known.otherTypes };
 }
+
+/** The names a capped list leaves out, when it leaves any. */
+const cutOf = (picks: readonly NamedPick[]) => (picks.length > MAX_AUDIT_PICKS ? { cut: picks.slice(MAX_AUDIT_PICKS).map((p) => p.name) } : {});
 
 /** The model gets this long to list the names; past it, the scanner's list is used so the Qloo checks still have time. */
 export const EXTRACT_TIMEOUT_MS = 12_000;
@@ -407,7 +437,7 @@ export async function extractPicks(text: string, opts: { qloo: QlooClient; llm: 
         seen.add(k);
         return true;
       });
-      return { picks: picks.slice(0, MAX_AUDIT_PICKS), by: "model", model: llm.label, capped: picks.length > MAX_AUDIT_PICKS, ...notes };
+      return { picks: picks.slice(0, MAX_AUDIT_PICKS), by: "model", model: llm.label, capped: picks.length > MAX_AUDIT_PICKS, ...cutOf(picks), ...notes };
     } catch (err) {
       return { ...(await scanPicks(opts.qloo, text, opts.seeds)), fallback: `the model's list failed (${err instanceof Error ? err.message : String(err)})` };
     }

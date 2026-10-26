@@ -25,6 +25,8 @@ export const DEGRADED_TTL = 60 * 10;
 export const KEEP_TTL = 60 * 60 * 24 * 45;
 /** A shipped campaign is measured days after it posts, so shipping renews its run for this long. */
 export const SHIPPED_TTL = 60 * 60 * 24 * 30;
+/** Seconds a custom run on a keyless deployment is kept (it can be made again for free). */
+export const UNMETERED_TTL = 60 * 60;
 
 export type ResolvedRequest = { ok: true; brief: Brief; presetId?: string; fresh: boolean } | { ok: false; status: 400 | 404; error: string };
 
@@ -208,10 +210,15 @@ export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void, fal
       for (const l of listeners) l(e);
     };
     const done = runTastemaker(brief, { qloo: deps.qloo, llm: deps.llm, emit: fanOut }).then(async (result) => {
+      // A keyless deployment's custom runs cost nothing to make again, so they aren't kept for weeks.
+      const keep = costsMoney(deps) || isPresetBrief(brief) ? KEEP_TTL : UNMETERED_TTL;
+      const healthy = isHealthy(result) && deps.qloo.notFound === 0;
+      // A degraded run (a "Re-run live" that hit a blip) doesn't replace a healthy result other visitors are served.
+      const replacesHealthy = !healthy && (await deps.cache.get(key)) !== undefined;
       await Promise.all([
-        deps.cache.set(resultKey(result.id), result, KEEP_TTL),
-        deps.cache.set(key, { id: result.id }, isHealthy(result) ? RESULT_TTL : DEGRADED_TTL),
-        deps.cache.set(lastKey(key), { id: result.id }, KEEP_TTL),
+        deps.cache.set(resultKey(result.id), result, keep),
+        ...(replacesHealthy ? [] : [deps.cache.set(key, { id: result.id }, healthy ? RESULT_TTL : DEGRADED_TTL)]),
+        deps.cache.set(lastKey(key), { id: result.id }, keep),
       ]);
       return result;
     });

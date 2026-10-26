@@ -216,6 +216,50 @@ describe("labelled lines", () => {
     expect(read("Launch city: Nashville, Tennessee\nHost city: Portland, OR")).toEqual(["city:Nashville", "city:Portland"]);
   });
 
+  it("reads 'Show: Network' items past the search cap as the show, and keeps 'Tiffany & Co.', 'Lil Nas X.' and '×' lists right (audit 10)", async () => {
+    const q = offline();
+    const search = vi.spyOn(q, "search").mockImplementation((query: string) =>
+      Promise.resolve({
+        data: { results: [{ name: query.split(": ")[0] ?? query, entity_id: query, types: ["urn:entity:tv_show"] }] },
+        meta: { path: "/search", params: {}, key: `k:${query}`, source: "simulated", cached: false, latencyMs: 0 },
+      } as unknown as Awaited<ReturnType<QlooClient["search"]>>),
+    );
+    const lines = labelledPicks("Reference shows: Insecure: Issa Rae, Atlanta: FX, Euphoria: HBO, Succession: HBO, Girls: HBO, Sex Education: Netflix, Fleabag: BBC, Ozark: Netflix");
+    expect(names(await rejoin(q, lines.picks, lines.joins, lines.splits))).toEqual(["Insecure", "Atlanta", "Euphoria", "Succession", "Girls", "Sex Education", "Fleabag", "Ozark"].map((n) => `reference:${n}`));
+    expect(search).toHaveBeenCalledTimes(MAX_JOIN_SEARCHES);
+    const read = (t: string) => names(labelledPicks(t).picks);
+    expect(read("Sponsors: Tiffany & Co., Nike")).toEqual(["sponsor:Tiffany & Co", "sponsor:Nike"]);
+    expect(read("Collab targets: Rema, Lil Nas X. Both skew 25-34.")).toEqual(["collab:Rema", "collab:Lil Nas X"]);
+    expect(read("Collab targets: Mary J. Blige, J. Cole")).toEqual(["collab:Mary J Blige", "collab:J Cole"]);
+    expect(read("Collab targets: Tems × Rema, Burna Boy along with Wizkid")).toEqual(["collab:Tems", "collab:Rema", "collab:Burna Boy", "collab:Wizkid"]);
+  });
+
+  it("searches subtitled titles before joins, joins only names a split may have broken, and names what the cap leaves out (audit 10)", async () => {
+    const lines = labelledPicks("Collab targets: Burna Boy, Wizkid, Earth, Wind & Fire\nBrand partners: Nike, Spotify, Adidas, Puma, Telfar\nReferences: Euphoria: HBO, Black Panther: Wakanda Forever");
+    // "Burna Boy, Wizkid" is two names; "Earth, Wind & Fire" may be one.
+    expect(lines.joins.map((j) => j.name)).not.toContain("Burna Boy, Wizkid");
+    expect(lines.joins.map((j) => j.name)).toContain("Earth, Wind & Fire");
+    const q = offline();
+    const asked: string[] = [];
+    vi.spyOn(q, "search").mockImplementation((query: string) => {
+      asked.push(query);
+      return Promise.resolve({
+        data: { results: query === "Black Panther: Wakanda Forever" ? [{ name: query, entity_id: "bp2", types: ["urn:entity:movie"] }] : [] },
+        meta: { path: "/search", params: {}, key: `k:${query}`, source: "simulated", cached: false, latencyMs: 0 },
+      } as unknown as Awaited<ReturnType<QlooClient["search"]>>);
+    });
+    const picks = names(await rejoin(q, lines.picks, lines.joins, lines.splits));
+    // Seven joins compete for six searches; the two subtitled titles are searched anyway.
+    expect(lines.joins.length).toBeGreaterThanOrEqual(MAX_JOIN_SEARCHES);
+    expect(asked).toEqual(expect.arrayContaining(["Euphoria: HBO", "Black Panther: Wakanda Forever"]));
+    expect(picks).toContain("reference:Black Panther: Wakanda Forever");
+    expect(picks).toContain("reference:Euphoria");
+    const many = Array.from({ length: 18 }, (_, i) => `Act${String.fromCharCode(65 + i)}`).join(", ");
+    const e = await scanPicks(offline(), `Collab targets: ${many}`, []);
+    expect(e.capped).toBe(true);
+    expect(e.cut).toEqual(["ActP", "ActQ", "ActR"]);
+  });
+
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {
     for (const filler of [" ".repeat(3970), "\u00a0".repeat(4000), "a ".repeat(2000), ":".repeat(4000), "-".repeat(4000)]) {
       const started = performance.now();

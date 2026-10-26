@@ -247,3 +247,10 @@ describe("unmetered runs (audit 9)", () => {
     expect(await unmeteredGuard(req(), now + 60_000)).toBeUndefined();
   });
 });
+
+describe("ipKey ports (audit 10)", () => {
+  it("drops an IPv4 source port, so rotating ports isn't a new caller", () => {
+    expect(ipKey("1.2.3.4:5678")).toBe("1.2.3.4");
+    expect(ipKey("1.2.3.4")).toBe("1.2.3.4");
+  });
+});

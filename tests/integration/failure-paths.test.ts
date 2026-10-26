@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { rankCities } from "@/lib/agent/cities";
-import { TREND_POOL_TOP, aggregateDemographics, loadCulture, loadTrends, loadVenues, makeCtx, resolveSeeds, trendItems, trendWindow, type Audience, type RankedCandidate } from "@/lib/agent/context";
+import { TREND_POOL_TOP, aggregateDemographics, loadCulture, loadTrends, loadVenues, makeCtx, parseSeedLinks, resolveSeeds, trendItems, trendWindow, type Audience, type RankedCandidate } from "@/lib/agent/context";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
@@ -134,18 +134,39 @@ describe("rankCities", () => {
     expect(r.heatmap.length).toBeGreaterThan(0);
   });
 
-  it("ranks by heatmap when the locality reply leaves a candidate out (the candidate filter dropped), saying why (audit 9)", async () => {
+  it("ranks by heatmap when the locality reply holds places that aren't candidates (the filter dropped), saying why (audits 9, 10)", async () => {
     const q = offline();
     const real = q.insights.bind(q);
     vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
       const r = await real(t, p);
-      // As if the host ignored filter.results.entities: only one candidate comes back.
-      return t === "urn:entity:locality" ? { ...r, data: { ...r.data, results: { ...r.data.results, entities: (r.data.results.entities ?? []).slice(0, 1) } } } : r;
+      if (t !== "urn:entity:locality") return r;
+      // As if the host ignored filter.results.entities: one candidate plus the nation's top places.
+      const kept = (r.data.results.entities ?? []).slice(0, 1);
+      const others = [{ name: "Elsewhere", entity_id: "not-a-candidate", query: { affinity: 0.99 } }];
+      return { ...r, data: { ...r.data, results: { ...r.data.results, entities: [...kept, ...others] } } };
     });
     const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
     expect(r.rankedBy).toBe("heatmap");
-    expect(r.localityError).toMatch(/covered 1 of 3 candidate cities/);
-    expect(r.cities).toHaveLength(3);
+    expect(r.localityError).toMatch(/aren't candidates, so the candidate filter was dropped/);
+    expect(r.cities.map((c) => c.name)).not.toContain("Elsewhere");
+  });
+
+  it("keeps a locality ranking of candidates only, listing a city it left out as unranked; one place named twice is one candidate (audit 10)", async () => {
+    const q = offline();
+    const real = q.insights.bind(q);
+    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
+      const r = await real(t, p);
+      return t === "urn:entity:locality" ? { ...r, data: { ...r.data, results: { ...r.data.results, entities: (r.data.results.entities ?? []).slice(0, 2) } } } : r;
+    });
+    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
+    expect(r.rankedBy).toBe("locality");
+    expect(r.cities).toHaveLength(2);
+    expect(r.unranked).toHaveLength(1);
+    const search = vi.spyOn(q, "search");
+    const twice = await rankCities(ctxOf(q), ["Atlanta", "Atlanta, GA"]);
+    expect(search).toHaveBeenCalled();
+    expect(new Set(twice.cities.map((c) => c.entityId)).size).toBe(twice.cities.length);
+    expect(twice.cities.length + twice.unranked.length).toBe(1);
   });
 });
 
@@ -424,5 +445,15 @@ describe("seed links (audit 9)", () => {
     expect(seeds.filter((s) => s.entityId).length).toBeGreaterThan(0);
     vi.spyOn(q, "entitiesByExternal").mockRejectedValue(new QlooBudgetError("day", 1));
     await expect(resolveSeeds(q, hero)).rejects.toBeInstanceOf(QlooBudgetError);
+  });
+});
+
+describe("link-only briefs (audit 10)", () => {
+  it("says the pasted links couldn't be looked up, instead of 'no match', and reads spotify: URIs", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const q = offline();
+    vi.spyOn(q, "entitiesByExternal").mockRejectedValue(new HttpError("Qloo", 503, "/entities"));
+    await expect(resolveSeeds(q, { seeds: [], seedLinks: ["https://open.spotify.com/artist/687cZJR45JO7jhk1LHIbgq"] })).rejects.toThrow(/pasted links couldn't be looked up \(Qloo 503 on \/entities\)/);
+    expect(parseSeedLinks(["spotify:artist:687cZJR45JO7jhk1LHIbgq"]).spotify).toEqual(["687cZJR45JO7jhk1LHIbgq"]);
   });
 });

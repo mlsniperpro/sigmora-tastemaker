@@ -124,6 +124,9 @@ export function clientIp(headers: Headers): string {
 export function ipKey(ip: string): string {
   const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
   if (mapped?.[1]) return mapped[1];
+  // "1.2.3.4:5678": a source port is not a different caller.
+  const v4 = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(ip);
+  if (v4?.[1]) return v4[1];
   if (!ip.includes(":")) return ip;
   const addr = ip.replace(/^\[|\](:\d+)?$/g, "").split("%")[0] ?? "";
   const [head = "", tail] = addr.toLowerCase().split("::", 2);
@@ -154,13 +157,21 @@ export const FREE_ROUTE_PER_MINUTE = 120;
 // In-process on purpose: this limit must cost nothing (no KV round trip) to check.
 const freeCounter = new MemoryCounter(20000);
 
-/** New unmetered runs (no Qloo key, scripted model) per IP per minute: they spend nothing, but each costs CPU and a stored result. */
+/** New unmetered runs or audits (no Qloo key, scripted model) per IP per minute: they spend nothing, but each costs CPU and a stored result. */
 export const UNMETERED_RUNS_PER_MINUTE = 6;
+/** The same, for all callers together on one instance. */
+export const UNMETERED_RUNS_PER_MINUTE_ALL = 60;
 const unmeteredCounter = new MemoryCounter(20000);
 
-/** Undefined when another unmetered custom run may start for this caller now. */
+/** May `ip` start another unmetered run or audit now? Counts it if so. */
+export async function unmeteredAllowed(ip: string, now = Date.now()): Promise<boolean> {
+  if ((await incrPerMinute(unmeteredCounter, `unmetered:${ip}`, now)) > UNMETERED_RUNS_PER_MINUTE) return false;
+  return (await incrPerMinute(unmeteredCounter, "unmetered:*", now)) <= UNMETERED_RUNS_PER_MINUTE_ALL;
+}
+
+/** Undefined when another unmetered run may start for this caller now. */
 export async function unmeteredGuard(req: Request, now = Date.now()): Promise<Response | undefined> {
-  if ((await incrPerMinute(unmeteredCounter, `unmetered:${clientIp(req.headers)}`, now)) <= UNMETERED_RUNS_PER_MINUTE) return undefined;
+  if (await unmeteredAllowed(clientIp(req.headers), now)) return undefined;
   return Response.json({ error: "Too many new briefs from your network. Wait a minute." }, { status: 429, headers: { "Retry-After": String(60 - Math.floor((now / 1000) % 60)) } });
 }
 

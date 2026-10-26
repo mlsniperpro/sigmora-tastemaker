@@ -153,7 +153,7 @@ export function useRun() {
    * "aborted" = something newer took over the screen.
    */
   const open = useCallback(
-    async (id: string): Promise<"ok" | "gone" | "failed" | "aborted"> => {
+    async (id: string, onOpened?: (r: RunResult) => void): Promise<"ok" | "gone" | "failed" | "aborted"> => {
       const ctrl = begin();
       try {
         const res = await fetch(`/api/run?id=${encodeURIComponent(id)}`, { signal: ctrl.signal });
@@ -164,6 +164,7 @@ export function useRun() {
           throw new Error(body.error ?? `Couldn't open that run (${res.status})`);
         }
         send({ type: "event", event: { type: "result", result: body.result, served: parseServed(body.served) } });
+        onOpened?.(body.result);
         return "ok";
       } catch (err) {
         if ((err as Error).name === "AbortError") return "aborted";

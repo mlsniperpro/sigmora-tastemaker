@@ -4,6 +4,9 @@ import { useState } from "react";
 import type { Receipt, Verdict } from "@/lib/agent/types";
 import { FADING_BELOW } from "@/lib/vocab";
 
+/** "Not found in Qloo" → "not found in Qloo": only the first letter, so names inside a label keep their case. */
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 export const VERDICT_STYLE: Record<Verdict, { label: string; cls: string; dot: string }> = {
   pass: { label: "Passes the Qloo bar", cls: "text-pass border-pass/40 bg-pass/10", dot: "bg-pass" },
   miss: { label: "Low affinity", cls: "text-miss border-miss/40 bg-miss/10", dot: "bg-miss" },
@@ -96,7 +99,7 @@ export function ReceiptChip({ r, runSimulated = false }: { r: Receipt; runSimula
           <p className="text-ink/90">{receiptNote(r, sim)}</p>
           {r.replaced && (
             <p>
-              Replaced <span className="text-miss line-through">{r.replaced.name}</span> ({verdictLabel(r.replaced.verdict, sim).toLowerCase()}
+              Replaced <span className="text-miss line-through">{r.replaced.name}</span> ({lowerFirst(verdictLabel(r.replaced.verdict, sim))}
               {!sim && r.replaced.affinity !== undefined ? `, ${r.replaced.affinity.toFixed(2)}` : ""}).
             </p>
           )}
