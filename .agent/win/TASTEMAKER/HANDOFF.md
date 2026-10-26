@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, resumed 2026-10-26 18:54 UTC; current as of each push)
+# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-26T19:09:19Z; current as of the last push)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -40,14 +40,22 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (resumed 2026-10-26 18:54 UTC; lease active again)
-- **b0ac0c5 (round-11 WIP)** was fully verified after resuming: lint and typecheck clean, `pnpm test` 510, `pnpm test:e2e` 24.
-- **This push completes round 11** (WIN-CHECKLIST L1–L10). Its findings came from two lenses, Qloo and judge, both with 0 critical/high; the security lens was stopped at the 18:52 wind-down.
-- **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 511; `pnpm test:e2e` 24.
-- **Next:**
-  - round 12 (three Sonnet lenses) plus a soak on this commit;
-  - two clean rounds in a row are needed (12 and 13 at the earliest, since round 11's security lens didn't report);
-  - then break-it, the reports, the gate, the PR body and the final comment.
+## State at wind-down (2026-10-26T19:09:19Z; the lease is released, so a successor may claim it)
+- **Code HEAD:** 1f0f04a (this handoff commit only touches `.agent/`). Fully green:
+  - lint, typecheck, `pnpm test` 35 files / 511, `pnpm test:e2e` 24/24;
+  - the gate's checks.sh and build pass.
+- **Gate on 1f0f04a:** `GATE: FAIL (3): re-audit still has 0 critical and 5 high open findings`. All three failures are only the stale reports: `reaudit.md` and `break-it.md` still name 3b25d12. Every code check passed (lint, typecheck, test, build, shortcut and secret scans).
+- **Nothing is half-done or reverted.** Round 12 (three Sonnet lenses) and its soak were started on 1f0f04a and stopped at the wind-down, before any results.
+- **Audit history:**
+  - rounds 8, 9 and 10 each found highs, all fixed (WIN-CHECKLIST I, J, K);
+  - round 11: Qloo and judge lenses 0 high, all mediums fixed (L1–L10); its security lens never reported;
+  - so no two consecutive clean rounds yet.
+- **Last soaks:**
+  - 52a25e1: clean;
+  - 0b38d99: deep pass clean, 59 of 60 rounds clean; the one failure was a test-clock flake, fixed;
+  - dfac45a: deep pass clean.
+  1f0f04a has not been soaked.
+- **Last fresh clone:** 0b38d99 (install, demo 76 calls, tests, GET / 200, /api/run streams, MCP 3 tools).
 
 ## Open audit findings
 - None known at critical or high.
