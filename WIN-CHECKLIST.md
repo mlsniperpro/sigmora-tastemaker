@@ -279,3 +279,4 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] H14 (low) MCP `audit_plan` and `plan_campaign` give back their admission when no audience name resolves (as /api/run and /api/audit)
 - [x] H15 (low) Run-result misses are remembered for 10 s in-process, so random `?run=` probes can't each cost a store read; a `set` clears it (`cache.test.ts`)
 - [x] H16 (low) The audit panel names entities Qloo knows as a kind this audit doesn't check (a city in prose), instead of calling them unknown (`components.test.tsx`)
+- [x] H17 (security M3, rest) The one-click sample audit always answers: `pnpm runs:record` also records it, live only, and a refused audit of the exact sample serves that recording, labelled with why (`recorded-audit.test.ts`)

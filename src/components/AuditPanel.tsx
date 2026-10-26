@@ -82,7 +82,11 @@ export function extractionNote(r: AuditResult): string {
   const dropped = e.dropped?.length ? ` The model also listed ${list(e.dropped)}, which your text doesn't contain, so ${e.dropped.length === 1 ? "it wasn't" : "they weren't"} audited.` : "";
   const kinds = (e.otherTypes ?? []).map((o) => `${o.name} (${o.type.replace(/_/g, " ")})`);
   const other = kinds.length ? ` Known to the catalogue as a kind this audit doesn't check: ${list(kinds)}.` : "";
-  const cached = r.cached ? " Served from an identical earlier audit, so no Qloo calls were spent." : "";
+  const cached = r.recorded
+    ? ` This is the recorded live audit of the sample, shown because a new audit was refused (${r.refusedBecause ?? "budget"}).`
+    : r.cached
+      ? " Served from an identical earlier audit, so no Qloo calls were spent."
+      : "";
   return `${how}${e.fallback ? ` The model wasn't used: ${e.fallback}.` : ""}${e.capped ? " Only the first 15 names are audited." : ""}${skipped}${unmatched}${other}${dropped}${cached}`;
 }
 

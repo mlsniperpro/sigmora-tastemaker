@@ -1,5 +1,6 @@
 /**
- * Record one finished live run per preset into fixtures/runs/recorded.json.
+ * Record one finished live run per preset into fixtures/runs/recorded.json, and
+ * the audit panel's sample audit into fixtures/audits/recorded.json.
  *
  *   QLOO_API_KEY=… LLM_PROVIDER=… LLM_MODEL=… LLM_API_KEY=… pnpm runs:record
  *
@@ -16,8 +17,11 @@ import { runTastemaker } from "../src/lib/agent/run";
 import type { RunResult } from "../src/lib/agent/types";
 import { llmFromEnv } from "../src/lib/llm";
 import { qlooFromEnv } from "../src/lib/qloo/client";
+import { auditPlan } from "../src/lib/agent/audit";
+import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "../src/lib/auditSample";
 
 const FILE = "fixtures/runs/recorded.json";
+const AUDITS = "fixtures/audits/recorded.json";
 const only = process.argv.slice(2);
 const existing = JSON.parse(readFileSync(FILE, "utf8")) as Record<string, RunResult>;
 const out: Record<string, RunResult> = { ...existing };
@@ -36,4 +40,18 @@ for (const preset of PRESETS.filter((p) => !only.length || only.includes(p.id)))
   }
 }
 writeFileSync(FILE, JSON.stringify(out) + "\n");
+
+// The audit panel's one-click sample, recorded the same way, so it still answers when a new audit is refused.
+if (!only.length || only.includes("audit-sample")) {
+  try {
+    const audit = await auditPlan({ text: AUDIT_SAMPLE, ...AUDIT_SAMPLE_AUDIENCE }, { qloo: qlooFromEnv(), llm: llmFromEnv() });
+    if (audit.simulated || audit.sources.some((x) => x !== "live")) throw new Error(`not recorded: Qloo answers came from ${audit.sources.join(", ")}`);
+    if (audit.metrics.unscored || audit.warnings.length) throw new Error(`not recorded: ${String(audit.metrics.unscored)} unscored, warnings: ${audit.warnings.join("; ") || "none"}`);
+    writeFileSync(AUDITS, JSON.stringify({ sample: audit }) + "\n");
+    console.log(`audit-sample   recorded · ${String(audit.receipts.length)} names checked`);
+  } catch (err) {
+    failed++;
+    console.error(`audit-sample   ${(err as Error).message}`);
+  }
+}
 if (failed) process.exitCode = 1;

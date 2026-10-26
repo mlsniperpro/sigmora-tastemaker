@@ -6,9 +6,9 @@ Everything below is already built behind a stub, fixture or sandbox, so each ite
 
 - [ ] **`QLOO_API_KEY`** (the hackathon key). Set it as a server-side env var on the deployment, then, with the LLM keys set too, run:
   1. `pnpm fixtures:record`. It records every Qloo response the presets use into `fixtures/qloo/recorded.json`, so a failed live call can fall back to a recorded live answer.
-  2. `pnpm runs:record`. It records one finished live run per preset into `fixtures/runs/recorded.json`. The demo serves these instantly, labelled "a recorded live run", and offers "Re-run live". It also serves them when a live run is refused (budget or rate limit) or fails, so the preset buttons keep working during judging whatever the key does. The script refuses simulated or scripted runs.
+  2. `pnpm runs:record`. It records one finished live run per preset into `fixtures/runs/recorded.json`, and the audit panel's sample audit into `fixtures/audits/recorded.json` (served, labelled, when a new audit of the sample is refused). The demo serves these instantly, labelled "a recorded live run", and offers "Re-run live". It also serves them when a live run is refused (budget or rate limit) or fails, so the preset buttons keep working during judging whatever the key does. The script refuses simulated or scripted runs.
 
-  Commit both files.
+  Commit the three files.
 - [ ] **`LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`** (and `LLM_BASE_URL` for OpenAI-compatible hosts). Without them, drafts come from the scripted model, which is labeled in the UI.
 - [ ] **Vercel project.** Connect `mlsniperpro/sigmora-tastemaker`, set the env vars above (see `.env.example`), and deploy by `git push`. Point `tastemaker.sigmora.org` at it.
 - [ ] **`KV_REST_API_URL`, `KV_REST_API_TOKEN`** (Upstash or Vercel KV). **Required for the hosted demo.** Run permalinks (`?run=<id>`, kept 45 days), Ship and measure all look runs up by id, and serverless instances don't share memory. KV also makes the response cache and the rate-limit and budget counters shared across instances. Without it, a permalink or Ship can fail on another instance, and the limits apply per instance.

@@ -8,6 +8,8 @@ import { z } from "zod";
 import type { CacheStore } from "../qloo/cache";
 import { qlooBudget, qlooRefusal, type GuardResult } from "../guard";
 import { AUDIT_CALL_ESTIMATE } from "../config";
+import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "../auditSample";
+import recordedAudits from "../../../fixtures/audits/recorded.json";
 import type { QlooClient, QlooSource } from "../qloo/client";
 import type { LLMProvider } from "../llm/types";
 import { BriefFields } from "./brief";
@@ -31,6 +33,9 @@ export { AUDIT_CALL_ESTIMATE } from "../config";
 export interface AuditResult extends TasteCheckResult {
   /** Served from an earlier identical audit (no Qloo calls spent on this request). */
   cached?: boolean;
+  /** The recorded live audit of the sample plan, served because a new audit was refused (`refusedBecause`). */
+  recorded?: boolean;
+  refusedBecause?: string;
   extraction: Omit<Extraction, "picks">;
   /** Any answer came from the offline simulator: its numbers are placeholders, and the UI prints none. */
   simulated: boolean;
@@ -121,18 +126,24 @@ export async function auditWithBudget(
   return run;
 }
 
+/** A refused sample audit shows its recorded live audit, labelled, so the one-click sample always answers. */
+function refusedOrRecorded(input: AuditRequest, refusal: Extract<GuardResult, { ok: false }>): AuditOutcome {
+  const rec = isSampleAudit(input) ? recordedSampleAudit() : undefined;
+  return rec ? { ok: true, result: { ...rec, cached: true, recorded: true, refusedBecause: refusal.message } } : { ok: false, refusal };
+}
+
 /** Audits running on this instance, by key. */
 const auditsInFlight = new Map<string, Promise<AuditOutcome>>();
 
 async function runAudit(input: AuditRequest, deps: AuditDeps, key: string): Promise<AuditOutcome> {
   const { qloo, llm, cache } = deps;
   const live = qloo.primarySource === "live";
-  if (live && !(await qloo.reserve(AUDIT_CALL_ESTIMATE, qlooBudget({ fresh: true }, deps.ip)))) return { ok: false, refusal: qlooRefusal(qloo.refusedBy) };
+  if (live && !(await qloo.reserve(AUDIT_CALL_ESTIMATE, qlooBudget({ fresh: true }, deps.ip)))) return refusedOrRecorded(input, qlooRefusal(qloo.refusedBy));
   try {
     const counted = live || !llm.scripted;
     if (counted) {
       const g = await deps.gate();
-      if (!g.ok) return { ok: false, refusal: g };
+      if (!g.ok) return refusedOrRecorded(input, g);
     }
     qloo.setDeadline(Date.now() + AUDIT_DEADLINE_MS);
     const result = await auditPlan(input, { qloo, llm }).catch(async (err: unknown) => {
@@ -145,4 +156,21 @@ async function runAudit(input: AuditRequest, deps: AuditDeps, key: string): Prom
   } finally {
     await qloo.release();
   }
+}
+
+/** Is this request the panel's one-click sample, exactly as sent? */
+export function isSampleAudit(input: AuditRequest): boolean {
+  return (
+    squashSpaces(input.text).trim() === squashSpaces(AUDIT_SAMPLE).trim() &&
+    JSON.stringify(input.seeds) === JSON.stringify(AUDIT_SAMPLE_AUDIENCE.seeds) &&
+    JSON.stringify(input.ages) === JSON.stringify(AUDIT_SAMPLE_AUDIENCE.ages) &&
+    input.gender === undefined &&
+    input.city === undefined
+  );
+}
+
+/** The recorded live audit of the sample (`pnpm runs:record` writes it), when there is one. */
+export function recordedSampleAudit(store: Record<string, unknown> = recordedAudits): AuditResult | undefined {
+  const v = store.sample;
+  return CachedAudit.safeParse(v).success && !(v as AuditResult).simulated ? (v as AuditResult) : undefined;
 }
