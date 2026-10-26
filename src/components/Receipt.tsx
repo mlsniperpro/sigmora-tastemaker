@@ -5,7 +5,7 @@ import type { Receipt, Verdict } from "@/lib/agent/types";
 import { FADING_BELOW } from "@/lib/vocab";
 
 export const VERDICT_STYLE: Record<Verdict, { label: string; cls: string; dot: string }> = {
-  pass: { label: "Qloo-verified", cls: "text-pass border-pass/40 bg-pass/10", dot: "bg-pass" },
+  pass: { label: "Passes the Qloo bar", cls: "text-pass border-pass/40 bg-pass/10", dot: "bg-pass" },
   miss: { label: "Low affinity", cls: "text-miss border-miss/40 bg-miss/10", dot: "bg-miss" },
   hallucination: { label: "Not found in Qloo", cls: "text-invented border-invented/40 bg-invented/10", dot: "bg-invented" },
   fading: { label: "Fading", cls: "text-fade border-fade/40 bg-fade/10", dot: "bg-fade" },

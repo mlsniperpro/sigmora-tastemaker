@@ -96,12 +96,16 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
         return src && typeof affinity === "number" ? [{ ...src, affinity, key: ranked.meta.key, lat: src.lat ?? e.location?.lat, lon: src.lon ?? e.location?.lon }] : [];
       })
     : [];
-  const cities = byLocality.length ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
+  // The docs call locality insights partly supported: if the host drops the candidate filter, the reply is the top
+  // localities nationwide, holding only some (or none) of the candidates. A ranking that leaves a candidate out isn't one.
+  const complete = byLocality.length > 0 && byLocality.length === candidates.length;
+  const partial = ranked && !complete ? `the locality ranking covered ${String(byLocality.length)} of ${String(candidates.length)} candidate cities` : undefined;
+  const cities = complete ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
   return {
     cities: cities.sort((a, b) => b.affinity - a.affinity),
     heatmap: topCells(cells),
-    rankedBy: byLocality.length ? "locality" : cities.length ? "heatmap" : "none",
+    rankedBy: complete ? "locality" : cities.length ? "heatmap" : "none",
     heatmapError: heat.ok ? undefined : message(heat.err),
-    localityError: locality && !locality.ok ? message(locality.err) : undefined,
+    localityError: locality && !locality.ok ? message(locality.err) : partial,
   };
 }

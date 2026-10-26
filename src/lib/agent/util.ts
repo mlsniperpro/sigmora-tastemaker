@@ -3,7 +3,8 @@ const NOISE = new Set(["the", "fc", "cf", "inc", "llc", "ltd"]);
 /** One spelling for words written two ways ("St. Vincent" = "Saint Vincent"). */
 const SAME_WORD: Record<string, string> = { st: "saint" };
 
-const pairAt = (t: readonly string[]) => t.findIndex((x, k) => x === "f" && t[k + 1] === "c");
+/** "F.C." and "C.F." arrive as two one-letter tokens. */
+const pairAt = (t: readonly string[]) => t.findIndex((x, k) => (x === "f" && t[k + 1] === "c") || (x === "c" && t[k + 1] === "f"));
 
 /** Canonical form for name matching. Idempotent: normName(normName(s)) === normName(s). */
 export function normName(s: string): string {
@@ -25,14 +26,12 @@ export function normName(s: string): string {
 /** Roman numerals I–XXXIX, the range sequels and editions use (strict, so "mix", "dc" or "civil" never count). */
 const ROMAN = /^(x{0,3})(ix|iv|v?i{0,3})$/;
 
-/** Numbers sequels and titles spell out ("Fast Five", "Ocean's Eleven"). */
-const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
-
-/** The number a token stands for, when it is one: digits ("2", "182"), a roman numeral ("ii", "vii") or a word ("five"). */
+/**
+ * The number a token stands for, when it is one: digits ("2", "182") or a roman numeral ("ii", "vii").
+ * Spelled-out numbers are not folded: "Ocean's Eleven" and "Ocean's 11", "Nine" and "9" are different works.
+ */
 export function numeralValue(token: string): number | undefined {
   if (/^\d+$/.test(token)) return Number(token);
-  const word = NUMBER_WORDS.indexOf(token);
-  if (word >= 0) return word;
   const m = ROMAN.exec(token);
   if (!m || !token) return undefined;
   const tens = (m[1] ?? "").length * 10;

@@ -5,6 +5,19 @@ import type { BriefInput, RunRequest } from "@/lib/agent/brief";
 import type { RunEvent, RunResult, Served, TraceStep } from "@/lib/agent/types";
 import { NdjsonParser } from "@/lib/ndjson";
 
+/** `text` as a sentence of its own: ends with terminal punctuation, so more can follow it. */
+export function endSentence(text: string): string {
+  const t = text.trimEnd();
+  return /[.!?]["')\]]*$/.test(t) ? t : `${t}.`;
+}
+
+/** How a finished run was served, as the server reported it for a permalink; a missing or malformed answer reads as the cache. */
+export function parseServed(v: unknown): Served {
+  const o = typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+  if (o.from !== "cache" && o.from !== "recording" && o.from !== "simulated") return { from: "cache" };
+  return typeof o.reason === "string" ? { from: o.from, reason: o.reason } : { from: o.from };
+}
+
 /** Point the address bar at what's on screen: the finished run. */
 function setUrl(search: string) {
   const url = new URL(window.location.href);
@@ -144,13 +157,13 @@ export function useRun() {
       const ctrl = begin();
       try {
         const res = await fetch(`/api/run?id=${encodeURIComponent(id)}`, { signal: ctrl.signal });
-        const body = (await res.json().catch(() => ({}))) as { result?: RunResult; error?: string };
+        const body = (await res.json().catch(() => ({}))) as { result?: RunResult; served?: unknown; error?: string };
         if (!res.ok || !body.result) {
           // Only a not-found answer means the link is dead; anything else is a failure to ask.
           if (res.status === 404) return "gone";
           throw new Error(body.error ?? `Couldn't open that run (${res.status})`);
         }
-        send({ type: "event", event: { type: "result", result: body.result, served: { from: "cache" } } });
+        send({ type: "event", event: { type: "result", result: body.result, served: parseServed(body.served) } });
         return "ok";
       } catch (err) {
         if ((err as Error).name === "AbortError") return "aborted";
@@ -165,15 +178,16 @@ export function useRun() {
 
   /** Measure a shipped campaign; on success, run the brief seeded with what performed. */
   const requery = useCallback(
-    async (campaignId: string) => {
+    async (campaignId: string): Promise<RunOutcome> => {
       dispatch({ type: "clearError" });
       try {
         const res = await fetch("/api/requery", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ campaignId }) });
         const body = (await res.json().catch(() => ({}))) as { brief?: BriefInput; error?: string };
         if (!res.ok || !body.brief) throw new Error(body.error ?? `Measuring failed (${res.status})`);
-        await run({ brief: body.brief });
+        return await run({ brief: body.brief });
       } catch (err) {
         dispatch({ type: "fail", message: err instanceof Error ? err.message : String(err) });
+        return "failed";
       }
     },
     [run],

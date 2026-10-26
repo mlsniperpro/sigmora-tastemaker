@@ -156,3 +156,33 @@ describe("e2e: a burst on one custom brief whose first caller is over its networ
     expect(reserve).toHaveBeenCalledTimes(2);
   }, 60_000);
 });
+
+describe("e2e: refused presets on a keyed deployment (audit 9)", () => {
+  it("replay one simulated run per preset, label its permalink as a live-Qloo fallback, and keep it from real channels", async () => {
+    vi.stubEnv("QLOO_API_KEY", "qloo-secret");
+    vi.stubEnv("QLOO_BASE_URL", QLOO);
+    vi.stubEnv("QLOO_MODE", "live");
+    vi.stubEnv("QLOO_DAILY_CALL_CAP", "0");
+    vi.stubEnv("SIGMORA_PUBLISH_MODE", "live");
+    vi.stubEnv("SIGMORA_API_URL", "https://sigmora.example");
+    vi.stubEnv("SIGMORA_API_TOKEN", "tok");
+    vi.stubEnv("SIGMORA_OWNER_KEY", "kO9x2LmQp7zVb4nRt6yHw3sJd8fGc5aE");
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", stubQloo());
+    vi.resetModules();
+    const { GET, POST } = await import("@/app/api/run/route");
+    const { POST: ship } = await import("@/app/api/ship/route");
+    const req = () => new Request("http://tm.example/api/run", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "5.5.7.1" }, body: JSON.stringify({ preset: "sports-club" }) });
+    const first = must((await readStream(await POST(req()))).result, "first");
+    const again = await POST(req());
+    expect(again.headers.get("x-run-cache")).toBe("simulated");
+    const second = await readStream(again);
+    // The second refused click replays the first simulated run instead of simulating anew, still labelled as a fallback.
+    expect(second.result?.id).toBe(first.id);
+    expect((second.events.find((e) => e.type === "result") as Extract<RunEvent, { type: "result" }>).served?.from).toBe("simulated");
+    const link = (await (await GET(new Request(`http://tm.example/api/run?id=${first.id}`))).json()) as { served?: { from: string; reason?: string } };
+    expect(link.served).toMatchObject({ from: "simulated" });
+    const shipReq = new Request("http://tm.example/api/ship", { method: "POST", headers: { "content-type": "application/json", "x-tastemaker-owner": "kO9x2LmQp7zVb4nRt6yHw3sJd8fGc5aE", "x-forwarded-for": "5.5.7.1" }, body: JSON.stringify({ runId: first.id, acceptFlagged: true }) });
+    expect((await ship(shipReq)).status).toBe(409);
+  }, 60_000);
+});

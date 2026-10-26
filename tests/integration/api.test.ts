@@ -1,6 +1,7 @@
 /** Route handlers (/api/run, /api/ship) over the offline stack: streaming, caching, validation and failure paths. */
 import { describe, expect, it, vi } from "vitest";
-import { POST as run } from "@/app/api/run/route";
+import { POST as run, runErrorMessage } from "@/app/api/run/route";
+import { HttpError } from "@/lib/net";
 import { POST as owner } from "@/app/api/owner/route";
 import { POST as requery } from "@/app/api/requery/route";
 import { POST as ship } from "@/app/api/ship/route";
@@ -28,6 +29,25 @@ async function events(res: Response): Promise<RunEvent[]> {
 const resultOf = (ev: RunEvent[]) => (ev.find((e) => e.type === "result") as { result: RunResult } | undefined)?.result;
 
 describe("/api/run", () => {
+  it("says what failed in a sentence, never a bare status line (audit 9)", () => {
+    expect(runErrorMessage(new HttpError("Qloo", 503, "/search"))).toBe("Live Qloo couldn't answer (HTTP 503 on /search), so this brief can't run right now. The presets still load.");
+    expect(runErrorMessage(new HttpError("Qloo", 401, "/search"))).toMatch(/^Live Qloo refused this deployment's key \(HTTP 401/);
+    expect(runErrorMessage(new Error("Model timed out"))).toBe("Model timed out.");
+    expect(runErrorMessage(new Error("Done already."))).toBe("Done already.");
+  });
+
+  it("caps unmetered custom runs per network per minute", async () => {
+    const brief = (i: number) => ({ family: "music", subject: `Flood Act ${String(i)}`, product: "single", goal: "Grow streams", seeds: ["Tems"], ages: ["25_to_29"] });
+    const statuses: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      const res = await run(post({ brief: brief(i) }, "4.4.9.9"));
+      statuses.push(res.status);
+      await res.text();
+    }
+    expect(statuses.slice(0, 6).every((s) => s === 200)).toBe(true);
+    expect(statuses.slice(6)).toEqual([429, 429]);
+  });
+
   it("streams trace steps then a result for a preset", async () => {
     const res = await run(post({ preset: "indie-release" }));
     expect(res.headers.get("content-type")).toMatch(/ndjson/);

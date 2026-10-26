@@ -125,7 +125,7 @@ test("hero preset → receipts → without-Qloo toggle → another preset → sh
   if (simulated) {
     await expect(pack.getByText("Simulated: not in catalog").first()).toBeVisible();
     await expect(pack.getByText(/offline simulator/).first()).toBeVisible();
-    await expect(pack).not.toContainText(/Not found in Qloo|Qloo-verified|affinity \d\.\d\d/);
+    await expect(pack).not.toContainText(/Not found in Qloo|Passes the Qloo bar|affinity \d\.\d\d/);
   } else {
     await expect(pack.getByText(/Qloo affinity \d\.\d\d: .*Qloo's .*candidates/).first()).toBeVisible();
     await expect(pack.getByText("Not found in Qloo").first()).toBeVisible();
@@ -355,7 +355,7 @@ test("audit any AI's plan: the sample plan in one click, every name with a verdi
   const simulated = ((await results.textContent()) ?? "").includes("simulated data, not Qloo");
   if (simulated) {
     await expect(results.getByText("Simulated: not in catalog").first()).toBeVisible();
-    await expect(results).not.toContainText(/Not found in Qloo|Qloo-verified|\d\.\d\d/);
+    await expect(results).not.toContainText(/Not found in Qloo|Passes the Qloo bar|\d\.\d\d/);
   } else {
     await expect(results.getByText("Not found in Qloo").first()).toBeVisible();
     await expect(results).toContainText(/checked by Qloo: \d+ not found in Qloo/);

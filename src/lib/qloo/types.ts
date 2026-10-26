@@ -82,13 +82,16 @@ export function explainabilityOf(raw: unknown): { drivers: ExplainabilityDriver[
   };
 }
 
+/** An optional field a live reply may also send as null: read as absent, so one null can't fail a whole reply. */
+const absent = <T extends z.ZodType>(t: T) => t.nullish().transform((v) => v ?? undefined).optional();
+
 export const Tag = z
   .object({
-    id: z.string().optional(),
-    tag_id: z.string().optional(),
+    id: absent(z.string()),
+    tag_id: absent(z.string()),
     name: z.string(),
-    type: z.string().optional(),
-    subtype: z.string().optional(),
+    type: absent(z.string()),
+    subtype: absent(z.string()),
     query: z.object({ affinity: z.number().nullish() }).loose().optional(),
   })
   .loose();
@@ -98,16 +101,18 @@ export const Entity = z
   .object({
     name: z.string(),
     entity_id: z.string(),
-    type: z.string().optional(),
-    subtype: z.string().optional(),
-    types: z.array(z.string()).optional(),
-    popularity: z.number().optional(),
+    type: absent(z.string()),
+    subtype: absent(z.string()),
+    types: absent(z.array(z.string())),
+    popularity: absent(z.number()),
     properties: z.record(z.string(), z.unknown()).optional(),
     location: z
-      .object({ lat: z.number().optional(), lon: z.number().optional() })
+      .object({ lat: absent(z.number()), lon: absent(z.number()) })
       .loose()
+      .nullish()
+      .transform((v) => v ?? undefined)
       .optional(),
-    tags: z.array(Tag).optional(),
+    tags: absent(z.array(Tag)),
     external: z.record(z.string(), z.unknown()).optional(),
     query: EntityQuery.optional(),
   })

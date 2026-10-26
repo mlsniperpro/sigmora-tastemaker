@@ -96,7 +96,7 @@ function isDescription(n: string): boolean {
 
 /** Countries and regions that follow a city ("Lagos, Nigeria") rather than name another one. */
 const REGIONS = new Set(
-  ["nigeria", "kenya", "ghana", "south africa", "uganda", "rwanda", "senegal", "tanzania", "usa", "united states", "uk", "united kingdom", "england", "canada", "france", "germany", "brazil", "mexico", "india", "japan", "australia", "california", "texas", "georgia", "new york state", "florida"].map(normName),
+  ["nigeria", "kenya", "ghana", "south africa", "uganda", "rwanda", "senegal", "tanzania", "usa", "united states", "uk", "united kingdom", "england", "canada", "france", "germany", "brazil", "mexico", "india", "japan", "australia", "new york state", "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts", "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey", "new mexico", "north carolina", "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania", "rhode island", "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont", "virginia", "west virginia", "wisconsin", "wyoming"].map(normName),
 );
 
 /** Cities that follow a venue ("Madison Square Garden, New York") rather than name another venue. */
@@ -106,8 +106,15 @@ const CITIES = new Set(
 
 /** A place name as the lists above hold it: "Washington, D.C." and "Washington DC" read the same. */
 const placeKey = (n: string) => normName(n.replace(/\./g, ""));
-/** A state or country code after a place ("GA", "MD", "D.C."). */
-const isCode = (n: string) => /^[A-Z]{2,3}$/.test(n.replace(/\./g, ""));
+/** US state and country codes that follow a place ("Atlanta, GA", "London, UK"). City codes (LA, NYC, SF, ATL) are places themselves. */
+const CODES = new Set(
+  "AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY US USA UK UAE".split(" ").filter((c) => c !== "LA"),
+);
+/** Is `n`, after `prev`, a code qualifying it ("GA" after "Atlanta", "D.C." after "Washington")? */
+const isCode = (n: string, prev = "") => {
+  const bare = n.replace(/\./g, "");
+  return CODES.has(bare) || (bare === "DC" && normName(prev) === "washington");
+};
 
 /** Could this fragment be a name at all (not a placeholder, a date, a description)? A lowercase "the" may lead ("the Weeknd"). */
 export function nameLike(n: string): boolean {
@@ -121,16 +128,22 @@ const TITLE_SMALL = new Set(["of", "the", "and", "in", "a", "an", "to", "for", "
 const TITLE_COLON = "\u241F";
 
 /**
- * A titled work's subtitle stays on it: "Black Panther: Wakanda Forever", "Law & Order: SVU". The first ": "
- * is kept when what follows, up to the next comma, reads as a title (at most 6 words, each capitalised or small);
- * "Insecure: it nails the tone" is a title and its explanation.
+ * A titled work may keep its subtitle: "Black Panther: Wakanda Forever", "Law & Order: SVU". In each list item,
+ * the first ": " is kept when what follows reads as a title (at most 6 words, each capitalised or small);
+ * "Insecure: it nails the tone" is a title and its explanation. Whether the subtitle really belongs to the
+ * title is Qloo's call: a kept "Name: More" is a Split candidate that falls back to "Name" (see partsOf).
  */
 function keepSubtitle(text: string): string {
-  const i = text.indexOf(": ");
-  if (i < 0) return text;
-  const words = (text.slice(i + 2).split(/[,;]/)[0] ?? "").trim().split(" ");
-  const titled = words.length <= 6 && words.every((w) => /^[\p{Lu}\p{N}]/u.test(w) || TITLE_SMALL.has(w)) && /^[\p{Lu}\p{N}]/u.test(words[0] ?? "");
-  return titled ? `${text.slice(0, i)}${TITLE_COLON} ${text.slice(i + 2)}` : text;
+  return text
+    .split(/([,;])/)
+    .map((item) => {
+      const i = item.indexOf(": ");
+      if (i < 0) return item;
+      const words = item.slice(i + 2).trim().split(" ");
+      const titled = words.length <= 6 && words.every((w) => /^[\p{Lu}\p{N}]/u.test(w) || TITLE_SMALL.has(w)) && /^[\p{Lu}\p{N}]/u.test(words[0] ?? "");
+      return titled ? `${item.slice(0, i)}${TITLE_COLON} ${item.slice(i + 2)}` : item;
+    })
+    .join("");
 }
 
 /** Runs of spaces and tabs become one space before any scan (pasted text can hold thousands). */
@@ -144,7 +157,11 @@ export function namesIn(value: string, role?: Role): string[] {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\s*\([^)]*\)/g, "")
     // "Dr. Dre", "Burna Boy feat. Ayra Starr": an abbreviation's dot doesn't end the sentence.
-    .replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|Vol|Pt|feat|ft|vs)\.\s/g, "$1 ");
+    .replace(/\b(Dr|Mr|Mrs|Ms|St|Jr|Sr|Vol|Pt|feat|ft|vs)\.\s/g, "$1 ")
+    // "J. Cole", "A.J. Tracey": an initial's dot doesn't end the sentence either.
+    .replace(/\b(\p{Lu})\.\s(?=\p{Lu})/gu, "$1 ")
+    // "Nike, Inc.": a company's legal suffix isn't another name.
+    .replace(/,?\s+(?:Inc|LLC|Ltd|Co|Corp|PLC|GmbH)\b\.?(?=\s*(?:[,;]|$))/g, "");
   // "think Stranger Things meets Euphoria": a lead-in like "think" or "like" isn't part of a name.
   const lead0 = plain.replace(/^\s*(?:think|like|e\.g\.|eg|ie|i\.e\.|such as|imagine)\s+/i, "");
   const lead = role === "reference" || role === "podcast" ? keepSubtitle(lead0) : lead0;
@@ -154,7 +171,7 @@ export function namesIn(value: string, role?: Role): string[] {
     // "/" splits only with spaces around it, so "AC/DC" stays one name; "feat" joins two artists.
     .split(/\s*[,;]\s*|\s+(?:\/|and|or|\+|plus|as well as|meets|vs|x|feat|ft|featuring)\s+/u)
     // "A, B, and C" / "A, B & C": the list's last joiner isn't part of the last name.
-    .map((n) => n.trim().replace(/^(?:and|or|&|plus)\s+/, "").replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").replaceAll(TITLE_COLON, ":").trim());
+    .map((n) => n.trim().replace(/^(?:and|or|&|plus|as well as|along with|featuring|feat|ft|with|x)\s+/, "").replace(/^["“”'‘’]+|["“”'‘’.!?]+$/gu, "").replaceAll(TITLE_COLON, ":").trim());
   // "Tyler, the Creator" / "Florence + the Machine": a lowercase "the …" part belongs to the name before it, as written.
   const parts: string[] = [];
   for (const n of split) {
@@ -168,8 +185,8 @@ export function namesIn(value: string, role?: Role): string[] {
   return (
     parts
       // "Atlanta, GA" / "Lagos, Nigeria": the region after a city isn't another city; "Madison Square Garden, New York": nor is the city after a venue.
-      .filter((n, i) => !(role === "city" && i > 0 && (isCode(n) || REGIONS.has(placeKey(n)))))
-      .filter((n, i) => !(role === "venue" && i > 0 && (isCode(n) || REGIONS.has(placeKey(n)) || CITIES.has(placeKey(n)))))
+      .filter((n, i, all) => !(role === "city" && i > 0 && (isCode(n, all[i - 1]) || REGIONS.has(placeKey(n)))))
+      .filter((n, i, all) => !(role === "venue" && i > 0 && (isCode(n, all[i - 1]) || /^[A-Z]{2,3}$/.test(n.replace(/\./g, "")) || REGIONS.has(placeKey(n)) || CITIES.has(placeKey(n)))))
       .filter((n) => /^[\p{Lu}\p{N}]/u.test(n) && nameLike(n))
   );
 }
@@ -196,8 +213,17 @@ export interface Split {
   parts: string[];
 }
 
-/** The names inside one that an "&" or a lowercase "the …" may have run together, or [] when it can't be two. */
+/**
+ * The names inside one that an "&" or a lowercase "the …" may have run together, or the title before a
+ * subtitle that may not be one; [] when it can be read only one way.
+ */
 export function partsOf(name: string): string[] {
+  // "Euphoria: HBO", "Insecure: Issa Rae": unless Qloo knows the whole title, it's the title before the colon.
+  const colon = name.indexOf(": ");
+  if (colon > 0) {
+    const title = name.slice(0, colon);
+    return nameLike(title) ? [title] : [];
+  }
   const parts = name
     .split(/\s+&\s+|\s*,\s*(?=the\s)|\s+(?:\/|and|or|\+|plus|meets|vs|x|feat|ft|featuring)\s+(?=the\s)/u)
     .map((n) => n.trim())

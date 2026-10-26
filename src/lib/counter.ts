@@ -24,10 +24,12 @@ export class MemoryCounter implements Counter {
     const cur = this.map.get(key);
     const entry = cur && cur.expires > t ? cur : { n: 0, expires: t + ttlSeconds * 1000 };
     entry.n += by;
+    // Re-inserted, so the map's order is by last update: a busy long-lived count (the day's Qloo calls) is never the one evicted.
+    this.map.delete(key);
     this.map.set(key, entry);
     if (this.map.size > this.max) {
       for (const [k, v] of this.map) if (v.expires <= t) this.map.delete(k);
-      // still too big: drop the oldest insertions
+      // still too big: drop the least recently updated
       for (const k of this.map.keys()) {
         if (this.map.size <= this.max) break;
         this.map.delete(k);

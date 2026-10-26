@@ -44,6 +44,31 @@ describe("QlooClient: offline", () => {
 });
 
 describe("QlooClient: live", () => {
+  it("tolerates nulls in optional entity fields, and a lone surrogate in a model-written name (audit 9)", async () => {
+    const urls: string[] = [];
+    const f = vi.fn(async (url: URL) => {
+      urls.push(String(url));
+      return ok({ results: [{ name: "Rema", entity_id: "R1", popularity: null, subtype: null, location: null, tags: null }] });
+    });
+    const q = client(f);
+    const r = await q.search("Tems\ud83c", ["artist"]);
+    expect(r.data.results[0]).toMatchObject({ name: "Rema", entity_id: "R1" });
+    expect(r.data.results[0]?.popularity).toBeUndefined();
+    expect(urls[0]).toContain(encodeURIComponent("Tems\ufffd"));
+  });
+
+  it("reads a lookup's 404 as no results (docs: \"No results\"), cached as empty; any other 404 is an error (audit 9)", async () => {
+    const f = vi.fn(async () => new Response('{"error":"No results"}', { status: 404 }));
+    const cache = new MemoryCache();
+    const q = client(f, { cache });
+    expect((await q.search("Qorvax Blee", ["artist"])).data.results).toEqual([]);
+    expect((await q.entitiesByExternal("spotify", ["687cZJR45JO7jhk1LHIbgq"])).data.results).toEqual([]);
+    // Cached as an empty reply: asked again, no second request.
+    await q.search("Qorvax Blee", ["artist"]);
+    expect(f).toHaveBeenCalledTimes(2);
+    await expect(q.insights("urn:entity:artist", { "signal.interests.entities": "R1" })).rejects.toBeInstanceOf(HttpError);
+  });
+
   it("calls the hackathon host with X-Api-Key, caches, and records", async () => {
     const f = vi.fn(async () => ok(results));
     const recorder: Record<string, unknown> = {};
@@ -207,6 +232,22 @@ describe("QlooClient: live", () => {
     // A refund to that share clears the memo: the next reservation is asked for real, and fits.
     await a.release();
     expect(await client(f, { daily }).reserve(80, pool)).toBe(true);
+  });
+
+  it("refuses a request over its network's share before it touches the shared counters, so a burst can't lock others out (audit 9)", async () => {
+    const f = vi.fn(async () => ok(results));
+    const counter = new MemoryCounter();
+    const daily = { counter, cap: 480 };
+    const scopes = (ip: string) => ({ scopes: [{ key: "pool:custom", cap: 240 }, { key: `ip:${ip}`, cap: 80 }] });
+    await incrDaily(counter, "qloo-scope:ip:6.6.6.6", Date.now(), 80);
+    // A burst from a network whose share is spent: every request refused for that share alone.
+    const burst = await Promise.all([1, 2, 3, 4].map(() => client(f, { daily }).reserve(80, scopes("6.6.6.6"))));
+    expect(burst).toEqual([false, false, false, false]);
+    expect([await incrDaily(counter, "qloo-calls", Date.now(), 0), await incrDaily(counter, "qloo-scope:pool:custom", Date.now(), 0)]).toEqual([0, 0]);
+    // Another network is admitted at once: no memo landed on the pool or the day.
+    const other = client(f, { daily });
+    expect(await other.reserve(80, scopes("7.7.7.7"))).toBe(true);
+    expect(other.refusedBy).toBeUndefined();
   });
 
   it("remembers a refusal only for requests at least that big: a small check still fits after a big run is refused", async () => {

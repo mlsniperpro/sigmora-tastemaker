@@ -1,6 +1,7 @@
 "use client";
 
 import type { RunResult, Served } from "@/lib/agent/types";
+import { endSentence } from "./useRun";
 
 /**
  * Where this run's numbers came from, in one line: what was simulated, replayed or scripted (in bold), then
@@ -27,13 +28,15 @@ export function SourceBanner({ result, served, className = "" }: { result: RunRe
   const keyless = offline ? "" : simulated && scripted ? "No Qloo or LLM key on this deployment: " : simulated ? "No Qloo key on this deployment: " : scripted && !fellBack && !replayed ? "No LLM key is set: " : "";
   const parts = [
     ...(fellBack ? [`those answers are recorded live responses, each labeled in the trace (${q.fallbacks.map((f) => f.reason).join("; ")})`] : []),
-    ...(offline ? [`this is the preset on the offline simulator${served.reason ? `, shown because ${served.reason}` : ""}, with answers in Qloo's shapes (not Qloo data)`] : []),
+    ...(offline ? ["this is the preset on the offline simulator, with answers in Qloo's shapes (not Qloo data)"] : []),
     ...(simulated && !offline ? ["answers come from an offline simulator in Qloo's shapes (not Qloo data)"] : []),
     ...(replayed ? [`${q.replay} of ${q.calls} answers are recorded live hackathon API responses, served from fixtures`] : []),
     ...(scripted ? [simulated && !offline ? "drafts from a deterministic stand-in" : "drafts come from a deterministic stand-in, not a model"] : []),
   ];
   const hidden = simulated ? ", so numbers are not shown" : scripted ? ", so miss counts are not shown" : "";
-  const sentence = `${keyless}${parts.join(keyless ? " and " : "; ")}${hidden}.`;
+  // Why the run fell back is a sentence of its own, so the main one reads straight through.
+  const why = offline && served.reason ? ` Why: ${endSentence(served.reason)}` : "";
+  const sentence = `${keyless}${parts.join(keyless ? " and " : "; ")}${hidden}.${why}`;
   return (
     <p role="note" className={`text-meta leading-snug text-muted ${className}`}>
       <strong className="font-semibold text-fade">{labels.join(" · ")}.</strong> {keyless ? sentence : sentence.charAt(0).toUpperCase() + sentence.slice(1)}

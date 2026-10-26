@@ -1,7 +1,7 @@
 "use client";
 
 import { SCRIPTED_BASELINE, formatRate, placeholderReason } from "@/lib/agent/evidence";
-import type { Receipt, RunResult, Served, Verdict } from "@/lib/agent/types";
+import type { Metrics, Receipt, RunResult, Served, Verdict } from "@/lib/agent/types";
 import { VERDICT_STYLE, isSimulated, receiptNote, verdictLabel } from "./Receipt";
 import { SourceBanner } from "./SourceBanner";
 import { LaunchMap, hasLaunchMap } from "./TasteMap";
@@ -22,6 +22,19 @@ export function worstMisses(receipts: readonly Receipt[], n = 3): Receipt[] {
 const TEXT: Record<Verdict, string> = { pass: "text-pass", miss: "text-miss", hallucination: "text-invented", fading: "text-fade", unscored: "text-muted" };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The most the Miss Rate after the critic can be and still read as "near zero". */
+const LOW_RATE = 0.1;
+
+/**
+ * How the Miss Rate after the critic reads. Only a low rate is "low by design"; a higher one is picks the critic
+ * couldn't replace (`left`), which the card says plainly; with too few picks judged there is no rate to speak of.
+ */
+export function afterCritic(m: Pick<Metrics, "cultureMissRate" | "hallucinations" | "misses">): { kind: "low" | "left" | "unknown"; left: number } {
+  const left = m.hallucinations + m.misses;
+  if (m.cultureMissRate === null) return { kind: "unknown", left };
+  return { kind: m.cultureMissRate <= LOW_RATE ? "low" : "left", left };
+}
 
 function Side({ title, tone, active, big, bigLabel, lines }: { title: string; tone: "bad" | "good"; active: boolean; big?: string; bigLabel?: string; lines: React.ReactNode[] }) {
   const ring = active ? (tone === "bad" ? "border-miss/70 bg-miss/5" : "border-accent/70 bg-accent/5") : "border-line bg-panel-2/40";
@@ -70,6 +83,7 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
   const worst = noBaseline ? [] : worstMisses(base);
   const replacementFor = (name: string) => grounded.find((r) => r.replaced?.name.toLowerCase() === name.toLowerCase())?.name;
   const where = hasLaunchMap(result);
+  const after = afterCritic(g);
 
   return (
     <section aria-label="With and without Qloo" className="rounded-2xl border border-line bg-panel p-3 sm:p-4">
@@ -105,7 +119,8 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
                 : [
                     `${passed} of ${plural(g.picks, "pick")} pass`,
                     <>
-                      Miss Rate after the critic <span className="font-mono text-ink">{formatRate(g.cultureMissRate)}</span> (low by design)
+                      Miss Rate after the critic <span className="font-mono text-ink">{formatRate(g.cultureMissRate)}</span>
+                      {after.kind === "low" ? " (low by design)" : after.kind === "left" ? ` (${plural(after.left, "pick")} the critic couldn’t replace)` : ""}
                     </>,
                   ]
             }
@@ -149,8 +164,9 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
         <p className="mt-3 border-t border-line pt-2 text-meta leading-snug text-muted">
           {!blank && (
             <>
-              The pass bar comes from Qloo&apos;s own candidates for each role (the higher of 0.25 and 0.7 × their median affinity), and the critic replaces whatever falls below it, so the
-              rate after the critic is near zero by construction. What it measures is how often the model alone misses; the blind judge in the benchmark asks
+              The pass bar comes from Qloo&apos;s own candidates for each role (the higher of 0.25 and 0.7 × their median affinity), and the critic replaces whatever falls below it
+              {after.kind === "low" && ", so the rate after the critic is near zero by construction"}
+              {after.kind === "left" && `. This time it couldn’t replace ${plural(after.left, "pick")}, so the rate after the critic is ${formatRate(g.cultureMissRate)}, not near zero`}. What it measures is how often the model alone misses; the blind judge in the benchmark asks
               whether the result is actually better.
             </>
           )}

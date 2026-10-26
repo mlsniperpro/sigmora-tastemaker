@@ -2,6 +2,7 @@ import { keepShippedRun, runById, shippableByOwner } from "@/lib/agent/runCache"
 import { admit, floodGuard, guardResponse } from "@/lib/guard";
 import { ShipRequest, publisherForRequest } from "@/lib/publisher";
 import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
+import { qlooFromEnv } from "@/lib/qloo/client";
 import { formatZodIssues } from "@/lib/zod";
 
 export async function POST(req: Request) {
@@ -30,6 +31,10 @@ export async function POST(req: Request) {
 
   const publisher = await publisherForRequest(req);
   if (publisher instanceof Response) return publisher;
+  // On a deployment with live Qloo, a simulated run is a fallback (live Qloo failed or was refused): its picks were never checked.
+  if (publisher.id === "sigmora" && run.qloo.simulated > 0 && qlooFromEnv().primarySource === "live") {
+    return Response.json({ error: "This run is the offline simulator, shown because live Qloo was unavailable; its picks weren't checked against Qloo. Run it again live, then ship." }, { status: 409 });
+  }
   if (publisher.id === "sigmora" && !(await shippableByOwner(run))) {
     return Response.json({ error: "Only preset runs and runs you started while signed in as the owner can ship to real channels." }, { status: 403 });
   }

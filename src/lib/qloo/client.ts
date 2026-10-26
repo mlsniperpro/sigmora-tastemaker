@@ -2,8 +2,8 @@ import type { z } from "zod";
 import recorded from "../../../fixtures/qloo/recorded.json";
 import { loadConfig } from "../config";
 import { budgetCounter, incrDaily, type Counter } from "../counter";
-import { DEFAULT_RETRY, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
-import { formatZodIssues } from "../zod";
+import { DEFAULT_RETRY, HttpError, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
+import { formatZodIssues, wellFormed } from "../zod";
 import { defaultCache, type CacheStore } from "./cache";
 import { QlooBudgetError, QlooDeadlineError, QlooSchemaError } from "./errors";
 import { assertParams, requestKey, type QlooParams, type QlooPath } from "./params";
@@ -63,6 +63,9 @@ export const EMPTY_TTL = 60 * 10;
 const SERVICE = "Qloo";
 
 /** True when a reply carries no results at all: `results` is an empty array, or an object whose lists are all empty. */
+/** Lookups whose 404 means "no results" rather than an error. */
+const NOT_FOUND_IS_EMPTY: ReadonlySet<QlooPath> = new Set(["/search", "/entities"]);
+
 export function isEmptyReply(raw: unknown): boolean {
   if (!raw || typeof raw !== "object") return true;
   const results = (raw as { results?: unknown }).results;
@@ -95,7 +98,9 @@ function normalize(params: QlooParams): QlooParams {
   const out: QlooParams = {};
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || (Array.isArray(v) && !v.length)) continue;
-    out[k] = Array.isArray(v) && SET_PARAMS.includes(k) ? [...v].sort() : v;
+    // Model-written names reach queries: a lone surrogate in one would make the URL (and the cache key) unencodable.
+    const clean = Array.isArray(v) ? v.map((x) => (typeof x === "string" ? wellFormed(x) : x)) : typeof v === "string" ? wellFormed(v) : v;
+    out[k] = Array.isArray(clean) && SET_PARAMS.includes(k) ? [...clean].sort() : clean;
   }
   if (out["filter.type"] === "urn:entity:person") {
     delete out["signal.demographics.age"];
@@ -258,7 +263,12 @@ export class QlooClient {
     const raw = await withRetry(async () => {
       await this.spendBudget();
       return this.fetchOnce(path, params);
-    }, this.opts.retry ?? DEFAULT_RETRY);
+    }, this.opts.retry ?? DEFAULT_RETRY).catch((err: unknown) => {
+      // The lookups answer "no results" with a 404 (docs.qloo.com: get-search, get-entities): that's a finding
+      // (the name isn't in Qloo), not a failure, so it reads as an empty list and is cached as one.
+      if (err instanceof HttpError && err.status === 404 && NOT_FOUND_IS_EMPTY.has(path)) return { results: [] };
+      throw err;
+    });
     this.parse(path, schema, raw);
     await this.cache.set(key, raw, isEmptyReply(raw) ? EMPTY_TTL : TTL);
     if (this.opts.recorder) this.opts.recorder[key] = raw;
@@ -316,7 +326,8 @@ export class QlooClient {
     const daily = this.opts.daily;
     if (!daily || this.primarySource !== "live" || calls <= 0) return true;
     const at = Date.now();
-    const counters = [{ name: "qloo-calls", cap: daily.cap }, ...(opts.scopes ?? []).map((s) => ({ name: `qloo-scope:${s.key}`, cap: s.cap }))];
+    const shares = (opts.scopes ?? []).map((s) => ({ name: `qloo-scope:${s.key}`, cap: s.cap })).reverse();
+    const counters = [...shares, { name: "qloo-calls", cap: daily.cap }];
     // A share that refused moments ago is refused again without a round trip, so a flood of refused requests costs the store nothing.
     const memo = spentMemo(daily.counter);
     const day = new Date(at).toISOString().slice(0, 10);
@@ -348,7 +359,7 @@ export class QlooClient {
       return false;
     }
     this.prepaid += calls;
-    this.shares = counters.slice(1);
+    this.shares = shares.reverse();
     this.reservation = { at, scopes: this.shares };
     return true;
   }

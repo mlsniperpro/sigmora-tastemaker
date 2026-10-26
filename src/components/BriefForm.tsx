@@ -49,18 +49,25 @@ export function fieldsFromBrief(b: Brief): FormFields {
 }
 
 /**
+ * Whether the run on screen is a new one since the fields were last set from it. Each result that arrives is a new object, so this
+ * is also true for a run with the same id as before (a preset loaded again after a failed custom brief), which an id check would miss.
+ * While the same result stays on screen it is false, so a half-written edit is left alone.
+ */
+export const showsNewBrief = (shown: Brief | undefined, brief: Brief): boolean => shown !== brief;
+
+/**
  * The brief bar: who's launching, who the audience loves (names or a Spotify/IMDb link) and their ages up front; the rest on demand.
- * `current` is the brief on screen: the fields start from it, and follow it whenever a different run is shown.
+ * `current` is the brief on screen: the fields start from it, and follow it whenever a new result is shown.
  */
 export function BriefForm({ onRun, busy, current }: { onRun: (b: BriefInput) => void; busy: boolean; current?: { id: string; brief: Brief } }) {
   const id = useId();
   const [f, setF] = useState<FormFields>(current ? fieldsFromBrief(current.brief) : EMPTY_FIELDS);
   const [more, setMore] = useState(false);
   const [problem, setProblem] = useState<ReturnType<typeof briefFormProblem>>();
-  // Adjusting state while rendering (not in an effect): a new run on screen replaces the fields with its brief.
-  const [shownRun, setShownRun] = useState(current?.id);
-  if (current && current.id !== shownRun) {
-    setShownRun(current.id);
+  // Adjusting state while rendering (not in an effect): a new result on screen replaces the fields with its brief.
+  const [shownBrief, setShownBrief] = useState(current?.brief);
+  if (current && showsNewBrief(shownBrief, current.brief)) {
+    setShownBrief(current.brief);
     setF(fieldsFromBrief(current.brief));
     setProblem(undefined);
   }

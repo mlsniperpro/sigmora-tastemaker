@@ -5,7 +5,7 @@ import { AuditPanel, AuditResults, SIMULATED_CATALOG_NOTE, audienceNames, auditI
 import { CampaignPack } from "@/components/CampaignPack";
 import { ReceiptChip, TrendMark } from "@/components/Receipt";
 import { TasteMap } from "@/components/TasteMap";
-import { BriefForm, fieldsFromBrief } from "@/components/BriefForm";
+import { BriefForm, fieldsFromBrief, showsNewBrief } from "@/components/BriefForm";
 import { callsLabel, callTally, Trace } from "@/components/Trace";
 import { Brief } from "@/lib/agent/brief";
 import { briefFromForm } from "@/lib/agent/briefForm";
@@ -14,10 +14,10 @@ import { metricsOf } from "@/lib/agent/critic";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import { FADING_BELOW } from "@/lib/vocab";
 import { must } from "../must";
-import { RoiLine } from "@/components/App";
+import { RoiLine, RunError } from "@/components/App";
 import { DiffCard, worstMisses } from "@/components/DiffCard";
 import { SourceBanner } from "@/components/SourceBanner";
-import { followsDraft, initialRunState, runReducer, streamRun, type RunAction, type RunState } from "@/components/useRun";
+import { endSentence, followsDraft, initialRunState, parseServed, runReducer, streamRun, type RunAction, type RunState } from "@/components/useRun";
 import { DEFAULT_CRITIC } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
@@ -82,6 +82,28 @@ describe("DiffCard", () => {
     const noBase = text(renderToStaticMarkup(<DiffCard result={{ ...live, baseline: { ...live.baseline, unavailable: "LLM 529" } }} mode="qloo" />));
     expect(noBase).toMatch(/isn.t available on this run \(LLM 529\)/);
   });
+  it("calls the rate after the critic low by design only when it is low, and otherwise says what the critic left", async () => {
+    const live = asLive(await heroRun(), true);
+    const withRate = (cultureMissRate: number | null, hallucinations: number, misses: number): RunResult => ({
+      ...live,
+      metrics: { ...live.metrics, grounded: { ...live.metrics.grounded, judged: 10, hallucinations, misses, cultureMissRate } },
+    });
+    const card = (r: RunResult) => text(renderToStaticMarkup(<DiffCard result={r} mode="qloo" />));
+    const low = card(withRate(0, 0, 0));
+    expect(low).toContain("Miss Rate after the critic 0% (low by design)");
+    expect(low).toContain("near zero by construction");
+    // At the line (10%) it is still low; above it, neither phrase is used and the leftovers are counted.
+    expect(card(withRate(0.1, 0, 1))).toContain("10% (low by design)");
+    const high = card(withRate(0.2, 1, 1));
+    expect(high).toContain("Miss Rate after the critic 20% (2 picks the critic couldn’t replace)");
+    expect(high).toContain("it couldn’t replace 2 picks, so the rate after the critic is 20%, not near zero");
+    expect(high).not.toMatch(/low by design|near zero by construction/);
+    expect(card(withRate(0.1111, 1, 0))).toContain("(1 pick the critic couldn’t replace)");
+    // Too few picks judged: no rate, and no claim about it either.
+    const unknown = card(withRate(null, 0, 0));
+    expect(unknown).toContain("Miss Rate after the critic —");
+    expect(unknown).not.toMatch(/low by design|near zero|couldn’t replace/);
+  });
 });
 
 describe("RoiLine", () => {
@@ -127,7 +149,7 @@ describe("ReceiptChip", () => {
     expect(sim({})).toContain("Simulated pass");
     expect(sim({ verdict: "miss" })).toContain("Simulated miss");
     expect(sim({ verdict: "hallucination", affinity: undefined })).toContain("Simulated: not in catalog");
-    expect(sim({ drivers: [{ name: "Asake", score: 0.5 }] })).not.toMatch(/\d\.\d|affinity|Qloo-verified/);
+    expect(sim({ drivers: [{ name: "Asake", score: 0.5 }] })).not.toMatch(/\d\.\d|affinity|Passes the Qloo bar/);
     // A receipt with no source of its own takes the run's.
     expect(text(renderToStaticMarkup(<ReceiptChip r={receipt({ affinity: 0.6 })} runSimulated />))).toContain("Simulated pass");
   });
@@ -229,7 +251,7 @@ describe("AuditResults", () => {
     expect(html).toContain("Kemi Adebayo-Rhodes");
     expect(html).toContain("Simulated: not in catalog");
     expect(html).toContain("(the simulator's pick)");
-    expect(html).not.toMatch(/\d\.\d\d|Not found in Qloo|Qloo-verified|low-affinity/);
+    expect(html).not.toMatch(/\d\.\d\d|Not found in Qloo|Passes the Qloo bar|low-affinity/);
     expect(html).toMatch(/deterministic scanner/);
   });
   it("counts verdicts and prints Qloo's numbers on Qloo data", async () => {
@@ -292,10 +314,15 @@ describe("SourceBanner", () => {
     const run = await heroRun();
     const reason = "the live run failed (Qloo 503)";
     const banner = text(renderToStaticMarkup(<SourceBanner result={run} served={{ from: "simulated", reason }} />)).trim();
+    // The reason is a sentence of its own after the main one (wording changed from a mid-sentence "shown because …").
     expect(banner).toBe(
-      "Live Qloo unavailable · Simulated Qloo data · Scripted model. This is the preset on the offline simulator, shown because the live run failed (Qloo 503), with answers in Qloo's shapes (not Qloo data); drafts come from a deterministic stand-in, not a model, so numbers are not shown.",
+      "Live Qloo unavailable · Simulated Qloo data · Scripted model. This is the preset on the offline simulator, with answers in Qloo's shapes (not Qloo data); drafts come from a deterministic stand-in, not a model, so numbers are not shown. Why: the live run failed (Qloo 503).",
     );
     expect(banner).not.toMatch(/No Qloo|key/);
+    // A reason that already ends its sentence is not given a second full stop.
+    const refused = "a new live run was refused (Today's Qloo budget can't cover another new run. Presets and cached runs still load; try a new brief tomorrow.)";
+    expect(text(renderToStaticMarkup(<SourceBanner result={run} served={{ from: "simulated", reason: refused }} />)).trim()).toMatch(/not shown\. Why: a new live run was refused \(.*tomorrow\.\)$/);
+    expect(text(renderToStaticMarkup(<SourceBanner result={run} served={{ from: "simulated", reason: "Qloo is down." }} />)).trim()).toMatch(/Why: Qloo is down\.$/);
     // With a real model only the Qloo half is named; without a reason it still says so.
     const real = text(renderToStaticMarkup(<SourceBanner result={{ ...run, llm: { ...run.llm, scripted: false } }} served={{ from: "simulated" }} />)).trim();
     expect(real).toBe("Live Qloo unavailable · Simulated Qloo data. This is the preset on the offline simulator, with answers in Qloo's shapes (not Qloo data), so numbers are not shown.");
@@ -386,6 +413,33 @@ describe("BriefForm from the current run", () => {
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(hero.ages.length);
     const empty = renderToStaticMarkup(<BriefForm busy={false} onRun={() => undefined} />);
     expect(empty).not.toContain(`value="${hero.subject}"`);
+  });
+  it("follows every new result, even one with the id of the last, and leaves an edit alone while the same result stays", () => {
+    const hero = Brief.parse(PRESETS[0].brief);
+    // A preset loaded again after a failed custom brief: same id, a new result object.
+    expect(showsNewBrief(hero, Brief.parse(PRESETS[0].brief))).toBe(true);
+    expect(showsNewBrief(undefined, hero)).toBe(true);
+    // Re-rendering with the result already shown (the user typing, a run failing) changes nothing.
+    expect(showsNewBrief(hero, hero)).toBe(false);
+  });
+});
+
+describe("permalink and error helpers", () => {
+  it("reads how a permalinked run was served, and falls back to the cache for anything else", () => {
+    expect(parseServed({ from: "simulated", reason: "Qloo is down." })).toEqual({ from: "simulated", reason: "Qloo is down." });
+    expect(parseServed({ from: "recording" })).toEqual({ from: "recording" });
+    expect(parseServed({ from: "cache", reason: 7 })).toEqual({ from: "cache" });
+    for (const bad of [undefined, null, "simulated", 3, {}, { from: "live" }, { reason: "x" }]) expect(parseServed(bad)).toEqual({ from: "cache" });
+  });
+  it("ends an error's sentence before the note about the previous result", () => {
+    expect(endSentence("Qloo went away")).toBe("Qloo went away.");
+    expect(endSentence("Qloo went away. ")).toBe("Qloo went away.");
+    expect(endSentence("Is Qloo down?")).toBe("Is Qloo down?");
+    expect(endSentence("Refused (try tomorrow.)")).toBe("Refused (try tomorrow.)");
+    const withResult = text(renderToStaticMarkup(<RunError error="Qloo went away" hasResult />));
+    expect(withResult).toBe(" Qloo went away. The previous result is still shown below. ");
+    // Without a result on screen the message is shown as it came.
+    expect(text(renderToStaticMarkup(<RunError error="Qloo went away" hasResult={false} />)).trim()).toBe("Qloo went away");
   });
 });
 

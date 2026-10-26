@@ -3,7 +3,7 @@ import { fc, test } from "@fast-check/vitest";
 import { ConfigError, budgetProblems, loadConfig } from "@/lib/config";
 import { KvCounter, MemoryCounter, ResilientCounter, incrDaily, incrPerMinute } from "@/lib/counter";
 import { KvRest } from "@/lib/kv";
-import { FREE_ROUTE_PER_MINUTE, checkGuard, clientIp, floodGuard, ipKey, qlooBudget } from "@/lib/guard";
+import { FREE_ROUTE_PER_MINUTE, UNMETERED_RUNS_PER_MINUTE, checkGuard, clientIp, floodGuard, ipKey, qlooBudget, unmeteredGuard } from "@/lib/guard";
 import { sentJson } from "../must";
 
 describe("MemoryCounter", () => {
@@ -14,6 +14,16 @@ describe("MemoryCounter", () => {
     expect(await c.incr("k", 60)).toBe(2);
     t = 61_000;
     expect(await c.incr("k", 60)).toBe(1);
+  });
+
+  it("evicts the least recently updated key, never a busy long-lived count (audit 9)", async () => {
+    const c = new MemoryCounter(3);
+    await c.incr("day", 86_400, 480);
+    for (let i = 0; i < 10; i++) {
+      await c.incr(`ip:${String(i)}`, 86_400);
+      await c.incr("day", 86_400, 0);
+    }
+    expect(await c.incr("day", 86_400, 0)).toBe(480);
   });
 
   test.prop([fc.array(fc.string({ maxLength: 6 }), { maxLength: 300 })])("stays within its size bound", async (keys) => {
@@ -225,5 +235,15 @@ describe("floodGuard", () => {
     expect(refused?.status).toBe(429);
     expect(refused?.headers.get("Retry-After")).toBe("55");
     expect(await floodGuard(req("8.8.8.8"), at)).toBeUndefined();
+  });
+});
+
+describe("unmetered runs (audit 9)", () => {
+  it("lets a network start a few unmetered runs a minute, then asks it to wait", async () => {
+    const req = () => new Request("http://tm.example/api/run", { headers: { "x-forwarded-for": "9.8.7.6" } });
+    const now = Date.UTC(2026, 9, 26, 12, 0, 5);
+    for (let i = 0; i < UNMETERED_RUNS_PER_MINUTE; i++) expect(await unmeteredGuard(req(), now)).toBeUndefined();
+    expect((await unmeteredGuard(req(), now))?.status).toBe(429);
+    expect(await unmeteredGuard(req(), now + 60_000)).toBeUndefined();
   });
 });

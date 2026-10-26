@@ -154,6 +154,16 @@ export const FREE_ROUTE_PER_MINUTE = 120;
 // In-process on purpose: this limit must cost nothing (no KV round trip) to check.
 const freeCounter = new MemoryCounter(20000);
 
+/** New unmetered runs (no Qloo key, scripted model) per IP per minute: they spend nothing, but each costs CPU and a stored result. */
+export const UNMETERED_RUNS_PER_MINUTE = 6;
+const unmeteredCounter = new MemoryCounter(20000);
+
+/** Undefined when another unmetered custom run may start for this caller now. */
+export async function unmeteredGuard(req: Request, now = Date.now()): Promise<Response | undefined> {
+  if ((await incrPerMinute(unmeteredCounter, `unmetered:${clientIp(req.headers)}`, now)) <= UNMETERED_RUNS_PER_MINUTE) return undefined;
+  return Response.json({ error: "Too many new briefs from your network. Wait a minute." }, { status: 429, headers: { "Retry-After": String(60 - Math.floor((now / 1000) % 60)) } });
+}
+
 /**
  * A cheap per-instance flood guard for every API route, including the free
  * ones (permalinks, Ship lookups), so scripted floods can't burn the KV quota.

@@ -270,9 +270,19 @@ export function parseSeedLinks(links: readonly string[]): { spotify: string[]; i
   return { spotify: [...new Set(spotify)], imdb: [...new Set(imdb)] };
 }
 
+/**
+ * Seeds from pasted catalog links. A failed lookup (a 400, a 5xx, a malformed reply) leaves the links
+ * unresolved, like an id Qloo doesn't know: the brief's names still seed the run, and if none resolve the
+ * run says so (NoSeedError). Only a budget or deadline stop ends it.
+ */
 async function resolveLinks(qloo: QlooClient, kind: "spotify" | "imdb", ids: string[]): Promise<Seed[]> {
   if (!ids.length) return [];
-  const r = await qloo.entitiesByExternal(kind, ids);
+  const r = await qloo.entitiesByExternal(kind, ids).catch((err: unknown) => {
+    if (isQlooStop(err)) throw err;
+    console.warn(`[qloo] ${kind} link lookup failed, using the brief's names: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  });
+  if (!r) return ids.map((id) => ({ name: `${kind}:${id}` }));
   if (!r.data.results.length) return ids.map((id) => ({ name: `${kind}:${id}` }));
   return r.data.results.map((e) => ({ name: e.name, entityId: e.entity_id, type: entityTypesOf(e)[0], matched: e.name }));
 }

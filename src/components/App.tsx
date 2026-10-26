@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PRESETS } from "@/lib/agent/presets";
 import type { RunResult, Served } from "@/lib/agent/types";
@@ -15,7 +15,17 @@ import { DiffCard } from "./DiffCard";
 import { ShipBar } from "./ShipBar";
 import { TasteMap } from "./TasteMap";
 import { callsLabel, callTally, Trace } from "./Trace";
-import { useRun } from "./useRun";
+import { endSentence, useRun, type RunOutcome } from "./useRun";
+
+/** A failed request's message; with a result still on screen it says so, after the message has ended its sentence. */
+export function RunError({ error, hasResult }: { error: string; hasResult: boolean }) {
+  return (
+    <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">
+      {hasResult ? endSentence(error) : error}
+      {hasResult && <span className="text-ink/80"> The previous result is still shown below.</span>}
+    </div>
+  );
+}
 
 /**
  * The ROI line, from this run's own measurements only. A run served from the
@@ -137,19 +147,31 @@ export function App() {
   // A `?run=` link the server doesn't know (or couldn't be asked about): the hero preset is shown instead, with this notice on top.
   const [deadLink, setDeadLink] = useState<"gone" | "failed">();
 
+  // The preset behind the result on screen (none for a custom brief or a permalink); unset while nothing is shown.
+  // A failed run leaves that result in place, so the highlight goes back to its preset, not to whatever was clicked last.
+  const shown = useRef<{ preset?: string }>(undefined);
+  const settle = useCallback((preset: string | undefined, outcome: RunOutcome | "gone") => {
+    if (outcome === "ok") shown.current = { preset };
+    else if (outcome === "failed" && shown.current) setActivePreset(shown.current.preset);
+  }, []);
+
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
-    if (initial.measure) void requery(initial.measure);
+    if (initial.measure) void requery(initial.measure).then((outcome) => settle(undefined, outcome));
     else if (initial.runId) {
       void open(initial.runId).then((outcome) => {
+        settle(undefined, outcome);
         // A dead link never leaves the page empty: say so, and show the hero preset.
         if (outcome !== "gone" && outcome !== "failed") return;
         setDeadLink(outcome);
         setActivePreset(PRESETS[0].id);
-        void run({ preset: PRESETS[0].id });
+        void run({ preset: PRESETS[0].id }).then((o) => settle(PRESETS[0].id, o));
       });
-    } else if (!("brief" in initial.request)) void run(initial.request);
-  }, [initial, run, open, requery]);
+    } else if (!("brief" in initial.request)) {
+      const { preset } = initial.request;
+      void run(initial.request).then((outcome) => settle(preset, outcome));
+    }
+  }, [initial, run, open, requery, settle]);
 
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
   const showForm = editing || (!result && !running);
@@ -212,14 +234,11 @@ export function App() {
               aria-pressed={activePreset === p.id}
               // Switching mid-run is allowed: the request in flight is cancelled.
               onClick={() => {
-                const before = activePreset;
                 setActivePreset(p.id);
                 setDeadLink(undefined);
                 setEditing(false);
-                // A refused or failed run leaves the previous result on screen, so its preset stays the highlighted one.
-                void run({ preset: p.id }).then((outcome) => {
-                  if (outcome === "failed" && result) setActivePreset(before);
-                });
+                // A refused or failed run leaves the previous result on screen, so the preset behind that one is highlighted again.
+                void run({ preset: p.id }).then((outcome) => settle(p.id, outcome));
               }}
               title={p.blurb}
               className={`rounded-full border px-3 py-1.5 text-meta disabled:opacity-60 ${activePreset === p.id ? "border-accent bg-accent/15 text-accent" : "border-line text-ink hover:border-accent/60"}`}
@@ -277,13 +296,10 @@ export function App() {
             // "Edit brief" starts from the brief on screen, not from empty fields.
             current={result ? { id: result.id, brief: result.brief } : undefined}
             onRun={(b) => {
-              const before = activePreset;
               setActivePreset(undefined);
               setDeadLink(undefined);
               setEditing(false);
-              void run({ brief: b }).then((outcome) => {
-                if (outcome === "failed" && result) setActivePreset(before);
-              });
+              void run({ brief: b }).then((outcome) => settle(undefined, outcome));
             }}
           />
         </div>
@@ -299,6 +315,7 @@ export function App() {
             onClick={() => {
               setShared(undefined);
               void run(shared).then((outcome) => {
+                settle(undefined, outcome);
                 if (outcome === "failed") setShared(shared);
               });
             }}
@@ -313,12 +330,7 @@ export function App() {
           Planning and taste-checking a new run; the previous result stays below until it is ready.
         </p>
       )}
-      {error && (
-        <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">
-          {error}
-          {result && <span className="text-ink/80"> The previous result is still shown below.</span>}
-        </div>
-      )}
+      {error && <RunError error={error} hasResult={!!result} />}
       {result && <DiffCard result={result} mode={mode} served={served} />}
       <AuditPanel seeds={result?.brief.seeds ?? AUDIT_SAMPLE_AUDIENCE.seeds} ages={result?.brief.ages ?? AUDIT_SAMPLE_AUDIENCE.ages} open={auditOpen} setOpen={setAuditOpen} />
 
@@ -351,7 +363,7 @@ export function App() {
           result={result}
           onMeasure={(campaignId) => {
             setActivePreset(undefined);
-            void requery(campaignId);
+            void requery(campaignId).then((outcome) => settle(undefined, outcome));
           }}
         />
       )}

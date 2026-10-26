@@ -123,9 +123,20 @@ export async function shippableByOwner(run: RunResult, cache: CacheStore = defau
 }
 const OwnerMark = z.object({ owner: z.literal(true) });
 
-/** Keeps a fallback run (a preset on the offline simulator) by id only, briefly: its permalink opens, but no brief points at it. */
-export async function keepFallbackRun(run: RunResult, cache: CacheStore = defaultCache()): Promise<void> {
-  await cache.set(resultKey(run.id), run, DEGRADED_TTL);
+/**
+ * Keeps a fallback run (a preset on the offline simulator): by id for a day, so its permalink opens, and briefly as
+ * the brief's last run, so refused clicks replay it. No brief's fresh-result pointer ever names it.
+ */
+export async function keepFallbackRun(run: RunResult, key: string, cache: CacheStore = defaultCache()): Promise<void> {
+  await Promise.all([cache.set(resultKey(run.id), run, RESULT_TTL), cache.set(lastKey(key), { id: run.id }, DEGRADED_TTL)]);
+}
+
+/**
+ * How to label a run served again: a run made on the simulator while this deployment answers from live Qloo
+ * was a fallback (live Qloo failed or was refused), and says so instead of claiming the deployment has no key.
+ */
+export function servedAs(run: RunResult, from: Served["from"], reason: string, deps: { qloo: Pick<RunDeps["qloo"], "primarySource"> }): Served {
+  return run.qloo.simulated > 0 && deps.qloo.primarySource === "live" ? { from: "simulated", reason } : { from, reason };
 }
 
 /** Keeps a run that was shipped for real until its campaign can be measured. */

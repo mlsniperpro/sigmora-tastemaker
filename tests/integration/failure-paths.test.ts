@@ -2,7 +2,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { rankCities } from "@/lib/agent/cities";
-import { TREND_POOL_TOP, aggregateDemographics, loadCulture, loadTrends, loadVenues, makeCtx, trendItems, trendWindow, type Audience, type RankedCandidate } from "@/lib/agent/context";
+import { TREND_POOL_TOP, aggregateDemographics, loadCulture, loadTrends, loadVenues, makeCtx, resolveSeeds, trendItems, trendWindow, type Audience, type RankedCandidate } from "@/lib/agent/context";
+import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
@@ -131,6 +132,20 @@ describe("rankCities", () => {
     expect(r.rankedBy).toBe("heatmap");
     expect(r.cities.length).toBeGreaterThan(0);
     expect(r.heatmap.length).toBeGreaterThan(0);
+  });
+
+  it("ranks by heatmap when the locality reply leaves a candidate out (the candidate filter dropped), saying why (audit 9)", async () => {
+    const q = offline();
+    const real = q.insights.bind(q);
+    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
+      const r = await real(t, p);
+      // As if the host ignored filter.results.entities: only one candidate comes back.
+      return t === "urn:entity:locality" ? { ...r, data: { ...r.data, results: { ...r.data.results, entities: (r.data.results.entities ?? []).slice(0, 1) } } } : r;
+    });
+    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
+    expect(r.rankedBy).toBe("heatmap");
+    expect(r.localityError).toMatch(/covered 1 of 3 candidate cities/);
+    expect(r.cities).toHaveLength(3);
   });
 });
 
@@ -395,5 +410,19 @@ describe("audit-6 regressions", () => {
     expect(isHealthy(r)).toBe(false);
     const full = await runTastemaker(must(PRESETS[0]).brief, { qloo: offline(), llm: new DeterministicLLM() });
     expect(isHealthy(full)).toBe(true);
+  });
+});
+
+describe("seed links (audit 9)", () => {
+  it("a failed link lookup leaves the link unresolved and the brief's names seed the run; a budget stop still ends it", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const hero = Brief.parse(must(PRESETS.find((p) => (p.brief.seedLinks ?? []).length > 0), "a preset with a seed link").brief);
+    const q = offline();
+    vi.spyOn(q, "entitiesByExternal").mockRejectedValue(new HttpError("Qloo", 400, "/entities"));
+    const seeds = await resolveSeeds(q, hero);
+    expect(seeds.some((s) => s.name.startsWith("spotify:") && !s.entityId)).toBe(true);
+    expect(seeds.filter((s) => s.entityId).length).toBeGreaterThan(0);
+    vi.spyOn(q, "entitiesByExternal").mockRejectedValue(new QlooBudgetError("day", 1));
+    await expect(resolveSeeds(q, hero)).rejects.toBeInstanceOf(QlooBudgetError);
   });
 });

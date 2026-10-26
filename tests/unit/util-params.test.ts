@@ -11,7 +11,7 @@ const name = fc.string({ minLength: 1, maxLength: 40 });
 
 describe("names", () => {
   it("normName is idempotent on the soak counterexample and F.C. variants", () => {
-    for (const s of ["_fC", "f c c", "Arsenal F.C.", "F.C. Barcelona", "f the c"]) expect(normName(normName(s)), s).toBe(normName(s));
+    for (const s of ["_fC", "f c c", "Arsenal F.C.", "F.C. Barcelona", "f the c", "c f c", "f c f", "C.F. F.C.", "c the f"]) expect(normName(normName(s)), s).toBe(normName(s));
     expect(normName("Arsenal F.C.")).toBe("arsenal");
     expect(normName("The Weeknd")).toBe("weeknd");
   });
@@ -66,11 +66,11 @@ describe("sameName and numbers", () => {
     expect(sameName("Grand Theft Auto VII", "Grand Theft Auto V")).toBe(false);
     expect(sameName("The The", "FC")).toBe(false);
     // Club and company suffixes, "St." and spelled-out numbers (audit 8).
-    for (const [a, b] of [["Real Madrid CF", "Real Madrid"], ["Nike, Inc.", "Nike"], ["St. Vincent", "Saint Vincent"], ["Fast Five", "Fast 5"], ["Ocean's Eleven", "Oceans 11"], ["Maroon Five", "Maroon 5"]]) {
+    for (const [a, b] of [["Real Madrid CF", "Real Madrid"], ["Real Madrid C.F.", "Real Madrid"], ["Real Madrid C.F.", "Real Madrid CF"], ["Nike, Inc.", "Nike"], ["St. Vincent", "Saint Vincent"]]) {
       expect(sameName(a ?? "", b ?? ""), `${a ?? ""} = ${b ?? ""}`).toBe(true);
     }
-    expect(sameName("Ocean's Twelve", "Ocean's Eleven")).toBe(false);
-    expect(sameName("Fast Five", "Fast X")).toBe(false);
+    // Spelled-out numbers name different works (audit 9): "Ocean's 11" (1960) is not "Ocean's Eleven" (2001).
+    for (const [a, b] of [["Ocean's Eleven", "Ocean's 11"], ["Nine", "9"], ["Ten", "10"], ["Ocean's Twelve", "Ocean's Eleven"]]) expect(sameName(a ?? "", b ?? ""), `${a ?? ""} ≠ ${b ?? ""}`).toBe(false);
   });
   it("reads digits and roman numerals I–XXXIX, and nothing else", () => {
     expect([numeralValue("v"), numeralValue("vii"), numeralValue("iv"), numeralValue("ix"), numeralValue("xiv"), numeralValue("xxxix"), numeralValue("23")]).toEqual([5, 7, 4, 9, 14, 39, 23]);

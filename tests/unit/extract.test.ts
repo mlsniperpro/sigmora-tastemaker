@@ -183,6 +183,39 @@ describe("labelled lines", () => {
     expect(read("Reference: Insecure: it nails the tone")).toEqual(["reference:Insecure"]);
   });
 
+  it("keeps a subtitle only when Qloo knows the whole title, for every item of a list (audit 9)", async () => {
+    expect(partsOf("Euphoria: HBO")).toEqual(["Euphoria"]);
+    const known = new Set(["Black Panther: Wakanda Forever", "Spider-Man: Across the Spider-Verse", "Euphoria", "Insecure", "Call Her Daddy"]);
+    const q = offline();
+    vi.spyOn(q, "search").mockImplementation((query: string) =>
+      Promise.resolve({
+        data: { results: known.has(query) ? [{ name: query, entity_id: query, types: ["urn:entity:tv_show"] }] : [] },
+        meta: { path: "/search", params: {}, key: `k:${query}`, source: "simulated", cached: false, latencyMs: 0 },
+      } as unknown as Awaited<ReturnType<QlooClient["search"]>>),
+    );
+    const read = async (t: string) => {
+      const lines = labelledPicks(t);
+      return names(await rejoin(q, lines.picks, lines.joins, lines.splits));
+    };
+    expect(await read("References: Euphoria: HBO, Insecure: Issa Rae")).toEqual(["reference:Euphoria", "reference:Insecure"]);
+    expect(await read("References: Black Panther: Wakanda Forever, Spider-Man: Across the Spider-Verse")).toEqual(["reference:Black Panther: Wakanda Forever", "reference:Spider-Man: Across the Spider-Verse"]);
+    expect(await read("Podcast pitch: Call Her Daddy: Alex Cooper")).toEqual(["podcast:Call Her Daddy"]);
+  });
+
+  it("reads list joiners, initials, legal suffixes and place codes the way people write them (audit 9)", () => {
+    const read = (t: string) => names(labelledPicks(t).picks);
+    for (const joiner of ["as well as", "along with", "featuring", "with"]) {
+      expect(read(`Collab targets: Burna Boy, Wizkid, ${joiner} Rema`)).toEqual(["collab:Burna Boy", "collab:Wizkid", "collab:Rema"]);
+    }
+    expect(read("Collab targets: J. Cole, Kendrick Lamar")).toEqual(["collab:J Cole", "collab:Kendrick Lamar"]);
+    expect(read("Collab targets: A.J. Tracey, Tems")).toEqual(["collab:A.J Tracey", "collab:Tems"]);
+    expect(read("Brand partners: Nike, Inc., Adidas")).toEqual(["sponsor:Nike", "sponsor:Adidas"]);
+    // City codes are cities; state codes and state names qualify the city before them.
+    expect(read("Launch cities: Atlanta, LA, NYC")).toEqual(["city:Atlanta", "city:LA", "city:NYC"]);
+    expect(read("Launch cities: Atlanta, DC")).toEqual(["city:Atlanta", "city:DC"]);
+    expect(read("Launch city: Nashville, Tennessee\nHost city: Portland, OR")).toEqual(["city:Nashville", "city:Portland"]);
+  });
+
   it("stays fast on hostile input: long whitespace or colon-free lines can't backtrack", () => {
     for (const filler of [" ".repeat(3970), "\u00a0".repeat(4000), "a ".repeat(2000), ":".repeat(4000), "-".repeat(4000)]) {
       const started = performance.now();

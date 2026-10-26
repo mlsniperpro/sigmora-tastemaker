@@ -40,18 +40,16 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## In flight (2026-10-26 ~16:35 UTC)
-- **Round 8 (three Sonnet lenses on d3fc58a):** 3 high, all from the Qloo lens: Oxford-comma names, "&"/"the" merges, and a refused cold preset giving a 503. Security and judge found no high. All 3 highs and every medium are fixed in this push (WIN-CHECKLIST I1–I20; the `[-]` items are decisions).
-- **Soak on d3fc58a:** `FC_NUM_RUNS=100000` deep pass 465/465, then 60 seeded rounds with no failure. Fresh clone of 5124c3e: install, demo, 467/467, GET / 200, MCP lists 3 tools. e2e on 5124c3e: 24/24.
-- **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 483; `pnpm test:e2e` 24.
-- **Running now (started ~16:30 UTC on 52a25e1):** round 9 of the audit (three Sonnet lenses, each in its own scratchpad worktree `aud9q`, `aud9s`, `aud9j`), and a soak (deep pass, then 60 seeded rounds; logs `soak9-*.log` in the scratchpad). If this session ends before they report, re-run both on the pushed HEAD.
-- **Then:** fix what round 9 finds, then a 10th round; two clean rounds in a row are needed.
-- **PR body:** updated for 52a25e1 (round-8 status, decisions, self-review).
+## In flight (2026-10-26 ~17:05 UTC)
+- **Round 9 (three Sonnet lenses on 52a25e1):** not clean. The Qloo lens found 1 high (J1, a failed seed-link lookup sank the run) and 1 high-if-live (J2, a 404 meaning "no results"). Security and judge found no high. All are fixed in this push, with every medium and most lows (WIN-CHECKLIST J1–J21).
+- **Soak on 52a25e1:** deep pass 483/483, then 60 seeded rounds with no failure.
+- **Verified on this commit:** lint and typecheck clean; `pnpm test` 35 files / 499; `pnpm test:e2e` 24.
+- **Next:** round 10 (three Sonnet lenses) plus a soak on this commit. Two clean rounds in a row are needed (rounds 10 and 11 at the earliest).
 
 ## Open audit findings
-- None at critical or high after round 8.
+- None at critical or high after round 9.
 - **Owner decision:** making the repo public exposes `docs/PLAYBOOK.md` and `.agent/` (BLOCKED.md).
-- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: I12 custom pool size, I15 counter order, I16 refund day, I20 simulated strike-throughs).
+- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: I12, I16, I20, J10, J21).
 
 ## Next steps, in order
 1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).

@@ -21,3 +21,6 @@ export function hasLoneSurrogate(value: unknown, depth = 0): boolean {
 }
 
 export const MALFORMED_TEXT = "Text contains an invalid character (a broken emoji or encoding); please retype it.";
+
+/** `s` with every lone UTF-16 surrogate replaced by U+FFFD (model text can carry one; encodeURIComponent throws on it). */
+export const wellFormed = (s: string): string => s.replace(new RegExp(LONE_SURROGATE.source, "g"), "\uFFFD");
