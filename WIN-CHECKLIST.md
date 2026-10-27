@@ -436,3 +436,14 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 4 judge: the demo script's Taste Map line says heatmap, matching the code
 - [-] 5 judge: the audit replacement's trend (as re-audit 13 M3)
 - [-] 6 judge: a "Map ↓" jump in the sticky bar: the Taste Map follows the pack, and the diff card already shows where to launch on desktop
+
+## Re-audit 16 (2026-10-27, on 153d2ea: 1 high from Qloo depth (stale docs); 0 high from security; the judge-path lens stopped at a usage limit before reporting)
+
+- [x] 1 Qloo (high): README, SUBMISSION, judging and BLOCKED #8 still described the per-metro probes round 15 removed; all four now describe the one nationwide call, how a metro is scored, and that an unreached metro stays unranked
+- [P] 2 Qloo: search hits must carry `location.lat/lon` for the fold and the city verdicts; added to BLOCKED #8's live check
+- [x] 3 Qloo: a plan naming a city outside the candidates had its venues judged in another city; the plan's city now joins the ranking from the same cells (no new insights call) when it resolves exactly, so verdict and venues follow it (`cities.ts` `rankPlanCity`, `run.ts` `followPlanCity`; `tests/integration/failure-paths.test.ts`)
+- [P] 4 Qloo: the POLYGON form of `filter.location` and the spread of the 50 cells over ≥ 3 metros are live checks (BLOCKED #8); the docs now say a metro's score is the mean affinity of the audience's strongest cells near it
+- [x] 5 Qloo: the benchmark's city rule now reads as the code does (below the third-ranked metro on the nationwide heatmap)
+- [x] 1 security: maplibre-gl 5.24.0 → 6.4.1 (GHSA-jrc7-96c5-q579; `pnpm audit --prod`: no known vulnerabilities); the tile map loads in `next build` + `next start` at 390 and 1440 px with no console errors, and e2e's tile and fallback test passes
+- [x] 2 security: a brief edited from a `?b=` link or a non-preset `?run=` permalink keeps `shared: true`, so it never becomes the owner's run; a preset clears it (`App.tsx` `fromLink`; e2e "a brief edited from someone's shared link")
+- [x] 3 security: parser errors (`ZodError`, `SyntaxError`) are logged and shown as a plain sentence (`net.ts`; `tests/integration/api.test.ts`); other errors this app raises are written as sentences for visitors, so they still show
