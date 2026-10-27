@@ -3,7 +3,7 @@
  * external critic):
  *
  *   resolve → vibe tags → profile (demographics, taste tags) → culture map →
- *   where to launch (locality ranking + heatmap) → venues → timing (trending)
+ *   where to launch (nationwide heatmap folded into metros) → venues → timing (trending)
  *   → positioning (compare) → generate (LLM) → Qloo critic → replace & revise
  *   (≤ maxRounds) → pack with receipts.
  *
@@ -202,7 +202,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     const cityAndVenues = (async () => {
       const target = brief.targetCity;
       if (target) {
-        // A fixed market: where inside it the audience is (neighbourhood-scale heatmap).
+        // A fixed market: where inside it the audience is (a heatmap inside its boundary).
         await tracer.optional("cities", `Where in ${target} (urn:heatmap + filter.location.query)`, async (s) => {
           const r = await qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location.query": target, "filter.location.radius": 0, take: HEATMAP_TAKE });
           where.heatmap = (r.data.results.heatmap ?? []).flatMap((c) =>

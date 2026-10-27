@@ -331,7 +331,7 @@ export function TasteMap({ result }: { result: RunResult }) {
           title={result.citiesRankedBy === "in-city" ? `Where in ${result.brief.targetCity ?? "the city"}` : "Where to launch"}
           sub={
             result.citiesRankedBy === "in-city"
-              ? `Neighbourhood-scale audience affinity inside the brief's market (urn:heatmap + filter.location.query=${result.brief.targetCity ?? ""})`
+              ? `Audience affinity across the cells inside the brief's market (urn:heatmap + filter.location.query=${result.brief.targetCity ?? ""})`
               : "Candidate metros ranked by the audience's strongest urn:heatmap cells around them (one nationwide call, so every metro is on the same scale)"
           }
         >

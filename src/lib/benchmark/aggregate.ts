@@ -17,6 +17,8 @@ export interface BenchRow {
   sources: string[];
   fallbacks: number;
   qlooCalls: number;
+  /** Picks left "Not checked" because the run's Qloo budget or time cut a critic pass (both plans). */
+  cut?: number;
   error?: string;
 }
 
@@ -104,6 +106,8 @@ export function summarize(
     ...(meta.modelScripted ? ["drafts came from the scripted offline model, not an LLM"] : []),
     ...(qlooSources.some((s) => s !== "live" && s !== "replay") ? [`Qloo answers came from: ${qlooSources.join(", ")}`] : []),
     ...(qlooFallbacks ? [`${qlooFallbacks} Qloo calls fell back after a live failure`] : []),
+    // A pick the run's budget or time cut was never judged: a rate that leaves it out would rest on a truncated audit.
+    ...(ok.some((r) => r.cut) ? [`${String(ok.reduce((n, r) => n + (r.cut ?? 0), 0))} picks weren't checked because a run's Qloo budget or time ran out (raise QLOO_RUN_CALL_CAP)`] : []),
     // A rate over a sliver of the picks (or none) would read as a real number it isn't.
     ...(["baseline", "grounded"] as const).flatMap((side) => {
       const t = totals(ok.map((r) => r[side]));
@@ -147,7 +151,7 @@ const METHOD = (briefs: number) => `## Method
 - For each brief the **same model** drafts two plans: one with Qloo grounding and the Qloo critic loop, one with no Qloo access.
 - Every cultural entity each plan names is resolved with Qloo \`/search\` and scored with \`/v2/insights\` + \`filter.results.entities\` + \`feature.explainability\` against the brief's audience signal, with no trend bias or diversification on scoring calls.
 - **Not-found ("hallucination") rate:** named entities with no match in a typed or an untyped Qloo \`/search\`. Real entities outside Qloo's catalogue land here too, so this is an upper bound on invention. A real entity Qloo files under another type counts as a miss for its role.
-- **Unscored:** picks Qloo returned no affinity for (or whose role had no candidate pool); they are excluded from every rate's denominator and shown in the Unscored column.
+- **Unscored:** picks Qloo returned no affinity for (or whose role had no candidate pool); they are excluded from every rate's denominator and shown in the Unscored column. A pick a run's Qloo budget or time cut before it was checked makes the whole run not a measurement.
 - **Culture Miss Rate:** hallucinations plus resolved picks scoring below the pass bar (max(0.25, 0.7 × the median plain affinity of the candidates Qloo returned for that role: up to 10, trend-biased lists re-scored without the bias); launch city: below the third-ranked metro on the audience's nationwide heatmap (a city none of its strongest cells reach is a miss); venues: outside the launch city's boundary, checked with \`filter.location.radius=0\` so Qloo doesn't pad it).
 - **Fading-reference rate:** hook references that clear the bar but whose newest /v2/trending reading (a 6-week window) has \`population_percent_delta\` below −3 (provisional until the first live recording).
 - The grounded plan is scored after the critic loop (up to 2 revise rounds), so it measures the shipped plan. The pass bar is the one the critic uses, so this measures what the product ships, not an independent judgment of taste — which is what the judge below is for.

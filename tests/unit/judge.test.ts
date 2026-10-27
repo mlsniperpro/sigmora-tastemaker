@@ -209,6 +209,12 @@ describe("summaries and the report", () => {
     expect(partial).toMatch(/\*\*Incomplete:\*\* 1 of 2 pairs could not be judged[\s\S]*- Kaya: judge timed out/);
   });
 
+  it("marks a run invalid when a run's Qloo budget or time left picks unchecked (audit 17)", () => {
+    const s = summarize([rowOf("music"), { ...rowOf("dtc"), cut: 3 }], { briefs: 2, model: "x", modelScripted: false, ranAt: "t" });
+    expect(s.valid).toBe(false);
+    expect(s.invalidReasons).toEqual(["3 picks weren't checked because a run's Qloo budget or time ran out (raise QLOO_RUN_CALL_CAP)"]);
+  });
+
   it("marks partial or fallback runs invalid, and names what failed", () => {
     const failed = { ...rowOf("music"), subject: "Kaya", error: "No seed resolved" };
     const s = summarize([rowOf("music"), failed], { briefs: 2, model: "x", modelScripted: false, ranAt: "t" });

@@ -35,7 +35,7 @@ for (const p of PRESETS) {
     const r = await runTastemaker(p.brief, { qloo, llm: new DeterministicLLM() });
     const empty = r.trace.filter((s) => s.status === "error").map((s) => `${s.id}: ${s.detail}`);
     console.log(`✓ ${p.id}: ${r.trace.reduce((n, s) => n + s.calls.length, 0)} calls; failed steps: ${empty.join(" | ") || "none"}`);
-    if (!r.cities.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: no metro ranking — check urn:entity:locality params`);
+    if (!r.cities.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: no metro ranking — check the nationwide urn:heatmap call and that /search locality hits carry location.lat/lon (BLOCKED #8)`);
     if (!r.heatmap.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: empty heatmap — check heatmap params`);
   } catch (err) {
     failures++;

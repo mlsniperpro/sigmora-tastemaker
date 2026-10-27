@@ -32,6 +32,9 @@ const recorder: Record<string, string> = {};
 const judgeModel = liveJudge?.model ?? process.env.JUDGE_MODEL ?? process.env.LLM_MODEL;
 const judge = judgeModel && (liveJudge || Object.keys(judgeFixtures).length) ? new ReplayChat(judgeModel, judgeFixtures, liveJudge, recorder) : undefined;
 
+// A measurement judges every pick: give each brief's run more Qloo calls than the demo's per-run cap, unless set.
+process.env.QLOO_RUN_CALL_CAP ??= "200";
+
 const rows: BenchRow[] = [];
 const runs: RunResult[] = [];
 const judgements: PairJudgement[] = [];
@@ -46,6 +49,7 @@ for (const input of BRIEFS) {
     if (r.baseline.unavailable) throw new Error(`baseline draft failed: ${r.baseline.unavailable}`);
     runs.push(r);
     const sens = (rs: typeof r.grounded.receipts) => rs.map(({ verdict, affinity, poolMedian }) => ({ verdict, affinity, poolMedian }));
+    const cut = [...r.grounded.receipts, ...r.baseline.receipts].filter((x) => x.note.startsWith("Not checked")).length;
     rows.push({
       subject: brief.subject,
       family: brief.family,
@@ -55,6 +59,7 @@ for (const input of BRIEFS) {
       sources: r.sources,
       fallbacks: r.qloo.fallbackCalls,
       qlooCalls: r.qloo.calls,
+      ...(cut ? { cut } : {}),
     });
     if (judge) {
       try {

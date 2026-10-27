@@ -20,9 +20,10 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 | Map the brief's vibe to taste tags | `GET /v2/tags` with `feature.semantic_search=true` → `signal.interests.tags` on every later call |
 | Who over-indexes | `/v2/insights` `filter.type=urn:demographics` |
 | Taste vocabulary | `/v2/insights` `filter.type=urn:tag` |
-| Cross-domain culture map | `/v2/insights` × artist, brand, tv_show, movie, podcast, person, all with `signal.interests.entities` + `signal.demographics.*` |
+| Cross-domain culture map | `/v2/insights` × artist, brand, tv_show, movie, podcast, person, all with `signal.interests.entities` + `signal.demographics.*` (except person: no demographics there, see BLOCKED #20) |
 | Where to launch (candidates) | `/search` (localities) resolves each candidate metro; locality insights aren't used to rank them, since the docs allow only locality signals there |
 | Where to launch (heatmap) | `/v2/insights` `urn:heatmap` + `filter.location` (US polygon); each metro scored by the mean affinity of the audience's strongest cells within 60 km (one call, one scale); a metro none of them reach stays unranked |
+| Where in a fixed market | `/v2/insights` `urn:heatmap` + `filter.location.query=<city>` + `filter.location.radius=0` (the DTC preset: where inside Atlanta the audience is) |
 | Venues in the city | `/v2/insights` `urn:entity:place` + `filter.location.query` + `filter.location.radius=0` (the city's own boundary) |
 | Rising vs. fading | `GET /v2/trending` |
 | Positioning | `GET /v2/analysis/compare` |
