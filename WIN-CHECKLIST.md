@@ -464,3 +464,21 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 6 judge: `pnpm screenshots` makes the desktop gallery images 1440 × 960 (3:2); retaken offline (labelled simulated), to retake live with the keys
 - [x] 7 judge: the audit's scan caveats fold behind "How the names were found"
 - [x] SVG map labels keep a line height apart (Washington and New York no longer overlap; checked in the retaken screenshots)
+
+## Re-audit 18 (2026-10-27, three lenses on 506cea1: 0 critical and 0 high from Qloo depth, security and the judge path)
+
+- [x] 1 Qloo: `pnpm runs:record` refuses a run that isn't healthy (any step not done, any pick unscored), the same bar the run cache serves by (`scripts/record-runs.ts` `isHealthy`)
+- [P] 2 Qloo: the per-run cap is sized from the scripted run; BLOCKED #23 sets it from the first live recording
+- [-] 3 Qloo: metros are scored by the mean affinity of the audience's strongest cells near them, a measure of intensity among the nationwide top 50; BLOCKED #8 checks the spread live, and the ranking's cells and calls are on every receipt
+- [-] 4 Qloo: a non-budget Qloo failure in a critic pass fails that step (visible in the trace; presets fall back to their recording) rather than passing picks unchecked
+- [x] 5 Qloo: README says what the recorded fallback covers (the presets' discovery and scripted picks)
+- [x] 6 Qloo: SUBMISSION says the launch city is ranked on the heatmap, not scored with explainability
+- [-] 7 Qloo: `diversify.*` on place/destination and `page`/`signal.location` stay allowed: the insights deep dive and the parameter reference list them where the availability table doesn't, and nothing sends them today
+- [x] 8 Qloo: BLOCKED #11 points at `vocab.ts` `FADING_BELOW`
+- [x] 1 security: tests remove every app variable from the environment before running, so exported keys or a KV URL never reach live services (`tests/setup.ts`; `pnpm test` passes with `QLOO_API_KEY`, `LLM_*` and `KV_*` exported)
+- [x] 2 security: `QlooSchemaError` and `LLMOutputError` text stays server-side, and every receipt, trace and warning that quoted a raw error goes through `publicErrorText` (`net.ts`, `context.ts`, `mentions.ts`, `tasteCheck.ts`, `qloo/client.ts`; `tests/integration/api.test.ts`)
+- [-] 3–6 security (info): the budget refusal names the cap that refused (it is in `.env.example` anyway), the misconfigured-live-mode 500, an unbounded `?b=` banner (the server re-validates; nothing executes), CI actions pinned by tag with read-only permissions
+- [x] 1 judge: the scanner caveat says a label must start the line
+- [x] 2 judge: an unreadable `?b=` link says so and shows the hero preset (`App.tsx`; e2e)
+- [x] 3 judge: the tile map gives way to the SVG map after 6 s
+- [-] 4/5 judge: SVG label crowding on the sports preset is readable; a custom brief made from a preset keeps its hidden fields, and "Kept from the brief on screen" says so
