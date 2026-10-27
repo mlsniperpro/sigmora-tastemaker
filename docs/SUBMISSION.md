@@ -47,7 +47,7 @@ Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (a
 - `/search` and `/entities` (Spotify/IMDb external IDs) to resolve seeds and catch names that aren't in Qloo
 - `/v2/insights` with `urn:demographics` (who over-indexes) and `urn:tag` (taste vocabulary for the copy)
 - `/v2/insights` across artist, brand, tv_show, movie, podcast and person: the cross-domain culture map
-- `urn:heatmap` over the US folded into candidate metros, plus a heatmap inside each metro the nationwide one misses: where to launch
+- `urn:heatmap` over the US, the audience's strongest cells folded into candidate metros on one scale: where to launch
 - `urn:entity:place` with `filter.location.query` and `filter.location.radius=0`: venues, and the venue-in-city check on the city's own boundary
 - `filter.results.entities` + `feature.explainability`: the critic
 - `/v2/trending`: rising vs. fading references

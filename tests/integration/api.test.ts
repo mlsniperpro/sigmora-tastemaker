@@ -1,5 +1,6 @@
 /** Route handlers (/api/run, /api/ship) over the offline stack: streaming, caching, validation and failure paths. */
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { POST as run, runErrorMessage } from "@/app/api/run/route";
 import { HttpError, TimeoutError } from "@/lib/net";
 import { ConfigError } from "@/lib/config";
@@ -43,8 +44,11 @@ describe("/api/run", () => {
     expect(runErrorMessage(new HttpError("KV", 500, "/pipeline"))).toBe("A backing service didn't answer.");
     expect(runErrorMessage(new TimeoutError("LLM", "/v1/chat/completions", 25000))).toBe("A backing service didn't answer.");
     expect(runErrorMessage(new ConfigError("Invalid KV setup: set both KV_REST_API_URL and KV_REST_API_TOKEN"))).toBe("This deployment is misconfigured.");
+    // A parser's error quotes a reply's shape or its first bytes (audit 16).
+    expect(runErrorMessage(z.object({ result: z.number() }).safeParse({}).error)).toBe("A backing service sent a reply it couldn't read.");
+    expect(runErrorMessage(new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`))).toBe("A backing service sent a reply it couldn't read.");
     // Each one is still logged server-side.
-    expect(quiet).toHaveBeenCalledTimes(4);
+    expect(quiet).toHaveBeenCalledTimes(6);
     quiet.mockRestore();
   });
 

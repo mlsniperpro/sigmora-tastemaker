@@ -101,3 +101,19 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
     unranked: candidates.filter((c) => !placed.has(c.entityId)).map((c) => c.name),
   };
 }
+
+/**
+ * Adds a city the plan names to the ranked candidates, measured on the run's nationwide heatmap (no new insights
+ * call). Only an exact Qloo match counts, so an invented city can't borrow a real one's rank; a city none of the
+ * audience's strongest cells reach isn't added (the critic then calls it a measured miss).
+ */
+export async function rankPlanCity(ctx: Ctx, name: string): Promise<void> {
+  const heat = ctx.cityHeat;
+  if (!heat) return;
+  const { hit } = await resolveByName(ctx.qloo, name, { types: ["locality"], take: 3 });
+  const { lat, lon } = hit?.location ?? {};
+  if (!hit || lat === undefined || lon === undefined || ctx.candidates.city?.some((c) => c.entityId === hit.entity_id)) return;
+  const [folded] = foldHeatmap([{ name, type: "locality" as const, affinity: 0, entityId: hit.entity_id, lat, lon }], heat.cells);
+  if (!folded) return;
+  ctx.candidates.city = [...(ctx.candidates.city ?? []), { ...folded, key: heat.key }].sort((a, b) => b.affinity - a.affinity);
+}

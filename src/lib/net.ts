@@ -21,15 +21,17 @@ export class HttpError extends Error {
 }
 
 /**
- * An error's text as a visitor may read it. Qloo's own failures are part of the product's story and stay; a
- * backing service's (model, KV, Sigmora) status and path, or a configuration problem, are logged server-side and
- * replaced by a plain sentence, so the page never discloses vendors, paths or variable names.
+ * An error's text as a visitor may read it. Qloo's own failures and this app's errors (written as sentences) stay;
+ * a backing service's status and path (model, KV, Sigmora), a config problem, and a parser's error (a reply's schema
+ * path or the first bytes of an HTML page) are logged server-side and replaced by a plain sentence, so the page never
+ * discloses vendors, paths, variable names or internal shapes.
  */
 export function publicErrorText(err: unknown): string {
   const backing = (err instanceof HttpError || err instanceof TimeoutError) && err.service !== "Qloo";
-  if (backing || (err instanceof Error && err.name === "ConfigError")) {
+  const parser = err instanceof Error && (err.name === "ZodError" || err instanceof SyntaxError);
+  if (backing || parser || (err instanceof Error && err.name === "ConfigError")) {
     console.error(err);
-    return backing ? "a backing service didn't answer" : "this deployment is misconfigured";
+    return backing ? "a backing service didn't answer" : parser ? "a backing service sent a reply it couldn't read" : "this deployment is misconfigured";
   }
   return err instanceof Error ? err.message : String(err);
 }

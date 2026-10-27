@@ -1,7 +1,7 @@
 /** Failure paths and Qloo call-shape rules from the API-contract review: each one used to sink a run or show a wrong number. */
 import { describe, expect, it, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { US_WKT, rankCities } from "@/lib/agent/cities";
+import { US_WKT, rankCities, rankPlanCity } from "@/lib/agent/cities";
 import { TREND_POOL_TOP, aggregateDemographics, loadCulture, loadTrends, loadVenues, makeCtx, parseSeedLinks, resolveSeeds, trendItems, trendWindow, type Audience, type RankedCandidate } from "@/lib/agent/context";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
@@ -164,6 +164,23 @@ describe("rankCities", () => {
     const twice = await rankCities(ctxOf(q), ["Atlanta", "Atlanta, GA"]);
     expect(new Set(twice.cities.map((c) => c.entityId)).size).toBe(twice.cities.length);
     expect(twice.cities.length + twice.unranked.length).toBe(1);
+  });
+});
+
+describe("rankPlanCity (audit 16)", () => {
+  it("adds a city the plan names to the ranking from the same nationwide cells, never an invented one or one no cell reaches", async () => {
+    const q = offline();
+    const ctx = ctxOf(q);
+    const spy = vi.spyOn(q, "insights");
+    ctx.candidates.city = [];
+    ctx.cityHeat = { cells: [{ lat: 42.36, lon: -71.06, affinity: 0.8 }], key: "heat-key" };
+    await rankPlanCity(ctx, "Boston");
+    expect(ctx.candidates.city.map((c) => [c.name, c.key])).toEqual([["Boston", "heat-key"]]);
+    await rankPlanCity(ctx, "Atlanta");
+    await rankPlanCity(ctx, "Zzqx City");
+    expect(ctx.candidates.city.map((c) => c.name)).toEqual(["Boston"]);
+    // Measured on the cells already fetched: no new insights call.
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 

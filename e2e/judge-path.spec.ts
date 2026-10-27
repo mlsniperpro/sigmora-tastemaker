@@ -459,3 +459,30 @@ test("a ?measure= link waits for a click before reading a campaign or spending a
   await ask.getByRole("button", { name: "Measure & re-plan" }).click();
   await expect.poll(() => calls.some((u) => u.includes("/api/"))).toBe(true);
 });
+
+test("a brief edited from someone's shared link still says so to the server, and a preset clears it", async ({ page }) => {
+  const bodies: Record<string, unknown>[] = [];
+  page.on("request", (r) => {
+    if (r.url().endsWith("/api/run") && r.method() === "POST") bodies.push(JSON.parse(r.postData() ?? "{}") as Record<string, unknown>);
+  });
+  const brief = { family: "music", subject: "Kofi Vale", product: "debut EP", seeds: ["Tems"], ages: ["25_to_29"], goal: "Launch to 25–34s.", candidateCities: ["Atlanta", "Houston"] };
+  await page.goto(`/?b=${Buffer.from(JSON.stringify(brief)).toString("base64url")}`);
+  await page.getByRole("region", { name: "Shared brief" }).getByRole("button", { name: "Plan & taste-check it" }).click();
+  await finished(page);
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  const bar = page.getByRole("form", { name: "Your own brief" });
+  await bar.getByLabel("Who's launching").fill("Kofi Vale II");
+  await bar.getByRole("button", { name: "Plan & taste-check" }).click();
+  await expect(page.getByText("Brief: Kofi Vale II")).toBeVisible();
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies.map((b) => b.shared)).toEqual([true, true]);
+  // A preset starts clean.
+  await page.getByRole("button", { name: "DTC brand: new city" }).click();
+  await finished(page);
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  await bar.getByLabel("Who's launching").fill("Own Brand");
+  await bar.getByRole("button", { name: "Plan & taste-check" }).click();
+  await expect(page.getByText("Brief: Own Brand")).toBeVisible();
+  await expect.poll(() => bodies.length).toBe(4);
+  expect(bodies[3]?.shared).toBeUndefined();
+});

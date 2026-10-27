@@ -159,6 +159,10 @@ export function App() {
     else if (outcome === "failed" && shown.current) setActivePreset(shown.current.preset);
   }, []);
 
+  // Whether the brief on screen came from a link (someone's ?b= brief or ?run= permalink). Editing it keeps that origin,
+  // so the server never treats the result as the signed-in owner's own brief; a preset clears it.
+  const fromLink = useRef(false);
+
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
     if (initial.measure) return;
@@ -168,11 +172,13 @@ export function App() {
       void open(initial.runId, (r) => {
         preset = presetIdOf(r.brief);
         if (preset) setActivePreset(preset);
+        else fromLink.current = true;
       }).then((outcome) => {
         settle(preset, outcome);
         // A dead link never leaves the page empty: say so, and show the hero preset.
         if (outcome !== "gone" && outcome !== "failed") return;
         setDeadLink(outcome);
+        fromLink.current = false;
         setActivePreset(PRESETS[0].id);
         void run({ preset: PRESETS[0].id }).then((o) => settle(PRESETS[0].id, o));
       });
@@ -257,6 +263,7 @@ export function App() {
             type="button"
             onClick={() => {
               setShared(undefined);
+              fromLink.current = true;
               void run({ ...shared, shared: true }).then((outcome) => {
                 settle(undefined, outcome);
                 if (outcome === "failed") setShared(shared);
@@ -303,6 +310,7 @@ export function App() {
                 setDeadLink(undefined);
                 setEditing(false);
                 // A refused or failed run leaves the previous result on screen, so the preset behind that one is highlighted again.
+                fromLink.current = false;
                 void run({ preset: p.id }).then((outcome) => settle(p.id, outcome));
               }}
               title={p.blurb}
@@ -364,7 +372,7 @@ export function App() {
               setActivePreset(undefined);
               setDeadLink(undefined);
               setEditing(false);
-              void run({ brief: b }).then((outcome) => settle(undefined, outcome));
+              void run(fromLink.current ? { brief: b, shared: true } : { brief: b }).then((outcome) => settle(undefined, outcome));
             }}
           />
         </div>

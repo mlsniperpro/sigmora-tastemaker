@@ -16,7 +16,7 @@ import { llmFromEnv } from "../llm";
 import { applyReplacements, type Choice, type Draft, type Grounding, type LLMProvider } from "../llm/types";
 import { Brief, ROLE_SPEC, type BriefInput } from "./brief";
 import { applyChoices, ownProposals, withOwnIdeas } from "./choose";
-import { HEATMAP_TAKE, rankCities } from "./cities";
+import { HEATMAP_TAKE, rankCities, rankPlanCity } from "./cities";
 import { chooseReplacements, critique, metricsOf, type Critique } from "./critic";
 import {
   aggregateDemographics,
@@ -289,6 +289,9 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     const followPlanCity = async (d: Draft) => {
       if (brief.targetCity) return;
       const named = d.picks.find((p) => p.role === "city")?.name;
+      // A city the plan names outside the candidates is measured on the same nationwide heatmap and joins the ranking,
+      // so its verdict and its venues come from the city the plan actually names.
+      if (named && ctx.cityHeat && !ctx.candidates.city?.some((c) => sameName(c.name, named))) await rankPlanCity(ctx, named);
       const ranked = named ? ctx.candidates.city?.find((c) => sameName(c.name, named)) : undefined;
       if (!ranked || (ctx.city && sameName(ranked.name, ctx.city))) return;
       const city = ranked.name;
