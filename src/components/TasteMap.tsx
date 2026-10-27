@@ -103,10 +103,12 @@ function placeLabels(cities: readonly MapCity[], size: number): { c: MapCity; y:
     const w = `${String(cities.indexOf(c) + 1)}. ${c.name}`.length * size * 0.56;
     const x = px(c.lon) + (leftward(c.lon) ? -7 : 7);
     const [x0, x1] = leftward(c.lon) ? [x - w, x] : [x, x + w];
+    // A line is taller than the font size (ascenders, descenders), so boxes get a line height's room.
+    const line = size * 1.35;
     let y = py(c.lat) - 6;
-    const hits = () => boxes.some((b) => x0 < b.x1 && b.x0 < x1 && y - size < b.y1 && b.y0 < y);
-    for (let tries = 0; tries < 4 && hits(); tries++) y -= size + 2;
-    boxes.push({ x0, x1, y0: y - size, y1: y });
+    const hits = () => boxes.some((b) => x0 < b.x1 && b.x0 < x1 && y - line < b.y1 && b.y0 < y);
+    for (let tries = 0; tries < 4 && hits(); tries++) y -= line;
+    boxes.push({ x0, x1, y0: y - line, y1: y });
     return { c, y };
   });
 }
