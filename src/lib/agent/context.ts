@@ -13,6 +13,7 @@ import { FADING_BELOW } from "../vocab";
 import { ROLE_SPEC, ROLES, type Brief, type PickType, type Role } from "./brief";
 import type { Driver, HeatCell } from "./types";
 import { isTitlePart, normName, sameName } from "./util";
+import { publicErrorText } from "../net";
 
 /** Entity types whose titles carry subtitles, where a plan may name just the title or the subtitle. */
 const TITLED: ReadonlySet<string> = new Set(["movie", "tv_show", "podcast", "video_game", "book"]);
@@ -289,7 +290,7 @@ async function resolveLinks(qloo: QlooClient, kind: "spotify" | "imdb", ids: str
   if (!ids.length) return [];
   const r = await qloo.entitiesByExternal(kind, ids).catch((err: unknown) => {
     if (isQlooStop(err)) throw err;
-    const why = err instanceof Error ? err.message : String(err);
+    const why = publicErrorText(err);
     console.warn(`[qloo] ${kind} link lookup failed, using the brief's names: ${why}`);
     failures.push(why);
     return undefined;
@@ -433,7 +434,7 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
     if (r.status === "fulfilled") lists.push(r.value);
     else {
       errors.push(r.reason);
-      failures.push(`${types[i] ?? "?"}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
+      failures.push(`${types[i] ?? "?"}: ${publicErrorText(r.reason)}`);
     }
   });
   if (types.length && !lists.length) throw errors[0] instanceof Error ? errors[0] : new Error(failures.join("; "));
@@ -498,7 +499,7 @@ export async function readTrends(
   const refused = new Map<string, string>();
   settled.forEach((r, i) => {
     if (r.status === "fulfilled") return;
-    const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+    const msg = publicErrorText(r.reason);
     const id = ids[i];
     if (isQlooStop(r.reason) && id !== undefined) refused.set(id, msg);
     else failed.push(msg);

@@ -9,6 +9,7 @@ import { rankCities } from "./cities";
 import { PRESETS } from "./presets";
 import { discoveryFromConfig, loadCulture, loadVenues, makeCtx, resolveSeeds, watchSimulated, type Audience, type CriticSettings } from "./context";
 import type { Metrics, Receipt } from "./types";
+import { publicErrorText } from "../net";
 
 export interface TasteCheckInput {
   /** Names the audience already loves. */
@@ -49,7 +50,7 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
         await loadVenues(ctx, input.city).catch((err: unknown) => {
           if (isQlooStop(err)) throw err;
           ctx.candidates.venue = [];
-          cityWarnings.push(`couldn't load venues in ${input.city ?? ""} (${err instanceof Error ? err.message : String(err)})`);
+          cityWarnings.push(`couldn't load venues in ${input.city ?? ""} (${publicErrorText(err)})`);
         });
       }
     } else {
@@ -69,7 +70,7 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
           await loadVenues(ctx, planCity).catch((err: unknown) => {
             if (isQlooStop(err)) throw err;
             ctx.candidates.venue = [];
-            cityWarnings.push(`couldn't load venues in ${planCity} (${err instanceof Error ? err.message : String(err)})`);
+            cityWarnings.push(`couldn't load venues in ${planCity} (${publicErrorText(err)})`);
           });
         }
       }

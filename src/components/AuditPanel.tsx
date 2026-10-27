@@ -74,7 +74,7 @@ export function extractionNote(r: AuditResult): string {
   const how =
     e.by === "model"
       ? `Names listed by ${e.model ?? "the model"} from your text; every one is checked against the catalogue, so an invented name comes back not found.`
-      : "Names found by the deterministic scanner: every name on a labelled line (“Collab targets: …”), invented ones included, plus other names the catalogue knows by that exact name.";
+      : "Names found by the deterministic scanner: every name on a line that starts with a label (“Collab targets: …”), invented ones included, plus other names the catalogue knows by that exact name.";
   const skipped = e.unsearched ? ` ${plural(e.unsearched, "other capitalised phrase")} past the scan's limit ${e.unsearched === 1 ? "wasn't" : "weren't"} looked up.` : "";
   const list = (names: readonly string[]) => names.slice(0, 8).join(", ") + (names.length > 8 ? `, and ${String(names.length - 8)} more` : "");
   // Prose names the catalogue doesn't know by that exact name aren't audited (from prose alone an invention can't be told from an ordinary phrase): say which.

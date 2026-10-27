@@ -149,7 +149,8 @@ export function App() {
   // A ?measure= link reads a shipped campaign's metrics as the signed-in owner, so like a shared brief it waits for a click.
   const [pendingMeasure, setPendingMeasure] = useState(initial.measure);
   // A `?run=` link the server doesn't know (or couldn't be asked about): the hero preset is shown instead, with this notice on top.
-  const [deadLink, setDeadLink] = useState<"gone" | "failed">();
+  // A ?b= that doesn't decode to a brief loads the hero preset; the visitor is told rather than left to think it worked.
+  const [deadLink, setDeadLink] = useState<"gone" | "failed" | "unreadable" | undefined>(() => (params.get("b") !== null && !initial.runId && !initial.measure && !("brief" in initial.request) ? "unreadable" : undefined));
 
   // The preset behind the result on screen (none for a custom brief or a permalink); unset while nothing is shown.
   // A failed run leaves that result in place, so the highlight goes back to its preset, not to whatever was clicked last.
@@ -235,7 +236,7 @@ export function App() {
       {deadLink && (
         <div role="status" className="flex items-start justify-between gap-3 rounded-xl border border-fade/50 bg-fade/10 px-3 py-2 text-body text-ink">
           <p className="min-w-0">
-            <strong className="font-semibold text-fade">{deadLink === "gone" ? "That shared run has expired or never existed;" : "That shared run couldn't be opened right now;"}</strong> here&apos;s the hero preset instead.
+            <strong className="font-semibold text-fade">{deadLink === "gone" ? "That shared run has expired or never existed;" : deadLink === "unreadable" ? "That shared brief couldn't be read;" : "That shared run couldn't be opened right now;"}</strong> here&apos;s the hero preset instead.
           </p>
           <button type="button" onClick={() => setDeadLink(undefined)} className="shrink-0 rounded-full border border-line px-3 py-1 text-meta text-ink hover:border-accent/60">
             Dismiss

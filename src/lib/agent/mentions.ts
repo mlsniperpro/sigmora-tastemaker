@@ -11,6 +11,7 @@ import type { Brief, PickType, Role } from "./brief";
 import type { QlooClient } from "../qloo/client";
 import { entityTypesOf, resolveByName, type Ctx } from "./context";
 import { normName, sameName } from "./util";
+import { publicErrorText } from "../net";
 
 /** At most this many /search calls per draft for unlisted names. */
 export const MAX_MENTION_SEARCHES = 6;
@@ -130,7 +131,7 @@ export async function knownNames(qloo: QlooClient, names: readonly string[], rat
   const found = await Promise.all(
     names.map(async (name) => {
       const found = await resolveByName(qloo, name, { take: 3 }).catch((err: unknown) => {
-        const reason = err instanceof Error ? err.message : String(err);
+        const reason = publicErrorText(err);
         failed.set(reason, [...(failed.get(reason) ?? []), name]);
         return undefined;
       });

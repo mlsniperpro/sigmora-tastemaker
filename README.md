@@ -103,7 +103,7 @@ With no keys, Qloo answers come from an **offline simulator** (placeholder numbe
 
 | Variable | Effect |
 |---|---|
-| `QLOO_API_KEY` | Live Qloo (hackathon host). A failed live call falls back to a recorded live response with the reason shown in the trace; it never mixes in simulator data |
+| `QLOO_API_KEY` | Live Qloo (hackathon host). A failed live call falls back to a recorded live response (recorded for the presets' discovery and scripted picks) with the reason shown in the trace; it never mixes in simulator data |
 | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | Any OpenAI-compatible or Anthropic model; no vendor is pinned |
 | `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL`, `SIGMORA_API_TOKEN`, `SIGMORA_OWNER_KEY` | The owner (and only the owner, by key) ships to real channels through Sigmora `/v1`; visitors always get the sandbox |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache and rate-limit/budget counters (per instance otherwise). A Vercel deployment with a paid key refuses to build without both; all secret-bearing `*_URL` values must be https |

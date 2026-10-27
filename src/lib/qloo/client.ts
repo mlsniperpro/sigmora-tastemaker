@@ -2,7 +2,7 @@ import type { z } from "zod";
 import recorded from "../../../fixtures/qloo/recorded.json";
 import { loadConfig } from "../config";
 import { budgetCounter, incrDaily, type Counter } from "../counter";
-import { DEFAULT_RETRY, HttpError, ensureOk, fetchWithTimeout, joinUrl, withRetry, type RetryPolicy } from "../net";
+import { DEFAULT_RETRY, HttpError, ensureOk, fetchWithTimeout, joinUrl, publicErrorText, withRetry, type RetryPolicy } from "../net";
 import { formatZodIssues, wellFormed } from "../zod";
 import { defaultCache, type CacheStore } from "./cache";
 import { QlooBudgetError, QlooDeadlineError, QlooSchemaError } from "./errors";
@@ -219,8 +219,8 @@ export class QlooClient {
         return done(this.parse(path, schema, live.raw), "live", live.cached);
       } catch (err) {
         if (this.mode === "live" || !hasFixture) throw err;
-        const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`[qloo] live call failed, using the recorded response: ${reason}`);
+        console.warn(`[qloo] live call failed, using the recorded response: ${err instanceof Error ? err.message : String(err)}`);
+        const reason = publicErrorText(err);
         return done(this.parse(path, schema, this.fixtures[fixtureKey]), "replay", false, reason);
       }
     }

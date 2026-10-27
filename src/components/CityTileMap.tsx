@@ -6,7 +6,7 @@ import type { HeatCell } from "@/lib/agent/types";
 
 const LABEL_H = 20;
 /** How long the tile map may take to draw before the SVG map replaces it. */
-const MAP_LOAD_TIMEOUT_MS = 10_000;
+const MAP_LOAD_TIMEOUT_MS = 6_000;
 const overlaps = (a: { x0: number; x1: number; y0: number; y1: number }, b: typeof a) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 /** Free, keyless vector tiles (OpenFreeMap, OpenStreetMap data); attribution is shown by the map. */

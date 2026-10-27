@@ -4,6 +4,8 @@ import { z } from "zod";
 import { POST as run, runErrorMessage } from "@/app/api/run/route";
 import { HttpError, TimeoutError } from "@/lib/net";
 import { ConfigError } from "@/lib/config";
+import { LLMOutputError } from "@/lib/llm/coerce";
+import { QlooSchemaError } from "@/lib/qloo/errors";
 import { POST as owner } from "@/app/api/owner/route";
 import { POST as requery } from "@/app/api/requery/route";
 import { POST as ship } from "@/app/api/ship/route";
@@ -47,8 +49,10 @@ describe("/api/run", () => {
     // A parser's error quotes a reply's shape or its first bytes (audit 16).
     expect(runErrorMessage(z.object({ result: z.number() }).safeParse({}).error)).toBe("A backing service sent a reply it couldn't read.");
     expect(runErrorMessage(new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`))).toBe("A backing service sent a reply it couldn't read.");
+    expect(runErrorMessage(new QlooSchemaError("/v2/insights", "results.0.query: expected object"))).toBe("A backing service sent a reply it couldn't read.");
+    expect(runErrorMessage(new LLMOutputError("draft.picks.0.role: invalid option"))).toBe("A backing service sent a reply it couldn't read.");
     // Each one is still logged server-side.
-    expect(quiet).toHaveBeenCalledTimes(6);
+    expect(quiet).toHaveBeenCalledTimes(8);
     quiet.mockRestore();
   });
 

@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { PRESETS } from "../src/lib/agent/presets";
 import { placeholderReason } from "../src/lib/agent/evidence";
 import { runTastemaker } from "../src/lib/agent/run";
+import { isHealthy } from "../src/lib/agent/runCache";
 import type { RunResult } from "../src/lib/agent/types";
 import { llmFromEnv } from "../src/lib/llm";
 import { qlooFromEnv } from "../src/lib/qloo/client";
@@ -30,7 +31,15 @@ let failed = 0;
 for (const preset of PRESETS.filter((p) => !only.length || only.includes(p.id))) {
   try {
     const r = await runTastemaker(preset.brief, { qloo: qlooFromEnv(), llm: llmFromEnv() });
-    const why = placeholderReason(r) ?? (r.qloo.fallbacks.length ? `${r.qloo.fallbackCalls} Qloo calls fell back` : undefined) ?? (r.trace.some((s) => s.status === "error") ? "a step failed" : undefined);
+    // What judges are shown first must be a whole run: no simulated or fallback data, no failed or skipped step, and no
+    // pick a budget or time cut left unchecked (the same bar the run cache uses for serving a run as healthy).
+    const unscored = r.metrics.grounded.unscored + r.metrics.baseline.unscored;
+    const why =
+      placeholderReason(r) ??
+      (r.qloo.fallbacks.length ? `${r.qloo.fallbackCalls} Qloo calls fell back` : undefined) ??
+      (r.trace.some((s) => s.status !== "done") ? "a step failed or was skipped" : undefined) ??
+      (unscored ? `${String(unscored)} picks unscored (raise QLOO_RUN_CALL_CAP if the trace says the run's budget cut them)` : undefined);
+    if (why || !isHealthy(r)) throw new Error(`not recorded: ${why ?? "not a healthy run"}`);
     if (why) throw new Error(`not recorded: ${why}`);
     out[preset.id] = r;
     console.log(`${preset.id.padEnd(14)} recorded ${r.id} · ${r.qloo.calls} Qloo calls · ${Math.round(r.durationMs / 1000)} s`);

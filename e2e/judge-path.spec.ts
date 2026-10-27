@@ -501,3 +501,9 @@ test("a tile map that never draws gives way to the SVG map instead of a blank bo
   await finished(page);
   await expect(page.getByRole("img", { name: "Audience demand across the US" })).toBeVisible({ timeout: 20_000 });
 });
+
+test("an unreadable ?b= link says so and shows the hero preset", async ({ page }) => {
+  await page.goto("/?b=garbage");
+  await expect(page.getByText("That shared brief couldn't be read;")).toBeVisible();
+  await finished(page);
+});
