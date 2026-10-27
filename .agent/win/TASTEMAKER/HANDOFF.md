@@ -1,4 +1,4 @@
-# TASTEMAKER handoff (session_01PRg5xX3d1yQyMW528USmNf, wound down 2026-10-26T19:09:19Z; current as of the last push)
+# TASTEMAKER handoff (session_01PMv2tP3mmaSRPtyxJJkQMv, active since 2026-10-27T13:26Z; current as of the last push)
 
 ## Goal, deadline, PR
 - **Goal:** win the Qloo Agentic Hackathon with Tastemaker by Sigmora. "Done" means `bash .agent/win-gate.sh TASTEMAKER` prints `GATE: PASS` on the pushed HEAD after the last code change, followed by a final status comment on the PR.
@@ -41,37 +41,23 @@
 - **Soak on b190264 (an earlier commit):** `FC_NUM_RUNS=100000` deep pass 380/380 in 209 s, then 60 seeded `FC_NUM_RUNS=500` rounds with no failure. Not yet redone on b2529c4.
 - **Production CSP check:** the build served the headers with no CSP violations or console errors (Playwright, both widths).
 
-## State at wind-down (2026-10-26T19:09:19Z; the lease is released, so a successor may claim it)
-- **Code HEAD:** 1f0f04a (this handoff commit only touches `.agent/`). Fully green:
-  - lint, typecheck, `pnpm test` 35 files / 511, `pnpm test:e2e` 24/24;
-  - the gate's checks.sh and build pass.
-- **Gate on 1f0f04a:** `GATE: FAIL (3): re-audit still has 0 critical and 5 high open findings`. All three failures are only the stale reports: `reaudit.md` and `break-it.md` still name 3b25d12. Every code check passed (lint, typecheck, test, build, shortcut and secret scans).
-- **Nothing is half-done or reverted.** Round 12 (three Sonnet lenses) and its soak were started on 1f0f04a and stopped at the wind-down, before any results.
-- **Audit history:**
-  - rounds 8, 9 and 10 each found highs, all fixed (WIN-CHECKLIST I, J, K);
-  - round 11: Qloo and judge lenses 0 high, all mediums fixed (L1–L10); its security lens never reported;
-  - so no two consecutive clean rounds yet.
-- **Last soaks:**
-  - 52a25e1: clean;
-  - 0b38d99: deep pass clean, 59 of 60 rounds clean; the one failure was a test-clock flake, fixed;
-  - dfac45a: deep pass clean.
-  1f0f04a has not been soaked.
-- **Last fresh clone:** 0b38d99 (install, demo 76 calls, tests, GET / 200, /api/run streams, MCP 3 tools).
+## State now (session_01PMv2tP3mmaSRPtyxJJkQMv holds the lease)
+- **Submission materials (owner milestone 2026-10-29T18:00Z):** `docs/SUBMISSION.md` has every Devpost field in form order, `docs/demo-script.md` is the ≤ 2-minute shot list and voice-over, and `pnpm video` records every segment (verified end to end against a local server: ~90 s webm). The fresh-clone README run on 8c6f8f4 passed (install, demo 76/60/76 calls, 515 tests, GET / 200, branded 404, /docs redirect, /api/run streams, MCP 3 tools).
+- **Audit rounds this session:**
+  - round 12 on 1f0f04a: 0 high from all three lenses; mediums fixed (WIN-CHECKLIST "Re-audit 12");
+  - round 13 on 8c6f8f4: 1 high (locality ranking can't use audience signals; fixed with per-metro heatmap probes), mediums fixed (WIN-CHECKLIST "Re-audit 13");
+  - round 14 on 295b64a: running. Clean audits in a row so far: 0 (round 13 had a high).
+- **Soaks:** 8c6f8f4 deep pass clean (100k), 34/40 seeded rounds clean; the 6 failures were tests edited mid-run in the main checkout, so soaks now run in their own worktree (`scratchpad/wt2`). 295b64a soak running.
+- **CI:** GitHub Actions jobs end in 2–3 s with no runner (BLOCKED.md, Actions billing); local checks are the evidence.
 
 ## Open audit findings
-- None known at critical or high.
-- **Owner decisions:** judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
-- Accepted `[-]` decisions are in WIN-CHECKLIST (latest: J10, J21, K12, K13, L10).
+- None known at critical or high after round 13's fixes.
+- Owner decisions: judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
 
 ## Next steps, in order
-1. Run a fresh full three-lens audit on the pushed HEAD (read-only agents: Qloo depth, security, judge path). Fix what it finds, and repeat until **two audits in a row are clean** (0 critical, 0 high).
-2. Break-it on the final commit:
-   - `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`;
-   - about 60 rounds of `FC_NUM_RUNS=500 FC_SEED=<random>`;
-   - `pnpm test:e2e`;
-   - a fresh clone of the pushed branch running the README commands;
-   - the live-stub failure-injection tests.
-3. Write `.agent/win/TASTEMAKER/reaudit.md` (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT`). Both are still stale: they name 3b25d12. Commit, push, and run the gate until it prints PASS.
+1. Collect round 14 (three lenses on 295b64a). Fix what it finds; repeat until **two consecutive rounds** have 0 critical and 0 high.
+2. Break-it on the final code commit in a separate worktree: `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`, ~40 seeded `FC_NUM_RUNS=500 FC_SEED=<random>` rounds, `pnpm test:e2e`, a fresh clone running the README commands.
+3. Write `reaudit.md` (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT`), commit, push, run the gate until PASS.
 4. Update the PR body (status, Decisions, Self-review, load), then post the final status comment.
 
 ## Key decisions (why)
@@ -83,6 +69,11 @@
 - **No numbers on simulated data** (playbook §7). Recorded runs and owner-only live publishing are as in the earlier HANDOFF: visitors always get the sandbox.
 - **Real Ship only for preset runs or runs served to the signed-in owner,** so an injected brief can't be posted as the brand.
 - **`next build` runs locally,** because checks.sh requires it. `.agent/` and WIN-CHECKLIST.md stay tracked for the gate. `.claude/worktrees/` is gitignored.
+
+- **(this session) A paid key on Vercel without KV fails the build**, rather than deploying with per-instance budgets; half a KV pair fails anywhere; secret-bearing URLs must be https.
+- **(this session) bias.trends as documented:** Qloo defaults to `medium`, so discovery sends `high` and scoring sends `off` (plain affinity).
+- **(this session) Where to launch:** locality insights only accept locality signals, so the heatmap ranks; metros the nationwide top-50 cells miss get their own in-boundary heatmap while fewer than three are ranked (≤ 3 extra calls, only then).
+- **(this session) Soaks and e2e run in separate worktrees** under the scratchpad, never in the checkout being edited.
 
 ## Commands
 - **Subagents (owner rule):** every subagent you launch must set model "sonnet" and effort "high" (every Agent/Task launch sets `model: "sonnet"` and `effort: "high"`. That covers auditors, reviewers, fixers, researchers, and soak or log watchers.) Keep these in the main session:
