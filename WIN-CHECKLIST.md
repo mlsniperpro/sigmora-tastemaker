@@ -447,3 +447,20 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 1 security: maplibre-gl 5.24.0 → 6.4.1 (GHSA-jrc7-96c5-q579; `pnpm audit --prod`: no known vulnerabilities); the tile map loads in `next build` + `next start` at 390 and 1440 px with no console errors, and e2e's tile and fallback test passes
 - [x] 2 security: a brief edited from a `?b=` link or a non-preset `?run=` permalink keeps `shared: true`, so it never becomes the owner's run; a preset clears it (`App.tsx` `fromLink`; e2e "a brief edited from someone's shared link")
 - [x] 3 security: parser errors (`ZodError`, `SyntaxError`) are logged and shown as a plain sentence (`net.ts`; `tests/integration/api.test.ts`); other errors this app raises are written as sentences for visitors, so they still show
+
+## Re-audit 17 (2026-10-27, three lenses on fd60092: 0 critical and 0 high from Qloo depth, security and the judge path)
+
+- [x] 1 Qloo: a benchmark run whose Qloo budget or time left picks "Not checked" is no longer a measurement, and the script gives each brief's run a 200-call cap unless set (`aggregate.ts`, `scripts/benchmark.ts`; `tests/unit/judge.test.ts`)
+- [x] 2 Qloo: `docs/judging.md` notes person carries no demographics
+- [x] 3 Qloo: stale locality references gone (`run.ts` header, `scripts/record-fixtures.ts` warning, BLOCKED #13's function names)
+- [x] 4 Qloo: the fixed-market heatmap is in the judging table, BLOCKED #22 is its live check, and the Taste Map no longer calls it "neighbourhood-scale"
+- [-] 1 security: three networks can spend the default custom pool in a day; presets, permalinks and the sample audit keep loading, and BLOCKED's quota item now says the pools must be sized from the real quota before judging
+- [-] 2 security: a refund straddling 00:00 UTC lands on the new day (one free run, needs a NoSeedError at midnight)
+- [x] 1 judge: a tile map that never draws falls back to the SVG map after 10 s (`CityTileMap.tsx`; e2e "a tile map that never draws")
+- [x] 2 judge: offline, the pack's Without Qloo view on a custom brief says a live model is needed instead of showing a preset's sample (`CampaignPack.tsx` `offBrief`; e2e)
+- [x] 3 judge: a failed `?measure=` (and any run error) scrolls its message into view (`App.tsx`; e2e asserts `toBeInViewport`)
+- [x] 4 judge: the trace names seeds that didn't resolve (`run.ts`; `agent.test.ts`)
+- [x] 5 judge: while a `?b=` or `?measure=` bar waits, no empty form competes with it
+- [x] 6 judge: `pnpm screenshots` makes the desktop gallery images 1440 × 960 (3:2); retaken offline (labelled simulated), to retake live with the keys
+- [x] 7 judge: the audit's scan caveats fold behind "How the names were found"
+- [x] SVG map labels keep a line height apart (Washington and New York no longer overlap; checked in the retaken screenshots)
