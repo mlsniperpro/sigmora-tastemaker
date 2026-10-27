@@ -20,7 +20,7 @@ import { endSentence, useRun, type RunOutcome } from "./useRun";
 /** A failed request's message; with a result still on screen it says so, after the message has ended its sentence. */
 export function RunError({ error, hasResult }: { error: string; hasResult: boolean }) {
   return (
-    <div role="alert" className="rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">
+    <div id="run-error" role="alert" className="scroll-mt-16 rounded-xl border border-miss/50 bg-miss/10 px-3 py-2 text-body text-miss">
       {hasResult ? endSentence(error) : error}
       {hasResult && <span className="text-ink/80"> The previous result is still shown below.</span>}
     </div>
@@ -159,6 +159,11 @@ export function App() {
     else if (outcome === "failed" && shown.current) setActivePreset(shown.current.preset);
   }, []);
 
+  // A failure is said where the visitor is looking: on a phone the alert can sit below the fold.
+  useEffect(() => {
+    if (error) document.getElementById("run-error")?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+
   // Whether the brief on screen came from a link (someone's ?b= brief or ?run= permalink). Editing it keeps that origin,
   // so the server never treats the result as the signed-in owner's own brief; a preset clears it.
   const fromLink = useRef(false);
@@ -189,7 +194,8 @@ export function App() {
   }, [initial, run, open, requery, settle]);
 
   const side = result ? (mode === "qloo" ? result.grounded : result.baseline) : undefined;
-  const showForm = editing || (!result && !running);
+  // A link's brief or campaign waits for its own button above, so an empty form doesn't compete with it.
+  const showForm = editing || (!result && !running && !shared && !pendingMeasure);
   const runSimulated = !!result && result.qloo.simulated > 0;
   const traceCalls = callTally(steps);
   const openAudit = () => {
@@ -405,7 +411,7 @@ export function App() {
         </div>
         <div className="order-2 min-w-0">{result ? <TasteMap result={result} /> : <Placeholder running={running} label="Taste Map" />}</div>
         <div className="order-1 min-w-0 scroll-mt-16 lg:order-3">
-          {side ? <CampaignPack side={side} mode={mode} runSimulated={runSimulated} scripted={!!result?.llm.scripted} /> : <Placeholder running={running} label="Campaign pack" />}
+          {side ? <CampaignPack side={side} mode={mode} runSimulated={runSimulated} scripted={!!result?.llm.scripted} offBrief={!!result && offBriefBaseline(result)} /> : <Placeholder running={running} label="Campaign pack" />}
         </div>
       </div>
 

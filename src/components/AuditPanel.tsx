@@ -119,7 +119,11 @@ export function AuditResults({ result }: { result: AuditResult }) {
         {result.simulated && <span className="mr-1.5 rounded bg-fade/15 px-1.5 py-0.5 text-caption font-medium text-fade">simulated data, not Qloo</span>}
         {auditSummary(result)}
       </p>
-      <p className="text-meta leading-snug text-muted">{extractionNote(result)}</p>
+      {/* The scan's caveats are a tap away, so on a phone the verdicts come first. */}
+      <details className="text-meta leading-snug text-muted">
+        <summary className="inline-flex min-h-6 cursor-pointer items-center text-violet">How the names were found</summary>
+        <p className="mt-1">{extractionNote(result)}</p>
+      </details>
       {result.receipts.length > 0 && (
         <ul className="space-y-2 rounded-xl border border-line bg-panel-2/40 p-2.5">
           {result.receipts.map((r) => (

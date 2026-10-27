@@ -5,6 +5,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { HeatCell } from "@/lib/agent/types";
 
 const LABEL_H = 20;
+/** How long the tile map may take to draw before the SVG map replaces it. */
+const MAP_LOAD_TIMEOUT_MS = 10_000;
 const overlaps = (a: { x0: number; x1: number; y0: number; y1: number }, b: typeof a) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 /** Free, keyless vector tiles (OpenFreeMap, OpenStreetMap data); attribution is shown by the map. */
@@ -34,6 +36,11 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
     const fail = () => {
       if (!cancelled) onFail();
     };
+    // A style that loads but never draws (stalled tiles, no usable WebGL) must not leave a blank box: fall back.
+    let drawn = false;
+    const stall = setTimeout(() => {
+      if (!drawn) fail();
+    }, MAP_LOAD_TIMEOUT_MS);
     void import("maplibre-gl")
       .then(({ Map, Marker, LngLatBounds }) => {
         if (cancelled) return;
@@ -50,6 +57,7 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
           if (map && !map.hasImage(e.id)) map.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) });
         });
         map.on("load", () => {
+          drawn = true;
           if (!map) return;
           const max = Math.max(...cells.map((c) => c.affinity), 0.01);
           map.addSource("heat", {
@@ -97,6 +105,7 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
       .catch(fail);
     return () => {
       cancelled = true;
+      clearTimeout(stall);
       map?.remove();
     };
   }, [cells, cities, onFail]);

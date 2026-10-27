@@ -22,19 +22,25 @@ async function ready(page: Page) {
 
 const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {});
 try {
-  const desktop = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  // 1440 × 960 is 3:2, the gallery's crop: each desktop image is one viewport, scrolled to its panel.
+  const desktop = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  const panelShot = async (region: string, path: string) => {
+    await desktop.getByRole("region", { name: region }).evaluate((el) => el.scrollIntoView({ block: "start" }));
+    await desktop.waitForTimeout(300);
+    await desktop.screenshot({ path });
+  };
   await desktop.goto(`${base}/?preset=indie-release`);
   await ready(desktop);
   await desktop.screenshot({ path: `${out}/desktop.png` });
-  // Element shots scroll the page, and the pinned With / Without Qloo bar would then cover the top of the panel.
+  // Panel shots scroll the page, and the pinned With / Without Qloo bar would then cover the top of the panel.
   await desktop.addStyleTag({ content: ".sticky { position: static !important; }" });
   // The tile map draws after the page is ready: wait for it, or for the SVG map it falls back to.
   await desktop.locator('[data-testid="tile-map"][data-ready="true"], svg[aria-label="Audience demand across the US"]').first().waitFor({ timeout: 30_000 });
   await desktop.waitForTimeout(1500);
-  await desktop.getByRole("region", { name: "Taste Map" }).screenshot({ path: `${out}/tastemap.png` });
+  await panelShot("Taste Map", `${out}/tastemap.png`);
   await desktop.getByRole("group", { name: "Plan view" }).getByRole("button", { name: "Without Qloo" }).click();
   await desktop.getByRole("heading", { name: "Campaign pack — without Qloo" }).waitFor();
-  await desktop.getByRole("region", { name: "Campaign pack" }).screenshot({ path: `${out}/pack-without.png` });
+  await panelShot("Campaign pack", `${out}/pack-without.png`);
 
   const phone = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await phone.goto(`${base}/?preset=indie-release`);

@@ -159,7 +159,8 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     const seeds = await tracer.step("resolve", "Resolve the taste seed", async (s) => {
       const all = await resolveSeeds(qloo, brief);
       const ok = all.filter((x) => x.entityId);
-      s.detail = `${ok.length}/${all.length} seeds resolved: ${ok.map((x) => x.matched ?? x.name).join(", ")}`;
+      const missing = all.filter((x) => !x.entityId).map((x) => x.name);
+      s.detail = `${ok.length}/${all.length} seeds resolved: ${ok.map((x) => x.matched ?? x.name).join(", ")}${missing.length ? ` · not found in ${sim.on ? "the offline catalog" : "Qloo"}: ${missing.join(", ")}` : ""}`;
       return all;
     });
     const ctx = makeCtx(audienceOf(brief), qloo, seeds, { ...opts, discovery: opts.discovery ?? discoveryFromConfig(), sim });

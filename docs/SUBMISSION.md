@@ -113,7 +113,7 @@ nextjs, react, typescript, tailwindcss, zod, maplibre-gl, qloo, vitest, fast-che
 
 ## Image gallery
 
-Upload in this order (3:2 works best). Retake first with `pnpm screenshots <live demo URL>` once the Qloo and LLM keys are set, so the images show real Qloo data:
+Upload in this order. `pnpm screenshots` makes the three desktop images 1440 × 960 (3:2, Devpost's gallery crop); the phone shot is 390 × 844, so put it last or frame it. Retake first with `pnpm screenshots <live demo URL>` once the Qloo and LLM keys are set, so the images show real Qloo data:
 
 1. `docs/screenshots/desktop.png`: the hero run with the agent trace and the campaign pack.
 2. `docs/screenshots/pack-without.png`: the Without Qloo view with its misses struck through.

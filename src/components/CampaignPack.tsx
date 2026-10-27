@@ -48,8 +48,31 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
  * answers came from the offline simulator, so verdicts are labelled simulated and
  * carry no numbers (receipts with a source of their own say so themselves).
  */
-export function CampaignPack({ side, mode, runSimulated = false, scripted = false }: { side: PlanSide; mode: "qloo" | "without"; runSimulated?: boolean; scripted?: boolean }) {
+export function CampaignPack({
+  side,
+  mode,
+  runSimulated = false,
+  scripted = false,
+  offBrief = false,
+}: {
+  side: PlanSide;
+  mode: "qloo" | "without";
+  runSimulated?: boolean;
+  scripted?: boolean;
+  /** Offline on someone's own brief: the stand-in's plan without Qloo is a preset's sample, not an answer to this brief. */
+  offBrief?: boolean;
+}) {
   const { draft, receipts } = side;
+  if (mode === "without" && offBrief) {
+    return (
+      <section aria-label="Campaign pack" className="scroll-mt-16 rounded-2xl border border-line bg-panel p-4">
+        <h2 className="text-sm font-semibold tracking-wide text-ink">Campaign pack — without Qloo</h2>
+        <p className="mt-2 text-body text-muted">
+          For your own brief this needs a live model. Offline, the stand-in model only has sample plans for the three presets, so there&apos;s no plan without Qloo for this brief to show. Try a preset to see the comparison.
+        </p>
+      </section>
+    );
+  }
   if (side.unavailable) {
     return (
       <section aria-label="Campaign pack" className="scroll-mt-16 rounded-2xl border border-line bg-panel p-4">

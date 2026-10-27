@@ -434,6 +434,11 @@ test("offline, a custom brief's diff card doesn't pass off a preset's sample pla
   await finished(page);
   await expect(diff).toContainText("For your own brief this needs a live model");
   await expect(diff).not.toContainText("Scripted stand-in");
+  // The pack's Without Qloo view says the same instead of showing a preset's sample under this brief's name (audit 17).
+  await page.getByRole("group", { name: "Plan view" }).getByRole("button", { name: "Without Qloo" }).click();
+  const pack = page.getByRole("region", { name: "Campaign pack" });
+  await expect(pack).toContainText("For your own brief this needs a live model");
+  await expect(pack).not.toContainText("Lagos Velvet Collective");
   await noHorizontalScroll(page);
 });
 
@@ -458,6 +463,8 @@ test("a ?measure= link waits for a click before reading a campaign or spending a
   expect(calls).toEqual([]);
   await ask.getByRole("button", { name: "Measure & re-plan" }).click();
   await expect.poll(() => calls.some((u) => u.includes("/api/"))).toBe(true);
+  // The sandbox posted nothing to measure: the reason is in view, not below the fold (audit 17).
+  await expect(page.locator("#run-error")).toBeInViewport();
 });
 
 test("a brief edited from someone's shared link still says so to the server, and a preset clears it", async ({ page }) => {
@@ -485,4 +492,12 @@ test("a brief edited from someone's shared link still says so to the server, and
   await expect(page.getByText("Brief: Own Brand")).toBeVisible();
   await expect.poll(() => bodies.length).toBe(4);
   expect(bodies[3]?.shared).toBeUndefined();
+});
+
+test("a tile map that never draws gives way to the SVG map instead of a blank box", async ({ page }) => {
+  // The tile host accepts the request and never answers: no error event, no load event.
+  await page.route("https://tiles.openfreemap.org/**", () => undefined);
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  await expect(page.getByRole("img", { name: "Audience demand across the US" })).toBeVisible({ timeout: 20_000 });
 });

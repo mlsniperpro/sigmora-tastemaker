@@ -262,6 +262,11 @@ describe("agent loop: failure paths", () => {
     expect(r2.receipts.find((x) => x.name === "Houston")?.verdict).toBe("unscored");
   });
 
+  it("names the seeds that didn't resolve in the trace (audit 17)", async () => {
+    const r = await runTastemaker({ ...must(PRESETS[0]).brief, seeds: ["Tems", "Zzqx Nonexistent"], seedLinks: [] }, deps());
+    expect(must(r.trace.find((s) => s.id === "resolve")).detail).toMatch(/1\/2 seeds resolved: Tems · not found in the offline catalog: Zzqx Nonexistent$/);
+  });
+
   it("maps where inside a fixed market the audience is (DTC preset)", async () => {
     const r = await runTastemaker(must(PRESETS[1]).brief, deps());
     expect(r.citiesRankedBy).toBe("in-city");
