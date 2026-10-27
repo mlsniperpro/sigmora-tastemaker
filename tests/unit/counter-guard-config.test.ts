@@ -156,6 +156,31 @@ describe("config", () => {
   });
 });
 
+describe("deployment safety (audit 12)", () => {
+  const kv = { KV_REST_API_URL: "https://kv.example.com", KV_REST_API_TOKEN: "t" };
+  it("refuses a hosted deployment that can spend but has no shared KV counter", () => {
+    for (const key of ["QLOO_API_KEY", "LLM_API_KEY", "JUDGE_API_KEY"]) {
+      expect(() => loadConfig({ VERCEL: "1", [key]: "k" }), key).toThrow(/KV_REST_API_URL and KV_REST_API_TOKEN/);
+      expect(loadConfig({ VERCEL: "1", [key]: "k", ...kv }).KV_REST_API_URL).toBe(kv.KV_REST_API_URL);
+    }
+    // Keyless hosted demos spend nothing, and a single local process counts in one memory.
+    expect(loadConfig({ VERCEL: "1" }).QLOO_API_KEY).toBeUndefined();
+    expect(loadConfig({ QLOO_API_KEY: "k" }).QLOO_API_KEY).toBe("k");
+  });
+  it("refuses half a KV setup anywhere", () => {
+    expect(() => loadConfig({ KV_REST_API_URL: kv.KV_REST_API_URL })).toThrow(/both KV_REST_API_URL and KV_REST_API_TOKEN/);
+    expect(() => loadConfig({ KV_REST_API_TOKEN: "t" })).toThrow(/both KV_REST_API_URL and KV_REST_API_TOKEN/);
+  });
+  it("sends secrets only over https, except to localhost", () => {
+    for (const k of ["QLOO_BASE_URL", "LLM_BASE_URL", "JUDGE_BASE_URL", "SIGMORA_API_URL"]) {
+      expect(() => loadConfig({ [k]: "http://api.example.com" }), k).toThrow(new RegExp(`${k}.*https`));
+      expect(loadConfig({ [k]: "https://api.example.com" })[k as "QLOO_BASE_URL"]).toBe("https://api.example.com");
+      expect(loadConfig({ [k]: "http://localhost:11434/v1" })[k as "QLOO_BASE_URL"]).toBe("http://localhost:11434/v1");
+    }
+    expect(() => loadConfig({ KV_REST_API_URL: "http://kv.example.com", KV_REST_API_TOKEN: "t" })).toThrow(/KV_REST_API_URL.*https/);
+  });
+});
+
 describe("blank env values", () => {
   it("count as unset: defaults apply instead of a crash or a zero budget", () => {
     const c = loadConfig({ SIGMORA_PUBLISH_MODE: "", QLOO_MODE: "  ", QLOO_DAILY_CALL_CAP: "", QLOO_BIAS_TRENDS: "", QLOO_API_KEY: " " });

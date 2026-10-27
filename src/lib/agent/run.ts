@@ -203,7 +203,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
       if (target) {
         // A fixed market: where inside it the audience is (neighbourhood-scale heatmap).
         await tracer.optional("cities", `Where in ${target} (urn:heatmap + filter.location.query)`, async (s) => {
-          const r = await qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location.query": target, take: HEATMAP_TAKE });
+          const r = await qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location.query": target, "filter.location.radius": 0, take: HEATMAP_TAKE });
           where.heatmap = (r.data.results.heatmap ?? []).flatMap((c) =>
             typeof c.query.affinity === "number" ? [{ lat: c.location.latitude, lon: c.location.longitude, affinity: c.query.affinity }] : [],
           );

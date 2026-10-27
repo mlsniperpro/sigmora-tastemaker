@@ -429,7 +429,7 @@ export async function loadCulture(ctx: Ctx, roles: readonly Role[] = CULTURE_ROL
 /** The venue pool for `city`. The previous city's pool is dropped first, so a failed load leaves no pool, never a stale one. */
 export async function loadVenues(ctx: Ctx, city: string) {
   delete ctx.candidates.venue;
-  const r = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), ...discoveryParams("place", ctx.discovery), "filter.location.query": city, take: 10 });
+  const r = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), ...discoveryParams("place", ctx.discovery), "filter.location.query": city, "filter.location.radius": 0, take: 10 });
   ctx.candidates.venue = (r.data.results.entities ?? []).flatMap((e) => toCandidate(e, "place", r.meta.key));
 }
 

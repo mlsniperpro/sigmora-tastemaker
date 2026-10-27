@@ -124,7 +124,7 @@ async function checkInCity(ctx: Ctx, resolved: readonly Resolved[], refused: Map
   const ids = [...new Set(resolved.flatMap((r) => (ROLE_SPEC[r.role].inCity && r.entityId && !ctx.inCity.has(inCityKey(city, r.entityId)) ? [r.entityId] : [])))];
   if (!ids.length) return;
   try {
-    const res = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), "filter.location.query": city, "filter.results.entities": ids, take: ids.length });
+    const res = await ctx.qloo.insights("urn:entity:place", { ...signalFor(ctx), "filter.location.query": city, "filter.location.radius": 0, "filter.results.entities": ids, take: ids.length });
     const found = new Set((res.data.results.entities ?? []).map((e) => e.entity_id));
     for (const id of ids) ctx.inCity.set(inCityKey(city, id), { ok: found.has(id), key: res.meta.key });
   } catch (err) {

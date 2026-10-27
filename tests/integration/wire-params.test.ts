@@ -67,6 +67,18 @@ describe("Qloo params on the wire", () => {
     expect(insights(urls, "locality").every((u) => !u.searchParams.has("bias.trends") && !u.searchParams.has("diversify.by"))).toBe(true);
   });
 
+  it("pins every in-city call to the locality's own boundary (filter.location.radius=0; Qloo pads it otherwise)", async () => {
+    const { urls, qloo } = wiredClient();
+    // The DTC preset has a fixed launch city, so the in-city heatmap fires too.
+    await runTastemaker(Brief.parse(must(PRESETS.find((p) => p.brief.targetCity)).brief), { qloo, llm: new DeterministicLLM() });
+    const located = urls.filter((u) => u.searchParams.has("filter.location.query"));
+    // Venue discovery, the critic's venue-in-city check and the in-city heatmap.
+    expect(located.some((u) => u.searchParams.get("filter.type") === "urn:entity:place" && !u.searchParams.has("filter.results.entities"))).toBe(true);
+    expect(located.some((u) => u.searchParams.get("filter.type") === "urn:entity:place" && u.searchParams.has("filter.results.entities"))).toBe(true);
+    expect(located.some((u) => u.searchParams.get("filter.type") === "urn:heatmap")).toBe(true);
+    for (const u of located) expect(u.searchParams.get("filter.location.radius"), u.search).toBe("0");
+  });
+
   it("re-scores each trend-biased pool with plain affinity, so the pass bar matches how picks are scored", async () => {
     const { urls, qloo } = wiredClient();
     await runTastemaker(brief, { qloo, llm: new DeterministicLLM(), discovery: { trendBias: "high", diversify: true } });

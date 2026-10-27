@@ -106,7 +106,7 @@ With no keys, Qloo answers come from an **offline simulator** (placeholder numbe
 | `QLOO_API_KEY` | Live Qloo (hackathon host). A failed live call falls back to a recorded live response with the reason shown in the trace; it never mixes in simulator data |
 | `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL` | Any OpenAI-compatible or Anthropic model; no vendor is pinned |
 | `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL`, `SIGMORA_API_TOKEN`, `SIGMORA_OWNER_KEY` | The owner (and only the owner, by key) ships to real channels through Sigmora `/v1`; visitors always get the sandbox |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache and rate-limit/budget counters (per instance otherwise) |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache and rate-limit/budget counters (per instance otherwise). A Vercel deployment with a paid key refuses to build without both; all secret-bearing `*_URL` values must be https |
 | `QLOO_RUN_CALL_CAP`, `QLOO_DAILY_CALL_CAP`, `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_PER_DAY`, `RUN_DAILY_CAP` | Budgets and abuse limits; defaults in [.env.example](.env.example) |
 | `QLOO_BIAS_TRENDS` | `bias.trends` on artist / TV / movie / podcast discovery (`medium` by default, `off` to stop sending it) |
 | `JUDGE_PROVIDER`, `JUDGE_MODEL`, `JUDGE_API_KEY`, `JUDGE_BASE_URL` | The benchmark's blind pairwise judge (falls back to `LLM_*`; a different vendor avoids self-preference) |
