@@ -399,3 +399,46 @@ test("the toggle bar jumps to the trace below the desktop layout", async ({ page
   await expect(trace.getByRole("heading", { name: "Agent trace" })).toBeInViewport();
   await expect(trace).toBeFocused();
 });
+
+test("flipping the plan view below the desktop layout brings the campaign pack into view", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const view = page.getByRole("group", { name: "Plan view" });
+  await view.getByRole("button", { name: "Without Qloo" }).click();
+  const heading = page.getByRole("heading", { name: "Campaign pack — without Qloo" });
+  if ((page.viewportSize()?.width ?? 0) >= 1024) {
+    // On desktop the page stays where the judge is looking.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    return;
+  }
+  await expect(heading).toBeInViewport();
+  // Flipping back keeps the pack on screen, now the plan after the critic.
+  await view.getByRole("button", { name: "With Qloo" }).click();
+  await expect(page.getByRole("heading", { name: "Campaign pack", exact: true })).toBeInViewport();
+});
+
+test("offline, a custom brief's diff card doesn't pass off a preset's sample plan as the plan without Qloo", async ({ page }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  const diff = page.getByRole("region", { name: "With and without Qloo" });
+  // The preset's own scripted sample is shown, labelled.
+  await expect(diff).toContainText("Scripted stand-in");
+  await page.getByRole("button", { name: "Edit brief" }).click();
+  const bar = page.getByRole("form", { name: "Your own brief" });
+  await bar.getByLabel("Who's launching").fill("Zuri Bakes");
+  await bar.getByLabel(/Your audience already loves/).fill("Taylor Swift, Nickelback");
+  await bar.getByRole("button", { name: "Plan & taste-check" }).click();
+  await expect(page.getByText("Brief: Zuri Bakes")).toBeVisible();
+  await finished(page);
+  await expect(diff).toContainText("For your own brief this needs a live model");
+  await expect(diff).not.toContainText("Scripted stand-in");
+  await noHorizontalScroll(page);
+});
+
+test("an unknown path gets the branded 404 with a way back to the demo", async ({ page }) => {
+  const res = await page.goto("/nope");
+  expect(res?.status()).toBe(404);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("This page isn't part of Tastemaker.");
+  await page.getByRole("link", { name: "Back to the demo" }).click();
+  await finished(page);
+});

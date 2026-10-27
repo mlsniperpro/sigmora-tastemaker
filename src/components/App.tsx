@@ -190,6 +190,20 @@ export function App() {
       document.querySelector<HTMLTextAreaElement>("#audit textarea")?.focus({ preventScroll: true });
     });
   };
+  // Below the desktop layout the campaign pack sits a screen or more under the toggle, so flipping
+  // the view would change nothing visible: bring the pack's top under the sticky bar.
+  const switchMode = (m: "qloo" | "without") => {
+    if (m === mode) return;
+    setMode(m);
+    if (window.matchMedia("(min-width: 1024px)").matches) return;
+    requestAnimationFrame(() => {
+      const pack = document.querySelector('section[aria-label="Campaign pack"]');
+      if (!pack || pack.getBoundingClientRect().top < window.innerHeight * 0.6) return;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      pack.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    });
+  };
+
   const jumpToTrace = () => {
     setTraceCollapsed(false);
     // After the expanded steps render, so the scroll lands on the final layout.
@@ -227,7 +241,7 @@ export function App() {
         </a>
       </header>
 
-      <PlanToggle mode={mode} setMode={setMode} result={result} calls={traceCalls} onTrace={jumpToTrace} />
+      <PlanToggle mode={mode} setMode={switchMode} result={result} calls={traceCalls} onTrace={jumpToTrace} />
 
       <section aria-label="Brief" className="space-y-2 rounded-2xl border border-line bg-panel p-3">
         <div className="flex flex-wrap items-center gap-2">

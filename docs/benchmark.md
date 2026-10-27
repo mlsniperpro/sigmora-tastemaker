@@ -1,6 +1,6 @@
 # Culture Miss Rate benchmark
 
-> **No measurement yet.** The last run (2026-10-27T13:31:00.304Z) does not count: drafts came from the scripted offline model, not an LLM; Qloo answers came from: simulated. Its numbers are not published here. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks, and all 30 briefs completed. Run `pnpm benchmark` with `QLOO_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` (and optionally `JUDGE_*`) set and `QLOO_DAILY_CALL_CAP` above 1949, the request count of that run.
+> **No measurement yet.** The last run does not count: drafts came from the scripted offline model, not an LLM; Qloo answers came from: simulated. Its numbers are not published here. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks, and all 30 briefs completed. Run `pnpm benchmark` with `QLOO_API_KEY`, `LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY` (and optionally `JUDGE_*`) set and `QLOO_DAILY_CALL_CAP` above 1949, the request count of that run.
 
 ## Method
 

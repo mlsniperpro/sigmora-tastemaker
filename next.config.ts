@@ -47,6 +47,10 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  // The README points judges at docs/*.md; on the demo's own domain those paths open the repo copy.
+  redirects() {
+    return Promise.resolve([{ source: "/docs/:path*", destination: "https://github.com/mlsniperpro/sigmora-tastemaker/blob/main/docs/:path*", permanent: false }]);
+  },
   headers() {
     return Promise.resolve([{ source: "/:path*", headers: SECURITY_HEADERS }]);
   },

@@ -52,7 +52,7 @@ export function CampaignPack({ side, mode, runSimulated = false, scripted = fals
   const { draft, receipts } = side;
   if (side.unavailable) {
     return (
-      <section aria-label="Campaign pack" className="rounded-2xl border border-line bg-panel p-4">
+      <section aria-label="Campaign pack" className="scroll-mt-16 rounded-2xl border border-line bg-panel p-4">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Campaign pack — without Qloo</h2>
         <p className="mt-2 text-body text-muted">The plan without Qloo isn&apos;t available on this run ({side.unavailable}). Run the brief again to compare.</p>
       </section>
@@ -60,7 +60,7 @@ export function CampaignPack({ side, mode, runSimulated = false, scripted = fals
   }
   const byRole = ROLES.map((role) => ({ role, items: receipts.filter((r) => r.role === role) })).filter((g) => g.items.length);
   return (
-    <section aria-label="Campaign pack" className="space-y-4 rounded-2xl border border-line bg-panel p-4">
+    <section aria-label="Campaign pack" className="scroll-mt-16 space-y-4 rounded-2xl border border-line bg-panel p-4">
       <header className="flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold tracking-wide text-ink">{mode === "qloo" ? "Campaign pack" : "Campaign pack — without Qloo"}</h2>
         <span className="text-meta text-muted">{mode === "qloo" ? "every pick carries a receipt" : runSimulated ? "same model, no Qloo access; audited by the simulator" : "same model, no Qloo access; audited by Qloo"}</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { SCRIPTED_BASELINE, formatRate, placeholderReason } from "@/lib/agent/evidence";
+import { presetIdOf } from "@/lib/agent/presets";
 import type { Metrics, Receipt, RunResult, Served, Verdict } from "@/lib/agent/types";
 import { VERDICT_STYLE, isSimulated, receiptNote, verdictLabel } from "./Receipt";
 import { SourceBanner } from "./SourceBanner";
@@ -80,13 +81,17 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
   const flagged = b.hallucinations + b.misses + b.fading;
   const replaced = grounded.filter((r) => r.replaced).length;
   const passed = grounded.filter((r) => r.verdict === "pass").length;
-  const worst = noBaseline ? [] : worstMisses(base);
+  // Offline, the scripted model only has sample plans for the presets' categories: on someone's own brief its
+  // "plan without Qloo" names have nothing to do with that brief, so they aren't shown as if they were.
+  const offBrief = result.llm.scripted && !noBaseline && !presetIdOf(result.brief);
+  const worst = noBaseline || offBrief ? [] : worstMisses(base);
   const replacementFor = (name: string) => grounded.find((r) => r.replaced?.name.toLowerCase() === name.toLowerCase())?.name;
   const where = hasLaunchMap(result);
   const after = afterCritic(g);
 
   return (
     <section aria-label="With and without Qloo" className="rounded-2xl border border-line bg-panel p-3 sm:p-4">
+      <h2 className="sr-only">With and without Qloo</h2>
       <SourceBanner result={result} served={served} className="mb-3 border-b border-line pb-2" />
       <div className={`grid gap-3 lg:items-start ${where ? "lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.5fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.8fr)]"}`}>
         <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:grid-rows-2 lg:gap-2 lg:self-stretch">
@@ -151,6 +156,14 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
                 );
               })}
             </ul>
+          </div>
+        )}
+        {offBrief && (
+          <div className="min-w-0">
+            <h3 className="text-meta font-semibold text-ink">What the plain model would have shipped</h3>
+            <p className="mt-0.5 text-meta leading-snug text-muted">
+              For your own brief this needs a live model. Offline, the stand-in model only has sample plans for the three presets, so there&apos;s no plan without Qloo for this brief to show.
+            </p>
           </div>
         )}
         {where && (
