@@ -482,3 +482,23 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 2 judge: an unreadable `?b=` link says so and shows the hero preset (`App.tsx`; e2e)
 - [x] 3 judge: the tile map gives way to the SVG map after 6 s
 - [-] 4/5 judge: SVG label crowding on the sports preset is readable; a custom brief made from a preset keeps its hidden fields, and "Kept from the brief on screen" says so
+
+## Re-audit 19 (2026-10-27, three lenses on b5cd475: 0 critical and 0 high from Qloo depth, security and the judge path)
+
+- [x] Soak find: the 100k deep property run on b5cd475 found `isTitlePart` rejecting a whole subtitle that contains "with" ("aa aa: aa with aa"); segments now match at the title/subtitle level and at the "with" level (`util.ts`; seed -2001805414 passes; a fixed example in `util-params.test.ts`)
+- [x] 1 Qloo: README and SUBMISSION no longer state hearsay about the live host as fact: person calls are sent without demographics "pending a live check" (BLOCKED #20), and the boundary report is marked unverified
+- [x] 2 Qloo: the benchmark's sensitivity table keeps a venue outside the launch city a miss at every bar, as the headline rate does (`aggregate.ts` `missRateAt`, `scripts/benchmark.ts`; `judge.test.ts`)
+- [x] 3 Qloo: the taste vocabulary keeps tags Qloo returns without an affinity (its own urn:tag example), showing a number only when there is one (`run.ts`, `types.ts`, `TasteMap.tsx`; `agent.test.ts`)
+- [x] 4 Qloo: evidence-status says "6 Qloo endpoints used as 11 surfaces"
+- [x] 5 Qloo: the city-miss note prints how many cells Qloo returned, and BLOCKED #9 checks the heatmap `take`
+- [-] 6 Qloo: `video_game` vs `videogame`: Qloo's docs don't spell the URN (the playbook says test both live); no role uses the type
+- [x] SUBMISSION step 2 says what is resolved: every listed pick, plus other names in the copy Qloo knows exactly
+- [x] 1 security: the heatmap and in-city check errors go through `publicErrorText` too (`cities.ts`, `critic.ts`)
+- [x] 2 security: the e2e server blanks every credential (KV, Sigmora, judge), which also stops `next dev` loading a pulled `.env.local` (`playwright.config.ts`)
+- [x] 3 security: runtime faults (`TypeError`, `RangeError`, `ReferenceError`) are logged and shown as "something went wrong on the server" (`net.ts`)
+- [x] 1 judge: "Copy permalink" says "Copy it from the address bar" when the clipboard is refused (`App.tsx`; e2e with a refused and a granted clipboard)
+- [-] 2 judge: "Edit brief" keeps a preset's hidden fields, and "Kept from the brief on screen" says so (as before)
+- [-] 3 judge: an audit replacement's trend (as re-audit 13 M3)
+- [x] 4 judge: `docs/PLAYBOOK.md` no longer links private-repo paths
+- [x] 5 judge: the footer's GitHub link is underlined (not colour alone)
+- [x] 6 judge: SUBMISSION's thumbnail is `docs/screenshots/desktop.png` (1440 × 960, 3:2), not the 1200 × 630 social card
