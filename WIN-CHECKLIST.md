@@ -406,3 +406,16 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] L3 security: a `?measure=` link waits for a click, like a shared brief (`App.tsx`; e2e "?measure= link waits")
 - [-] L1 security: a misconfigured runtime env fails the build first (`next.config.ts` runs the same check, and Vercel sets `VERCEL` at build time), so a live 500 needs the build and runtime env to differ
 - [-] L4 security: run caps fall back to per-instance counters in a KV outage (accepted C11/I16); the Qloo budget fails closed. Per-network share of one custom run a day is the documented default (BLOCKED quota item)
+
+## Re-audit 14 (2026-10-27, three lenses on 295b64a: 0 critical and 0 high from Qloo depth, security and the judge path)
+
+- [x] M1/M2 Qloo: locality insights take locality signals only, so the ranking call is gone: metros are ranked by the audience's nationwide heatmap, then per-metro heatmaps (≤ 3) whose cells must lie within 60 km of the metro, or the probe ranks nothing and the trace says "cells outside the metro"; the allow-list for `urn:entity:locality` is now what the docs allow (`cities.ts`, `params.ts`, `surfaces.ts`, `TasteMap.tsx`; `tests/integration/failure-paths.test.ts`, `agent.test.ts`); README, SUBMISSION, judging, BLOCKED #8 and evidence-status (11 surfaces) updated; demo 75/60/75 calls
+- [P] M3 Qloo: whether `urn:tag` insights honour `signal.interests.*` (BLOCKED #19, with the fallback named)
+- [-] L1 Qloo: the bar comes from a trend-biased pool re-scored without bias; `QLOO_BIAS_TRENDS` is a disclosed setting of the method, and its escape hatch is BLOCKED #15
+- [x] 1 security: model, KV and config errors no longer reach the trace, the baseline note, a preset's fallback reason or the audit's extraction note (`publicErrorText` in `run.ts`, `trace.ts`, `extract.ts`, `api/run/route.ts`)
+- [x] 2 security: a run started from someone's `?b=` link is never marked as the owner's, so it can't ship to real channels (`brief.ts` `shared`, `api/run/route.ts`, `App.tsx`; `tests/e2e/stub-live-fallback.test.ts`, verified to fail without the fix)
+- [P] 3 security: KV plan: pick pay-as-you-go, not a free tier with a monthly command cap (BLOCKED KV item); the flood guard stays at 120/min so judges behind one NAT aren't throttled
+- [x] 1 judge: `docs/benchmark.md` regenerated after the code change, and it now states the cap with 25% headroom
+- [x] 2 judge: the shared-brief and measure bars sit above the brief form, in view on a phone (e2e asserts `toBeInViewport`)
+- [-] 3 judge: renaming a preset's subject keeps its product and goal: the form shows them, and "Kept from the brief on screen" (L7) says so
+- [-] 4 judge: an audit replacement's trend (as re-audit 13 M3)
