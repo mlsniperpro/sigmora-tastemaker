@@ -1,27 +1,40 @@
-TESTED_COMMIT: 3b25d12
+TESTED_COMMIT: 466a68a
 
 # Break-it log: Tastemaker
 
+Every run below is on the code at `TESTED_COMMIT` (466a68a; the commits after it touch only Markdown and `.agent/`), in its own git worktree so no edit can land mid-run.
+
 ## Deep property runs
 
-- `FC_NUM_RUNS=20000 vitest run --testTimeout=0` on 1d9175e: 241/241 passed (37 s).
-- `FC_NUM_RUNS=100000` on 7256be0: **failed**, `normName("_fC")` not idempotent. Fixed at the root in 3b25d12; `FC_SEED=654543244 FC_NUM_RUNS=100000` now passes.
-- `FC_NUM_RUNS=200000` on the median property: passes after the -0 fix.
+- `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0` on 466a68a: 35 files, 525/525 passed.
+- Earlier finds, all fixed at the root with a regression test:
+  - b5cd475: `isTitlePart` rejected a whole subtitle containing "with" (counterexample `["aa","aa"]`, `["aa","with","aa"]`, seed -2001805414); fixed in 5268c3e, the seed now passes.
+  - 7256be0: `normName("_fC")` not idempotent; 1d9175e: `median([0,-0,5e-324])` order-dependent (both earlier sessions).
 
-## Soak (full suite repeated with fresh random seeds, 500 runs per property)
+## Soak (full suite with fresh random seeds, `FC_NUM_RUNS=500 FC_SEED=<random>`)
 
-- 60 rounds on 1d9175e: round 8 **failed**, `median([0,-0,5e-324])` order-dependent. Fixed at the root in 7256be0; regression test added.
-- On 7256be0: round 9 **failed**, the live-stub test's two requests straddled a one-minute rate-limit window. Fixed in 3b25d12 by pinning the clock just after a minute boundary.
-- 150 rounds on 3b25d12: running (results recorded here when done).
+- 466a68a: 60/60 rounds passed.
+- Earlier this session: 295b64a 39/39, ee1540b 40/40, 153d2ea 40/40, fd60092 40/40, 506cea1 40/40, b5cd475 40/40; 8c6f8f4 34/40, the 6 failures being tests edited mid-run in the main checkout, after which soaks moved to their own worktree.
 
-## Failure injection (in the suite)
+## Failure injection (in the suite, run on every round)
 
-- Qloo 429 mid-run, then retried (`tests/e2e/stub-live.test.ts`); Qloo 500 on compare and trending (`agent.test.ts`); KV down (`cache.test.ts`, `counter-guard-config.test.ts`); LLM 401 and 529 (`agent.test.ts`); LLM revise failure; baseline draft failure (`agent.test.ts`); malformed judge output (`judge.test.ts`); a live run failing over to a recorded run (`recorded.test.ts`); malformed Sigmora replies (`requery.test.ts`, `api.test.ts`).
+- Qloo: 429 then retried, 500 on optional surfaces, the nationwide heatmap failing (cities rank nothing and say why), a heatmap whose cells lie elsewhere, the location filter failing for a city, budget and deadline cuts mid-critic, a malformed reply (`QlooSchemaError`, hidden from visitors), a live failure falling back to a recording.
+- Model: 401/529, a reply that isn't the provider's JSON (HTML gateway page, wrong shape), choice and polish failures, baseline draft failure.
+- KV: half a pair, missing on a hosted paid deploy (build fails), outage (budget fails closed).
+- Owner: a shared `?b=` brief, a cache hit and a join never become the owner's run; tests verified to fail without each fix.
+- Credentials: `pnpm test` passes with `QLOO_API_KEY`, `LLM_*` and `KV_*` exported (tests clear them); the e2e server blanks every credential.
 
 ## Replay e2e
 
-- `pnpm test:e2e` on 3b25d12: 6/6 passed (phone-390 and desktop-1440).
+- `pnpm test:e2e` on 5268c3e (same app code as 466a68a): 40/40 passed, phone-390 and desktop-1440, including the tile-map stall fallback, the refused clipboard, `?b=` / `?measure=` waiting for a click, the unreadable `?b=` notice and the branded 404.
 
-## Fresh-clone README run (on 1d9175e)
+## Fresh-clone README run (466a68a, cloned from GitHub)
 
-- `git clone` → `pnpm install --frozen-lockfile` → `pnpm test` 241/241 → `pnpm demo` → `pnpm dev`: `GET /` 200 in 0.12 s; `POST /api/run` streamed a result; MCP `taste_check` answered.
+- `pnpm install` → `pnpm demo` for the three presets: 75 / 60 / 75 Qloo calls → `pnpm test` 525/525 (with keys exported) → `pnpm benchmark`: "NOT A MEASUREMENT", `git status` clean.
+- `pnpm build` compiles; `next start`: `GET /` 200, `/nope` 404 (branded), `/docs/judging.md` 307 to the repo, `POST /api/run` streams 32 events, MCP lists `taste_check`, `audit_plan`, `plan_campaign`.
+- Production in Chromium (MapLibre style stubbed): the tile map draws at 390 and 1440 px; three cold loads at each width with no console errors.
+
+## Load
+
+- `pnpm bench:latency`: the hero preset's 75 Qloo calls at 300 ms each under the 4/s throttle take 15.1 s.
+- `pnpm audit --prod`: no known vulnerabilities (maplibre-gl 6.4.1).

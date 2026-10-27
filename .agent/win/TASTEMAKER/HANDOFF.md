@@ -43,13 +43,10 @@
 
 ## State now (session_01PMv2tP3mmaSRPtyxJJkQMv holds the lease)
 - **Submission materials (owner milestone 2026-10-29T18:00Z):** `docs/SUBMISSION.md` has every Devpost field in form order, `docs/demo-script.md` is the ≤ 2-minute shot list and voice-over, and `pnpm video` records every segment (verified end to end against a local server: ~90 s webm). The fresh-clone README run on 8c6f8f4 passed (install, demo 76/60/76 calls, 515 tests, GET / 200, branded 404, /docs redirect, /api/run streams, MCP 3 tools).
-- **Audit rounds this session** (details in WIN-CHECKLIST "Re-audit 12" to "15"):
-  - 12 on 1f0f04a: 0 high. 13 on 8c6f8f4: 1 high (locality ranking), fixed. 14 on 295b64a: 0 high. 15 on ee1540b: 1 high (city ranking mixed scales; an off-list city a "miss" Qloo never measured), fixed: one nationwide heatmap, off-list cities folded against the same cells.
-  - 16 on 153d2ea: 1 high (docs still described the removed probes), fixed with maplibre-gl 6.4.1 (critical advisory), Edit-brief link origin, parser-error hiding, a plan's own city joining the ranking. Its judge lens hit a usage limit before reporting.
-  - Round 17 on fd60092: running. Clean rounds in a row: 0 until 17 reports.
-  - Subagent usage limits happen (one reset at 18:20 UTC on Oct 27): if a lens fails on a limit, re-run it after the reset; a round counts as clean only when all three lenses report 0 critical and 0 high.
-- **Soaks:** 295b64a, ee1540b and 153d2ea clean (100k deep pass + 39–40 seeded rounds each), run in `scratchpad/wt2`. fd60092 running.
-- **Fresh clone of ee1540b:** install, demo 75/60/75, 519 tests, GET / 200, /nope 404, /api/run streams, MCP 3 tools, `next build` + `next start` with no console errors at 390/1440.
+- **Audit rounds this session:** 12–20 (WIN-CHECKLIST "Re-audit 12" … "20"). Rounds 19 (b5cd475) and 20 (466a68a) are two clean rounds in a row (0 critical, 0 high in all three lenses); no code changed after 466a68a. `reaudit.md` and `break-it.md` name 466a68a.
+- **Soaks:** every audited commit soaked in `scratchpad/wt2` (100k deep pass + 40–60 seeded rounds); 466a68a: deep pass clean, 60/60 rounds. A deep run on b5cd475 found the `isTitlePart` "with" bug, fixed in 5268c3e.
+- **Fresh clone of 466a68a:** install, demo 75/60/75, 525 tests (with keys exported), benchmark not a measurement, `next build` + `next start` clean at 390/1440.
+- **Subagent usage limits** stopped rounds 16 and 20 midway (resets 18:20 and 23:20 UTC on Oct 27); resume the agents with SendMessage after the reset.
 - **CI:** GitHub Actions jobs end in 2–3 s with no runner (BLOCKED.md, Actions billing); local checks are the evidence.
 
 ## Open audit findings
@@ -57,7 +54,7 @@
 - Owner decisions: judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
 
 ## Next steps, in order
-1. Collect round 14 (three lenses on 295b64a). Fix what it finds; repeat until **two consecutive rounds** have 0 critical and 0 high.
+1. Done: two consecutive clean rounds (19, 20). After any code change, run a fresh three-lens round and soak before re-running the gate.
 2. Break-it on the final code commit in a separate worktree: `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`, ~40 seeded `FC_NUM_RUNS=500 FC_SEED=<random>` rounds, `pnpm test:e2e`, a fresh clone running the README commands.
 3. Write `reaudit.md` (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT`), commit, push, run the gate until PASS.
 4. Update the PR body (status, Decisions, Self-review, load), then post the final status comment.

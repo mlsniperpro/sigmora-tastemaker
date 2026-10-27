@@ -502,3 +502,18 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 4 judge: `docs/PLAYBOOK.md` no longer links private-repo paths
 - [x] 5 judge: the footer's GitHub link is underlined (not colour alone)
 - [x] 6 judge: SUBMISSION's thumbnail is `docs/screenshots/desktop.png` (1440 × 960, 3:2), not the 1200 × 630 social card
+
+## Re-audit 20 (2026-10-27/28, three lenses on 466a68a: 0 critical and 0 high from Qloo depth, security and the judge path; no code changed after it)
+
+- [-] 1 Qloo (medium): an audit's replacement suggestion has no trend read (as re-audit 13 M3: each candidate's trend is a call; the run's own critic does read them before swapping hook references)
+- [P] 2 Qloo: a seed picked back as a pick may read as "left out" if the host excludes signal entities from results (BLOCKED #24)
+- [P] 3 Qloo: confirm `/v2/trending` returns a different series per entity (BLOCKED #11)
+- [x] 4 Qloo: BLOCKED #9 no longer says the heatmap lists no `take`
+- [P] 5 Qloo: a gateway 404 on `/search` during the benchmark would count as not found; checked before publishing (BLOCKED #26)
+- [P] 6 Qloo: typed `/search` depth for generic titles (BLOCKED #25)
+- [-] 1 security (low): with a live model but no live Qloo, the run caps fall back to per-instance counters during a KV outage (the planned deploy has live Qloo, whose reservation fails closed; accepted C11/I16)
+- [-] 2 security (info): `script-src 'unsafe-inline'` stays (Next's inline bootstrap; no sink found; a nonce CSP would force dynamic rendering)
+- [-] 1 judge: "Edit brief" keeps a preset's hidden fields (as before; "Kept from the brief on screen … Start blank" says so)
+- [-] 2 judge: the offline simulator's vocabulary is the labelled stand-in; the hosted demo serves recorded live runs once `pnpm runs:record` has run (BLOCKED)
+- [-] 3 judge: a bad `?measure=` id shows the sandbox's reason; measuring is an owner flow
+- [-] 4 judge: `pnpm demo` prints simulator metrics under "Qloo sources: simulated" (a developer tool, labelled on the line above)
