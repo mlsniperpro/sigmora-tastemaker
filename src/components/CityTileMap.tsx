@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { HeatCell } from "@/lib/agent/types";
 
+const LABEL_H = 20;
+const overlaps = (a: { x0: number; x1: number; y0: number; y1: number }, b: typeof a) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
 /** Free, keyless vector tiles (OpenFreeMap, OpenStreetMap data); attribution is shown by the map. */
 export const TILE_STYLE = "https://tiles.openfreemap.org/styles/dark";
 
@@ -36,7 +39,7 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
         if (cancelled) return;
         const points = [...cells.map((c) => [c.lon, c.lat] as [number, number]), ...cities.map((c) => [c.lon, c.lat] as [number, number])];
         const bounds = points.reduce((b, p) => b.extend(p), new LngLatBounds(points[0], points[0]));
-        map = new Map({ container: el, style: TILE_STYLE, bounds, fitBoundsOptions: { padding: 28 }, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
+        map = new Map({ container: el, style: TILE_STYLE, bounds, fitBoundsOptions: { padding: { top: 48, bottom: 24, left: 24, right: 24 } }, attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
         map.on("error", (e: { error?: unknown }) => {
           // A failed style or tile request before the map is drawn means no basemap: fall back.
           if (!map?.loaded()) fail();
@@ -68,12 +71,26 @@ export function CityTileMap({ cells, cities, onFail }: { cells: readonly HeatCel
               "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(143,123,255,0)", 0.3, "rgba(143,123,255,0.45)", 0.7, "#8f7bff", 1, "#b9f227"],
             },
           });
+          // Labels grow away from the nearer edge (east-coast metros extend west), and a label that would overlap one
+          // already placed moves up a row, so every name stays readable on a phone.
+          const width = el.clientWidth;
+          const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
           cities.slice(0, 4).forEach((c, i) => {
+            if (!map) return;
             const label = document.createElement("div");
-            label.className = `rounded-full px-2 py-0.5 text-caption font-semibold shadow ${i === 0 ? "bg-accent text-accent-ink" : "bg-panel text-ink"}`;
+            label.className = `whitespace-nowrap rounded-full px-2 py-0.5 text-caption font-semibold shadow ${i === 0 ? "bg-accent text-accent-ink" : "bg-panel text-ink"}`;
             label.textContent = `${i + 1}. ${c.name}`;
-            if (map) new Marker({ element: label, anchor: "bottom", offset: [0, -4] }).setLngLat([c.lon, c.lat]).addTo(map);
+            const at = map.project([c.lon, c.lat]);
+            const east = at.x > width / 2;
+            const w = label.textContent.length * 7 + 18;
+            let lift = 4;
+            const box = () => ({ x0: east ? at.x - w : at.x, x1: east ? at.x : at.x + w, y0: at.y - lift - LABEL_H, y1: at.y - lift });
+            for (let tries = 0; tries < 4 && placed.some((p) => overlaps(p, box())); tries++) lift += LABEL_H + 2;
+            placed.push(box());
+            new Marker({ element: label, anchor: east ? "bottom-right" : "bottom-left", offset: [east ? 6 : -6, -lift] }).setLngLat([c.lon, c.lat]).addTo(map);
           });
+          // On a phone the open attribution card would cover the map; the (i) button keeps it one tap away.
+          if (width < 640) el.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
           setReady(true);
         });
       })

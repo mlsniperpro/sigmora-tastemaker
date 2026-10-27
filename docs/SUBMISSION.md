@@ -52,7 +52,7 @@ Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (a
 - `filter.results.entities` + `feature.explainability`: the critic
 - `/v2/trending`: rising vs. fading references
 - `/v2/analysis/compare`: the positioning gap vs. a comparable's audience
-- `signal.demographics.*` on every call the docs allow it on
+- `signal.demographics.*` on every call the docs allow it on, except people, where entrants report the live host lets demographics replace the audience instead of narrowing it
 
 Every request is validated against per-`filter.type` parameter allow-lists (Qloo silently drops unknown params), throttled, retried with backoff, budgeted, cached by normalized request, recordable as fixtures, and labeled live / replayed in the UI.
 

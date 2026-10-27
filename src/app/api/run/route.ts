@@ -154,6 +154,8 @@ export async function POST(req: Request) {
     return ndjson(async (send) => (await presetFallback(preset, reason, send)).result, { "X-Run-Cache": "simulated" });
   }
   const owner = isOwnerRequest(req.headers);
+  // Whether this request starts the run (not served from the cache, not joining one already in flight).
+  const startsRun = !lookup.result && !isInFlight(lookup.key);
   // Only the request that was admitted (the leader of a new paid run) has anything to give back.
   const admitted = settle !== undefined && !refusal;
   const work = async (send: (e: RunEvent) => void) => {
@@ -168,9 +170,9 @@ export async function POST(req: Request) {
         return presetFallback({ brief: request.brief, lookup }, `the live run failed (${publicErrorText(err)})`, send);
       })
       .finally(() => lookup.deps.qloo.release());
-    // The owner was served this run from their own brief, so it may ship to real channels; a brief from someone's
-    // shared link wasn't written by the owner, so its run never may.
-    if (owner && !request.shared) await markOwnerRun(out.result.id, lookup.deps.cache);
+    // The owner started this run from their own brief, so it may ship to real channels. Not a brief from someone's
+    // shared link, and not a run the owner merely joined or was served from the cache: someone else wrote that one.
+    if (owner && !request.shared && startsRun) await markOwnerRun(out.result.id, lookup.deps.cache);
     return out;
   };
   const res = ndjson(work, { "X-Run-Cache": lookup.result ? "hit" : "miss" });

@@ -215,10 +215,11 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
         await tracer.optional("cities", "Where to launch (urn:heatmap, folded into candidate metros)", async (s) => {
           const r = await rankCities(ctx, brief.candidateCities);
           ctx.candidates.city = r.cities;
+          if (r.heatmapKey) ctx.cityHeat = { cells: r.heatmap, key: r.heatmapKey };
           where.heatmap = r.heatmap;
           where.rankedBy = r.rankedBy;
           const top = r.cities.slice(0, 3).map((c) => (sim.on ? c.name : `${c.name} ${c.affinity.toFixed(2)}`)).join(" › ");
-          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.probeErrors.length ? ` (per-metro heatmap: ${r.probeErrors.join("; ")})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}${r.unranked.length ? ` · unranked: ${r.unranked.join(", ")}` : ""}`;
+          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}${r.unranked.length ? ` · unranked: ${r.unranked.join(", ")}` : ""}`;
         });
       }
       ctx.city = brief.targetCity ?? ctx.candidates.city?.[0]?.name;

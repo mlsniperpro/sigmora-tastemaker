@@ -279,7 +279,13 @@ describe("/api/ship", () => {
       return r;
     };
     expect((await ship(asOwner(visitorRun.id))).status).toBe(403);
-    // The same brief run by the signed-in owner is theirs to ship.
+    // The owner re-running that exact brief is served the visitor's cached run: still not theirs (audit 15).
+    const sameReq = post({ brief });
+    sameReq.headers.set(OWNER_HEADER, "kO9x2LmQp7zVb4nRt6yHw3sJd8fGc5aE");
+    const served = must(resultOf(await events(await run(sameReq))), "owner served from cache");
+    expect(served.id).toBe(visitorRun.id);
+    expect((await ship(asOwner(served.id))).status).toBe(403);
+    // A brief the signed-in owner runs fresh is theirs to ship.
     const ownerReq = post({ brief: { ...brief, goal: "Grow streams in Houston" } });
     ownerReq.headers.set(OWNER_HEADER, "kO9x2LmQp7zVb4nRt6yHw3sJd8fGc5aE");
     const ownerRun = must(resultOf(await events(await run(ownerReq))), "owner run");

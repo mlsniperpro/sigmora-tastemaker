@@ -58,7 +58,9 @@ export async function tasteCheck(input: TasteCheckInput, opts: Partial<CriticSet
       if (named.length) {
         const pool = [...new Set([...named, ...(PRESETS[0].brief.candidateCities ?? [])])].slice(0, 16);
         // The plan's own city names count only on an exact Qloo match, so an invented city can't borrow a real one's rank.
-        ctx.candidates.city = (await rankCities(ctx, pool, { exact: named })).cities;
+        const ranked = await rankCities(ctx, pool, { exact: named });
+        ctx.candidates.city = ranked.cities;
+        if (ranked.heatmapKey) ctx.cityHeat = { cells: ranked.heatmap, key: ranked.heatmapKey };
         // Venues are judged in the city the plan names, once Qloo knows it by that name (as the agent judges its own plan's venues).
         const planCity = named.find((n) => ctx.candidates.city?.some((c) => sameName(c.name, n)));
         if (planCity && picks.some((p) => p.role === "venue")) {

@@ -61,6 +61,13 @@ export class HttpChat implements ChatClient {
     );
   }
 
+  /** A 200 that isn't the provider's JSON (a gateway page, a changed API) is a service error, so its text never reaches a visitor. */
+  private async reply<T>(res: Response, url: string, schema: { safeParse(v: unknown): { success: true; data: T } | { success: false } }): Promise<T> {
+    const parsed = schema.safeParse(await res.json().catch(() => undefined));
+    if (!parsed.success) throw new HttpError(SERVICE, res.status, new URL(url).pathname);
+    return parsed.data;
+  }
+
   private async anthropic(system: string, user: string): Promise<string> {
     const url = joinUrl(this.o.baseUrl ?? "https://api.anthropic.com", "/v1/messages");
     const res = await this.post(url, { "x-api-key": this.o.apiKey, "anthropic-version": "2023-06-01" }, {
@@ -70,7 +77,7 @@ export class HttpChat implements ChatClient {
       messages: [{ role: "user", content: user }],
     });
     await ensureOk(res, SERVICE, url);
-    return AnthropicReply.parse(await res.json()).content.map((c) => c.text ?? "").join("");
+    return (await this.reply(res, url, AnthropicReply)).content.map((c) => c.text ?? "").join("");
   }
 
   private async openai(system: string, user: string): Promise<string> {
@@ -95,7 +102,7 @@ export class HttpChat implements ChatClient {
       throw new HttpError(SERVICE, 400, new URL(url).pathname);
     }
     await ensureOk(res, SERVICE, url);
-    return OpenAIReply.parse(await res.json()).choices[0]?.message.content ?? "";
+    return (await this.reply(res, url, OpenAIReply)).choices[0]?.message.content ?? "";
   }
 
   /** Retried with backoff on 429 / 5xx / timeouts (a completion has no side effects). */

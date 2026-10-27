@@ -1,5 +1,5 @@
 /** The agent loop end to end over the offline Qloo client, plus its failure paths. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
 import { RunDeadlineError, qlooHealth, runTastemaker } from "@/lib/agent/run";
@@ -168,7 +168,7 @@ describe("agent loop (zero credentials)", () => {
 
 describe("agent loop: failure paths", () => {
   it("rejects a brief whose seeds don't resolve, with a typed error", async () => {
-    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: ["Zzqx Nonexistent"], seedLinks: [] }, deps())).rejects.toMatchObject({ name: "NoSeedError" });
+    await expect(runTastemaker({ ...PRESETS[0].brief, seeds: ["Zzqx Nonexistent"], seedLinks: [] }, deps())).rejects.toMatchObject({ name: "NoSeedError", message: expect.stringMatching(/small offline demo catalog: try Tems/) as unknown });
   });
 
   it("rejects an invalid brief before any call: no seed name and no link", async () => {
@@ -232,6 +232,34 @@ describe("agent loop: failure paths", () => {
     const r = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Boise", type: "locality", role: "city" }] }, { qloo: qloo() });
     expect(r.receipts.find((x) => x.name === "Washington")?.verdict).toBe("pass");
     expect(r.receipts.find((x) => x.name === "Washington")?.affinity).toBeTypeOf("number");
+  });
+
+  it("judges a city the nationwide heatmap doesn't reach as measured (a miss naming the call), and one Qloo can't place as unscored (audit 15)", async () => {
+    const q = qloo();
+    const real = q.insights.bind(q);
+    // As if the audience's 50 strongest US cells all sat around Washington, DC.
+    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
+      const r = await real(t, p);
+      if (t !== "urn:heatmap") return r;
+      return { ...r, data: { ...r.data, results: { heatmap: [{ location: { latitude: 38.9, longitude: -77.04 }, query: { affinity: 0.9 } }] } } };
+    });
+    const r = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Houston", type: "locality", role: "city" }] }, { qloo: q });
+    const houston = must(r.receipts.find((x) => x.name === "Houston"));
+    expect(houston.verdict).toBe("miss");
+    expect(houston.note).toMatch(/None of this audience's 50 strongest US heatmap cells \(urn:heatmap\) lies within 60 km of it/);
+    expect(houston.calls.some((k) => k.includes("urn%3Aheatmap") || k.includes("urn:heatmap"))).toBe(true);
+    expect(r.receipts.find((x) => x.name === "Washington")?.verdict).toBe("pass");
+
+    // Without coordinates from Qloo there's nothing to measure: no verdict rather than a guess.
+    const q2 = qloo();
+    const search = q2.search.bind(q2);
+    vi.spyOn(q2, "search").mockImplementation(async (name, types, take) => {
+      const res = await search(name, types, take);
+      if (!/houston/i.test(name)) return res;
+      return { ...res, data: { ...res.data, results: res.data.results.map((e) => ({ ...e, location: undefined })) } };
+    });
+    const r2 = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Houston", type: "locality", role: "city" }] }, { qloo: q2 });
+    expect(r2.receipts.find((x) => x.name === "Houston")?.verdict).toBe("unscored");
   });
 
   it("maps where inside a fixed market the audience is (DTC preset)", async () => {

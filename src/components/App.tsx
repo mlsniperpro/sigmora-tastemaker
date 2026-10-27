@@ -36,7 +36,8 @@ export function RunError({ error, hasResult }: { error: string; hasResult: boole
 export function RoiLine({ result, served }: { result: RunResult; served?: Served }) {
   const seconds = Math.max(1, Math.round(result.durationMs / 1000));
   const offBrief = offBriefBaseline(result);
-  const checked = result.grounded.receipts.length + (result.baseline.unavailable || offBrief ? 0 : result.baseline.receipts.length);
+  const checked = result.grounded.receipts.length;
+  const baselineChecked = result.baseline.unavailable || offBrief ? 0 : result.baseline.receipts.length;
   const blank = placeholderReason(result);
   const simulated = result.qloo.simulated > 0;
   const caught = blank || result.baseline.unavailable || offBrief ? 0 : result.baseline.receipts.filter((r) => r.verdict !== "pass" && r.verdict !== "unscored").length;
@@ -50,7 +51,7 @@ export function RoiLine({ result, served }: { result: RunResult; served?: Served
           This plan took {seconds} s{when}
         </strong>
       )}{" "}
-      {blank ? "with" : "and"} {result.qloo.calls} {simulated ? "simulated Qloo calls" : "Qloo calls"}, with {checked} cultural picks checked
+      {blank ? "with" : "and"} {result.qloo.calls} {simulated ? "simulated Qloo calls" : "Qloo calls"}, with {checked} cultural picks checked{baselineChecked > 0 ? ` (and ${String(baselineChecked)} in the plan without Qloo)` : ""}
       {caught > 0 ? `; ${caught} of the plain model's picks would have shipped wrong` : ""}.
       {blank && <span className="ml-1.5 whitespace-nowrap rounded bg-fade/15 px-1.5 py-0.5 text-caption font-medium text-fade">{simulated ? "simulated" : "scripted model"}: no miss count</span>}
     </p>

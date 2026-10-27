@@ -93,6 +93,24 @@ const leftward = (lon: number) => px(lon) > W * 0.7 || (px(lon) > W * 0.3 && px(
 /** The located top metros, in rank order. */
 const locatedCities = (result: RunResult) => result.cities.filter((c): c is typeof c & { lat: number; lon: number } => c.lat !== undefined && c.lon !== undefined);
 
+/**
+ * Label baselines for the top metros: each sits just above its dot, and one that would overlap a label already
+ * placed (Washington and New York are close on this scale) moves up a line.
+ */
+function placeLabels(cities: readonly MapCity[], size: number): { c: MapCity; y: number }[] {
+  const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
+  return cities.map((c) => {
+    const w = `${String(cities.indexOf(c) + 1)}. ${c.name}`.length * size * 0.56;
+    const x = px(c.lon) + (leftward(c.lon) ? -7 : 7);
+    const [x0, x1] = leftward(c.lon) ? [x - w, x] : [x, x + w];
+    let y = py(c.lat) - 6;
+    const hits = () => boxes.some((b) => x0 < b.x1 && b.x0 < x1 && y - size < b.y1 && b.y0 < y);
+    for (let tries = 0; tries < 4 && hits(); tries++) y -= size + 2;
+    boxes.push({ x0, x1, y0: y - size, y1: y });
+    return { c, y };
+  });
+}
+
 /** Dots sized by affinity on the stylized US outline, with the top metros labelled; no network, no WebGL. */
 function UsDots({
   result,
@@ -122,13 +140,13 @@ function UsDots({
           {!plain && <title>{`affinity ${p.affinity.toFixed(2)}`}</title>}
         </circle>
       ))}
-      {located.slice(0, 4).map((c, i) => (
+      {placeLabels(located.slice(0, 4), labelSize).map(({ c, y }, i) => (
         <g key={c.name}>
           <circle cx={px(c.lon)} cy={py(c.lat)} r={i === 0 ? 5 : 3} className={i === 0 ? "fill-accent stroke-bg" : "fill-ink stroke-bg"} strokeWidth={1.5} />
           {/* East-coast labels run leftward so they stay inside the drawing, and so do central ones, clear of the South-East's. */}
           <text
             x={px(c.lon) + (leftward(c.lon) ? -7 : 7)}
-            y={py(c.lat) - 6}
+            y={y}
             textAnchor={leftward(c.lon) ? "end" : "start"}
             className={i === 0 ? "fill-accent" : "fill-ink"}
             style={{ fontSize: labelSize, fontWeight: i === 0 ? 600 : 400 }}
@@ -314,7 +332,7 @@ export function TasteMap({ result }: { result: RunResult }) {
           sub={
             result.citiesRankedBy === "in-city"
               ? `Neighbourhood-scale audience affinity inside the brief's market (urn:heatmap + filter.location.query=${result.brief.targetCity ?? ""})`
-              : "Candidate metros ranked by the audience's urn:heatmap cells around them (a metro outside the nationwide top 50 cells gets its own in-boundary heatmap)"
+              : "Candidate metros ranked by the audience's strongest urn:heatmap cells around them (one nationwide call, so every metro is on the same scale)"
           }
         >
           <CityMap result={result} />

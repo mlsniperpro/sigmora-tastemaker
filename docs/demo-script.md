@@ -10,7 +10,7 @@ Record against the live deployment **with the Qloo and LLM keys set**. If a "sim
 |---|---|---|
 | 0:00–0:10 | Home page loads; the hero preset (indie Afro-fusion single) starts running | "AI marketing agents are confident about culture they've never measured. Tastemaker is a marketing agent that checks every cultural pick with Qloo before it ships." |
 | 0:10–0:25 | The agent trace fills in; open one step to show its parameters | "Every step is a Qloo call: who over-indexes, the audience's own taste vocabulary, a cross-domain culture map, where to launch, what's rising, and how this audience differs from a comparable one." |
-| 0:25–0:35 | Scroll to the Taste Map | "The Taste Map shows where to play first and why, straight from Qloo's locality and heatmap data." |
+| 0:25–0:35 | Scroll to the Taste Map | "The Taste Map shows where to play first and why, straight from Qloo's heatmap of this audience across the US." |
 | 0:35–0:50 | Campaign pack; open one receipt chip | "The model proposes. Qloo is the critic: it scores every pick against this audience, and anything weak or invented gets replaced. Every pick that survives carries a receipt: the affinity, what drove it, its trend, and the exact Qloo call." |
 | 0:50–1:05 | Flip **Without Qloo** | "Here's the same model with no Qloo. Names that don't exist, references this audience doesn't care about, the wrong city. The diff card puts both plans side by side on every run." |
 | 1:05–1:20 | Click **Paste any AI's plan →**, then **Try a sample plan** | "And it isn't only our agent. Paste a plan from any chatbot, and the same Qloo critic checks every cultural name in it, with a receipt and a better pick for each miss." |

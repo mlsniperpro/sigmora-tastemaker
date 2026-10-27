@@ -25,6 +25,20 @@ const openai = (content: string) => Response.json({ choices: [{ message: { conte
 const live = (f: (url: string, init: RequestInit) => Promise<Response>, format: "openai" | "anthropic" = "openai", o: Partial<HttpChatOptions> = {}) =>
   new LiveLLM(new HttpChat({ format, model: "m", apiKey: "k", baseUrl: format === "openai" ? "https://llm.example/v1" : undefined, fetchImpl: f as unknown as typeof fetch, retry: fastRetry, ...o }));
 
+describe("HttpChat replies that aren't the provider's JSON (audit 15)", () => {
+  it("become an LLM HttpError, so a gateway page or schema path never reaches a visitor", async () => {
+    for (const format of ["openai", "anthropic"] as const) {
+      for (const body of [new Response("<!DOCTYPE html><p>gateway</p>", { status: 200 }), Response.json({ unexpected: true })]) {
+        const chat = new HttpChat({ format, model: "m", apiKey: "k", baseUrl: "https://llm.example/v1", fetchImpl: () => Promise.resolve(body.clone()), retry: fastRetry });
+        const err = await chat.complete("s", "u").catch((e: unknown) => e);
+        expect(err, format).toBeInstanceOf(HttpError);
+        expect((err as HttpError).service).toBe("LLM");
+        expect((err as Error).message).not.toMatch(/DOCTYPE|choices|content/);
+      }
+    }
+  });
+});
+
 describe("provider selection", () => {
   it("picks the provider from env and never pins a vendor", () => {
     expect(llmFromEnv({}).id).toBe("deterministic");

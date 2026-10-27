@@ -7,6 +7,7 @@
 import type { Pick as PlanPick, Replacement } from "../llm/types";
 import { isQlooStop } from "../qloo/errors";
 import { ROLE_SPEC, type PickType, type Role } from "./brief";
+import { FOLD_RADIUS_KM, HEATMAP_TAKE, foldHeatmap } from "./cities";
 import { entityTypesOf, inCityKey, isFading, pickKey, readTrends, resolveByName, resolvedType, scoreEntities, signalFor, type Ctx, type Resolved } from "./context";
 import type { Metrics, Receipt, Verdict } from "./types";
 import { median, normName, sameName } from "./util";
@@ -79,7 +80,16 @@ async function resolvePick(ctx: Ctx, p: PlanPick): Promise<Resolved> {
     const searched: PickType = spec.types.includes(p.type) ? p.type : spec.types[0];
     const typed = await resolveByName(ctx.qloo, p.name, { types: spec.types, titlePart: true });
     if (typed.hit) {
-      out = { ...base, entityId: typed.hit.entity_id, type: resolvedType(p.role, searched, typed.hit), calls: [typed.key], source: typed.source, ...(typed.partOf ? { matchedAs: typed.partOf } : {}) };
+      const { lat, lon } = typed.hit.location ?? {};
+      out = {
+        ...base,
+        entityId: typed.hit.entity_id,
+        type: resolvedType(p.role, searched, typed.hit),
+        calls: [typed.key],
+        source: typed.source,
+        ...(typed.partOf ? { matchedAs: typed.partOf } : {}),
+        ...(lat !== undefined && lon !== undefined ? { at: { lat, lon } } : {}),
+      };
     } else {
       // Before calling a name invented, look across every type: it may be real but filed elsewhere.
       const any = await resolveByName(ctx.qloo, p.name, { take: 10 });
@@ -165,7 +175,10 @@ function judge(ctx: Ctx, r: Resolved): Receipt {
       : { ...base, verdict: "hallucination", note: `Not found in Qloo: no entity matches "${r.name}" in a typed or an untyped search, so it is outside Qloo's catalogue and may be invented.` };
   }
 
-  const pooled = spec.scoreFromPool ? (ctx.candidates[r.role] ?? []).find((c) => c.entityId === r.entityId) : undefined;
+  // A city outside the ranked candidates is measured against the same nationwide heatmap that ranked them.
+  const heat = r.role === "city" ? ctx.cityHeat : undefined;
+  const offList = heat && r.at && !(ctx.candidates.city ?? []).some((c) => c.entityId === r.entityId) ? foldHeatmap([{ ...r.at, affinity: 0 }], heat.cells)[0] : undefined;
+  const pooled = spec.scoreFromPool ? ((ctx.candidates[r.role] ?? []).find((c) => c.entityId === r.entityId) ?? (offList && heat ? { affinity: offList.affinity, key: heat.key } : undefined)) : undefined;
   const scored = spec.scoreFromPool ? undefined : ctx.scores.get(r.entityId);
   const affinity = pooled?.affinity ?? scored?.affinity;
   const threshold = thresholdFor(ctx, r.role);
@@ -192,7 +205,11 @@ function judge(ctx: Ctx, r: Resolved): Receipt {
   }
 
   if (affinity === undefined && spec.scoreFromPool && threshold !== undefined) {
-    return { ...scoredBase, verdict: "miss", note: "Not among the candidates Qloo ranked for this audience." };
+    // Measured: none of the audience's strongest US cells is near it. Not measured (no coordinates, no heatmap): no verdict.
+    if (heat && r.at) {
+      return { ...scoredBase, calls: [...calls, heat.key], verdict: "miss", note: `None of this audience's ${String(HEATMAP_TAKE)} strongest US heatmap cells (urn:heatmap) lies within ${String(FOLD_RADIUS_KM)} km of it.` };
+    }
+    return { ...scoredBase, verdict: "unscored", note: "Qloo's heatmap couldn't place it for this audience, so it can't be judged." };
   }
   const omittedBy = spec.scoreFromPool ? undefined : ctx.omitted.get(r.entityId);
   if (affinity === undefined && omittedBy !== undefined) {

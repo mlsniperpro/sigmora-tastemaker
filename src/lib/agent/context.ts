@@ -11,7 +11,7 @@ import { AGE_BUCKETS, explainabilityOf, latestTrend, type Entity, type EntityTyp
 import type { Candidate } from "../llm/types";
 import { FADING_BELOW } from "../vocab";
 import { ROLE_SPEC, ROLES, type Brief, type PickType, type Role } from "./brief";
-import type { Driver } from "./types";
+import type { Driver, HeatCell } from "./types";
 import { isTitlePart, normName, sameName } from "./util";
 
 /** Entity types whose titles carry subtitles, where a plan may name just the title or the subtitle. */
@@ -73,6 +73,8 @@ export interface Resolved {
   filedAs?: string;
   /** Resolved to a Qloo entity whose full title contains the name (the receipt says which). */
   matchedAs?: string;
+  /** Where Qloo places the entity, when its reply says (a city pick is judged against the heatmap there). */
+  at?: { lat: number; lon: number };
 }
 
 /** How strongly candidate discovery leans toward trending entities (Qloo's bias.trends); "off" sends nothing. */
@@ -112,6 +114,8 @@ export interface Ctx extends CriticSettings {
    * or why the check failed (e.g. a 400 when Qloo finds no locality for the city), so it isn't re-asked every pass.
    */
   inCity: Map<string, InCityCheck>;
+  /** The audience's nationwide heatmap that ranked the metros: a city pick outside the candidates is judged against it. */
+  cityHeat?: { cells: HeatCell[]; key: string };
   /** Launch city, when known; venues must be in it. */
   city?: string;
   /**
@@ -250,9 +254,11 @@ export function makeCtx(audience: Audience, qloo: QlooClient, seeds: Seed[], set
 }
 
 export class NoSeedError extends Error {
-  /** `failure`: why a pasted link couldn't be looked up, when one couldn't (so the cause isn't hidden as "no match"). */
-  constructor(failure?: string) {
-    super(failure ? `None of the seeds resolved to a Qloo entity, and the pasted links couldn't be looked up (${failure}); try names instead.` : "None of the seeds resolved to a Qloo entity; try different names.");
+  /** `failure`: why a pasted link couldn't be looked up, when one couldn't (so the cause isn't hidden as "no match"). `offline`: the simulator's catalog was searched. */
+  constructor(failure?: string, offline = false) {
+    const why = failure ? `None of the seeds resolved to a Qloo entity, and the pasted links couldn't be looked up (${failure}); try names instead.` : "None of the seeds resolved to a Qloo entity; try different names.";
+    // Offline, "no match" usually means the small demo catalog, not Qloo: say so, with names it knows.
+    super(offline ? `${why} This deployment has no Qloo key, so names are looked up in a small offline demo catalog: try Tems, Burna Boy, Glossier or Arsenal F.C.` : why);
     this.name = "NoSeedError";
   }
 }
@@ -312,7 +318,7 @@ export async function resolveSeeds(qloo: QlooClient, seeds: Pick<Brief, "seeds" 
     seen.add(x.entityId);
     return true;
   });
-  if (!all.some((x) => x.entityId)) throw new NoSeedError(failures[0]);
+  if (!all.some((x) => x.entityId)) throw new NoSeedError(failures[0], qloo.primarySource === "simulated");
   return all;
 }
 
