@@ -318,6 +318,8 @@ test("a shared ?b= brief is shown first and runs only on a click", async ({ page
   await page.goto(`/?b=${Buffer.from(JSON.stringify(brief)).toString("base64url")}`);
   const shared = page.getByRole("region", { name: "Shared brief" });
   await expect(shared).toContainText("Shared brief: Kofi Vale for fans of Tems");
+  // Above the brief form, so a phone shows it without scrolling (audit 14).
+  await expect(shared).toBeInViewport();
   await expect(page.getByRole("region", { name: "Campaign pack" })).toHaveCount(0);
   await shared.getByRole("button", { name: "Plan & taste-check it" }).click();
   await finished(page);
@@ -451,6 +453,7 @@ test("a ?measure= link waits for a click before reading a campaign or spending a
   await page.goto("/?measure=c_demo-1");
   const ask = page.getByRole("region", { name: "Measure a campaign" });
   await expect(ask).toContainText("Measure campaign c_demo-1");
+  await expect(ask).toBeInViewport();
   await page.waitForTimeout(500);
   expect(calls).toEqual([]);
   await ask.getByRole("button", { name: "Measure & re-plan" }).click();

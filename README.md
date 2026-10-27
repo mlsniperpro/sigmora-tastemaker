@@ -36,8 +36,9 @@ Then flip **Without Qloo**, and click any receipt chip to see the Qloo call behi
 resolve seeds ─► who over-indexes ─► taste vocabulary ─► cross-domain culture map
  (/search,         (urn:demographics)   (urn:tag)            (/v2/insights × 6 types)
   /entities)
-      ─► where to launch ─► demand heatmap ─► venues in the city ─► rising vs fading
-         (urn:entity:locality) (urn:heatmap)    (place + filter.location) (/v2/trending)
+      ─► where to launch ──────► venues in the city ─► rising vs fading
+         (urn:heatmap, folded     (place + filter.location) (/v2/trending)
+          into candidate metros)
       ─► positioning gap ─► LLM drafts the campaign
          (/v2/analysis/compare)
       ─► QLOO CRITIC: resolve every named entity (typed, then untyped search; no match = not found in Qloo),
@@ -65,13 +66,12 @@ The same model also drafts with no Qloo context; the critic audits that plan wit
 | `/v2/insights` `urn:demographics` | Which age and gender buckets over-index |
 | `/v2/insights` `urn:tag` | The audience's taste vocabulary, fed into the copy |
 | `/v2/insights` artist · brand · tv_show · movie · podcast · person | Cross-domain culture map: collabs, partners, references, pitches, presenters |
-| `/v2/insights` `urn:entity:locality` + `filter.results.entities` | Rank candidate launch metros |
-| `/v2/insights` `urn:heatmap` + `filter.location` (US polygon) | Demand map; cells folded into each candidate city (fallback ranking) |
-| `/v2/insights` `urn:entity:place` + `filter.location.query` | Venues in the launch city; venue-in-city check |
+| `/v2/insights` `urn:heatmap` + `filter.location` (US polygon) | Demand map; cells folded into each candidate metro rank where to launch. A metro none of the nationwide top-50 cells reach gets its own heatmap inside its boundary (`filter.location=<locality id>`, `filter.location.radius=0`) while fewer than three are ranked. Locality insights aren't used for this: the docs allow only locality signals there |
+| `/v2/insights` `urn:entity:place` + `filter.location.query` + `filter.location.radius=0` | Venues in the launch city; venue-in-city check on the city's own boundary |
 | `filter.results.entities` + `feature.explainability=true` | **The critic**: score the model's shortlist and attribute why |
 | `GET /v2/trending` | Rising vs. fading references |
 | `GET /v2/analysis/compare` | Positioning gap vs. a comparable's audience |
-| `signal.demographics.age/gender` | Every call is conditioned on the target audience |
+| `signal.demographics.age/gender` | Every call the docs allow it on is conditioned on the target audience |
 
 Every request is validated against a per-`filter.type` parameter allow-list before it leaves the server (Qloo silently drops unknown params), throttled under the key's rate limit (per server instance), retried with backoff on 429/5xx/timeouts, capped by a per-run and a daily call budget, cached by normalized request, and labeled in the UI as **live**, **replayed** (recorded fixture) or **simulated**. When a live call fails and an answer comes from a fallback, the trace and a banner say so and why.
 

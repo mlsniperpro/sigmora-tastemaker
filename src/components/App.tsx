@@ -246,6 +246,48 @@ export function App() {
 
       <PlanToggle mode={mode} setMode={switchMode} result={result} calls={traceCalls} onTrace={jumpToTrace} />
 
+      {/* A link's brief (or campaign) waits for a click, so it sits above the form, in view on a phone. */}
+      {shared && (
+        <div role="region" aria-label="Shared brief" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-body text-ink">
+          <span className="min-w-0">
+            Shared brief: <strong>{shared.brief.subject}</strong> for fans of {shared.brief.seeds.join(", ") || shared.brief.seedLinks?.join(", ")}.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setShared(undefined);
+              void run({ ...shared, shared: true }).then((outcome) => {
+                settle(undefined, outcome);
+                if (outcome === "failed") setShared(shared);
+              });
+            }}
+            className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
+          >
+            Plan &amp; taste-check it
+          </button>
+        </div>
+      )}
+      {pendingMeasure && (
+        <div role="region" aria-label="Measure a campaign" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-body text-ink">
+          <span className="min-w-0">
+            Measure campaign <strong className="font-mono">{pendingMeasure}</strong> and re-plan with what performed.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const id = pendingMeasure;
+              setPendingMeasure(undefined);
+              void requery(id).then((outcome) => {
+                settle(undefined, outcome);
+                if (outcome === "failed") setPendingMeasure(id);
+              });
+            }}
+            className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
+          >
+            Measure &amp; re-plan
+          </button>
+        </div>
+      )}
       <section aria-label="Brief" className="space-y-2 rounded-2xl border border-line bg-panel p-3">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-caption uppercase tracking-wider text-muted">Try a preset</span>
@@ -327,47 +369,6 @@ export function App() {
         </div>
       </section>
 
-      {shared && (
-        <div role="region" aria-label="Shared brief" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-body text-ink">
-          <span className="min-w-0">
-            Shared brief: <strong>{shared.brief.subject}</strong> for fans of {shared.brief.seeds.join(", ") || shared.brief.seedLinks?.join(", ")}.
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setShared(undefined);
-              void run(shared).then((outcome) => {
-                settle(undefined, outcome);
-                if (outcome === "failed") setShared(shared);
-              });
-            }}
-            className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
-          >
-            Plan &amp; taste-check it
-          </button>
-        </div>
-      )}
-      {pendingMeasure && (
-        <div role="region" aria-label="Measure a campaign" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-body text-ink">
-          <span className="min-w-0">
-            Measure campaign <strong className="font-mono">{pendingMeasure}</strong> and re-plan with what performed.
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              const id = pendingMeasure;
-              setPendingMeasure(undefined);
-              void requery(id).then((outcome) => {
-                settle(undefined, outcome);
-                if (outcome === "failed") setPendingMeasure(id);
-              });
-            }}
-            className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
-          >
-            Measure &amp; re-plan
-          </button>
-        </div>
-      )}
       {running && result && (
         <p role="status" className="rounded-xl border border-line bg-panel px-3 py-2 text-body text-muted">
           Planning and taste-checking a new run; the previous result stays below until it is ready.

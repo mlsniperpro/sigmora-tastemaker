@@ -117,7 +117,8 @@ const BY_FILTER_TYPE: Record<string, string[]> = {
     "filter.finale_year.max",
   ],
   "urn:entity:video_game": [...COMMON_INSIGHTS],
-  "urn:entity:locality": [...COMMON_INSIGHTS, ...LOCATION_FILTERS],
+  // Insights deep dive: locality is "partially supported and only allows signal.interests.entities" (localities only).
+  "urn:entity:locality": ["filter.type", "signal.interests.entities", "take", "page"],
   "urn:demographics": ["filter.type", ...SIGNALS, "take"],
   // The docs list no signal.demographics.* for tags (they are dropped there).
   "urn:tag": [

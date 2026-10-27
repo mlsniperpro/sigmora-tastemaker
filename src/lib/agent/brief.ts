@@ -41,7 +41,8 @@ export type BriefInput = z.input<typeof Brief>;
 export const RunRequest = z.union([
   // `fresh`: run the preset live even when a recorded run exists ("Re-run live").
   z.object({ preset: z.string().max(40), fresh: z.boolean().optional() }).strict(),
-  z.object({ brief: Brief }).strict(),
+  // `shared`: started from someone's ?b= link, so even the signed-in owner's run of it may not ship to real channels.
+  z.object({ brief: Brief, shared: z.literal(true).optional() }).strict(),
 ]);
 export type RunRequest = z.input<typeof RunRequest>;
 

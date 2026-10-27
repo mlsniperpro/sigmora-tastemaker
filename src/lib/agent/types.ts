@@ -105,7 +105,7 @@ export interface Metrics {
 }
 
 /** Bump when RunResult's shape changes; cache keys carry it, so an older deploy's entries are never served. */
-export const RUN_SCHEMA_VERSION = 5;
+export const RUN_SCHEMA_VERSION = 6;
 
 export interface RunResult {
   id: string;
@@ -127,7 +127,7 @@ export interface RunResult {
   heatmap: HeatCell[];
   /** Which signal ranked the metros. */
   /** "in-city": the brief fixes the market, and the heatmap shows where inside it the audience is. */
-  citiesRankedBy: "locality" | "heatmap" | "in-city" | "none";
+  citiesRankedBy: "heatmap" | "in-city" | "none";
   positioning: { name: string; a: number; b: number; delta: number }[];
   compareTo?: string;
   grounded: PlanSide & { rounds: number };

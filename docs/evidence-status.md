@@ -2,7 +2,7 @@
 
 | Topic | Claim | Do not claim (until) |
 |---|---|---|
-| Qloo usage | 12 Qloo surfaces (`src/lib/agent/surfaces.ts`) wired into one agent loop, each visible in the trace; the hero run touches at least 10 (`tests/unit/surfaces.test.ts`) | That every surface returns data on the hackathon host (until `BLOCKED.md` is cleared) |
+| Qloo usage | 11 Qloo surfaces (`src/lib/agent/surfaces.ts`) wired into one agent loop, each visible in the trace; the hero run touches at least 10 (`tests/unit/surfaces.test.ts`) | That every surface returns data on the hackathon host (until `BLOCKED.md` is cleared) |
 | Critic | The critic resolves every named entity, scores it with `filter.results.entities` + explainability, and replaces failures | That Qloo "approves" a campaign; it scores audience affinity |
 | Culture Miss Rate | The method and script exist (`pnpm benchmark`) | Any number, until `docs/benchmark.md` is a live measurement with a real LLM (it currently says "No measurement yet" and shows no numbers) |
 | Hallucinations | The agent detects names that don't resolve in Qloo | A hallucination rate for any specific model, until measured |

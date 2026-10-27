@@ -39,7 +39,7 @@ describe("trace details", () => {
       expect(detail(simulated, id)).not.toMatch(/invented|low-affinity|fading/);
     }
     expect(detail(simulated, "demographics")).toMatch(/^Strongest age over-index: \d\d to \d\d, mean of 3 seed rows$/);
-    expect(detail(simulated, "cities")).toMatch(/^[A-Z][^0-9]+ › .* · ranked by locality · \d+ heatmap cells/);
+    expect(detail(simulated, "cities")).toMatch(/^[A-Z][^0-9]+ › .* · ranked by heatmap · \d+ heatmap cells/);
     // Structural counts stay: picks drafted, heatmap cells, trend readings.
     expect(detail(simulated, "generate")).toMatch(/^\d+ cultural picks, \d+ hooks, \d+ captions$/);
     expect(detail(simulated, "trending")).toMatch(/^\d+ trend readings of \d+ checked/);

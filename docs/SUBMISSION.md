@@ -47,7 +47,7 @@ Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (a
 - `/search` and `/entities` (Spotify/IMDb external IDs) to resolve seeds and catch names that aren't in Qloo
 - `/v2/insights` with `urn:demographics` (who over-indexes) and `urn:tag` (taste vocabulary for the copy)
 - `/v2/insights` across artist, brand, tv_show, movie, podcast and person: the cross-domain culture map
-- `urn:heatmap` over the US folded into candidate cities, a heatmap inside each metro the nationwide one misses, and `urn:entity:locality` ranking where the host honours it (the docs call it partly supported): where to launch
+- `urn:heatmap` over the US folded into candidate metros, plus a heatmap inside each metro the nationwide one misses: where to launch
 - `urn:entity:place` with `filter.location.query` and `filter.location.radius=0`: venues, and the venue-in-city check on the city's own boundary
 - `filter.results.entities` + `feature.explainability`: the critic
 - `/v2/trending`: rising vs. fading references
@@ -82,7 +82,7 @@ Sigmora (content production and publishing) pre-existed and is reached only thro
 
 - The hard part isn't spotting invented names, it's knowing whether a real name fits this audience. A model can't know that from pretraining; audience-level affinity can measure it.
 - Explainability (`feature.explainability`) turns a score into something a marketer can check: knowing *which* seed drove an affinity is what makes a receipt useful.
-- Read the API docs line by line. Qloo drops unsupported parameters silently, defaults matter (`bias.trends` is `medium` unless you say otherwise, so plain affinity has to ask for `off`), and locality insights accept only locality signals, so ranking cities for an audience needs heatmaps.
+- Read the API docs line by line. Qloo drops unsupported parameters silently, defaults matter (`bias.trends` is `medium` unless you say otherwise, so plain affinity has to ask for `off`), and locality insights accept only locality signals, so we rank cities for an audience with heatmaps instead.
 
 ## What's next for Tastemaker
 

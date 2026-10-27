@@ -127,7 +127,7 @@ describe("agent loop (zero credentials)", () => {
       "filter.type=urn%3Atag",
       "filter.type=urn%3Aheatmap",
       "filter.location=POLYGON",
-      "filter.type=urn%3Aentity%3Alocality",
+      "filter.location.radius=0",
       "/v2/trending?",
       "/v2/analysis/compare?",
       "feature.explainability=true",
@@ -139,6 +139,7 @@ describe("agent loop (zero credentials)", () => {
       expect(keys.some((k) => k.includes(needle)), needle).toBe(true);
     }
     expect(keys.some((k) => k.includes("output.heatmap.boundary")), "boundary is broken on the live host").toBe(false);
+    expect(keys.some((k) => k.includes("filter.type=urn%3Aentity%3Alocality")), "locality insights take locality signals only").toBe(false);
     expect(keys.filter((k) => k.includes("filter.type=urn%3Aentity%3Aperson")).every((k) => !k.includes("signal.demographics")), "no demographics on person").toBe(true);
   });
 

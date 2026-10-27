@@ -1,13 +1,14 @@
 /**
  * "Where to launch": rank the brief's candidate metros for the audience.
  *
- * Primary signal: /v2/insights on urn:entity:locality restricted to the
- * candidates (the docs call locality insights partly supported, so this is
- * tried, not trusted). Map and fallback ranking: a urn:heatmap over the
- * contiguous US, whose geohash cells are folded into each candidate city, then
- * a heatmap inside each still-unranked metro while fewer than three are ranked. We don't send
- * output.heatmap.boundary: on the hackathon host it is reported to return 500
- * for urn:entity:locality and 400 for city (see BLOCKED.md).
+ * A urn:heatmap over the contiguous US, conditioned on the audience, whose
+ * geohash cells are folded into each candidate city; then, while fewer than
+ * three metros are ranked, a heatmap inside each still-unranked metro. Locality
+ * insights aren't used: the insights deep dive says urn:entity:locality "only
+ * allows signal.interests.entities … when the provided entities are
+ * localities", so it can't rank cities for an audience of artists and tags. We
+ * don't send output.heatmap.boundary: on the hackathon host it is reported to
+ * return 500 for urn:entity:locality and 400 for city (see BLOCKED.md).
  */
 import { resolveByName, signalFor, type Ctx, type RankedCandidate } from "./context";
 import type { HeatCell } from "./types";
@@ -53,16 +54,18 @@ export interface CityRanking {
   /** Ranked candidate metros, best first; each carries the request that ranked it. */
   cities: RankedCandidate[];
   heatmap: HeatCell[];
-  rankedBy: "locality" | "heatmap" | "none";
+  rankedBy: "heatmap" | "none";
   heatmapError?: string;
-  /** Set when the locality ranking failed or wasn't one (the heatmap fold then ranks the cities, if it loaded). */
-  localityError?: string;
+  /** Per-metro heatmaps that came back empty, failed, or with cells outside their metro (so they rank nothing). */
+  probeErrors: string[];
   /** Candidate cities neither signal ranked. */
   unranked: string[];
 }
 
 const settle = <T>(p: Promise<T>) => p.then((r) => ({ ok: true as const, r })).catch((err: unknown) => ({ ok: false as const, err }));
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const cellsOf = (heatmap: readonly { location: { latitude: number; longitude: number }; query: { affinity?: number | null } }[] | undefined): HeatCell[] =>
+  (heatmap ?? []).flatMap((c) => (typeof c.query.affinity === "number" ? [{ lat: c.location.latitude, lon: c.location.longitude, affinity: c.query.affinity }] : []));
 
 /**
  * Ranks the candidate metros for the audience. `exact` names (cities a plan
@@ -82,57 +85,30 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
   );
   // Two names for one place ("New York", "NYC") are one candidate: the first name given is kept.
   const candidates = found.filter((c, i): c is NonNullable<typeof c> => !!c && found.findIndex((d) => d?.entityId === c.entityId) === i);
-  const ids = candidates.map((c) => c.entityId);
-  // Both settle: a failed locality ranking must not throw away the heatmap that would rank the cities instead.
-  const [locality, heat] = await Promise.all([
-    ids.length ? settle(ctx.qloo.insights("urn:entity:locality", { ...signalFor(ctx), "filter.results.entities": ids, take: ids.length })) : undefined,
-    settle(ctx.qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location": US_WKT, take: HEATMAP_TAKE })),
-  ]);
-  const ranked = locality?.ok ? locality.r : undefined;
-
-  const cells: HeatCell[] = heat.ok
-    ? (heat.r.data.results.heatmap ?? []).flatMap((c) =>
-        typeof c.query.affinity === "number" ? [{ lat: c.location.latitude, lon: c.location.longitude, affinity: c.query.affinity }] : [],
-      )
-    : [];
-
-  const byLocality: RankedCandidate[] = ranked
-    ? (ranked.data.results.entities ?? []).flatMap((e) => {
-        const src = candidates.find((c) => c.entityId === e.entity_id);
-        const affinity = e.query?.affinity;
-        return src && typeof affinity === "number" ? [{ ...src, affinity, key: ranked.meta.key, lat: src.lat ?? e.location?.lat, lon: src.lon ?? e.location?.lon }] : [];
-      })
-    : [];
-  // The docs call locality insights partly supported: if the host drops the candidate filter, the reply is the top
-  // localities nationwide, with places that aren't candidates. Such a reply isn't a ranking of the candidates; a reply of
-  // candidates only is, if it ranks at least half of them (the rest are listed as unranked); else the heatmap fold
-  // ranks them all.
-  const returned = ranked?.data.results.entities ?? [];
-  const strangers = returned.filter((e) => !ids.includes(e.entity_id)).length;
-  const honoured = strangers === 0 && byLocality.length > 0 && byLocality.length * 2 >= candidates.length;
-  const dropped = !ranked || honoured
-    ? undefined
-    : strangers > 0
-      ? `the reply held ${String(strangers)} places that aren't candidates, so the candidate filter was dropped`
-      : `the reply ranked ${String(byLocality.length)} of ${String(candidates.length)} candidate cities`;
-  const folded = honoured ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
+  const heat = await settle(ctx.qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location": US_WKT, take: HEATMAP_TAKE }));
+  const cells = heat.ok ? cellsOf(heat.r.data.results.heatmap) : [];
+  const folded = heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
   folded.sort((a, b) => b.affinity - a.affinity);
+
   // The nationwide heatmap holds at most 50 cells, so a metro with none of the country's strongest cells near it goes
-  // unranked. When that leaves fewer than the plan needs, each missing metro (up to that many) gets its own heatmap
+  // unranked. While that leaves fewer than the plan needs, each missing metro (up to that many) gets its own heatmap
   // inside its boundary, and ranks after every metro the nationwide signal placed: none of its cells made the top 50.
+  // A reply whose cells aren't in that metro (the location filter dropped) ranks nothing.
   const probed: RankedCandidate[] = [];
-  if (!honoured && folded.length < CITIES_NEEDED) {
-    const missing = candidates.filter((c) => !folded.some((f) => f.entityId === c.entityId)).slice(0, CITIES_NEEDED - folded.length);
+  const probeErrors: string[] = [];
+  if (folded.length < CITIES_NEEDED) {
+    const missing = candidates.filter((c) => c.lat !== undefined && c.lon !== undefined && !folded.some((f) => f.entityId === c.entityId)).slice(0, CITIES_NEEDED - folded.length);
     const probes = await Promise.all(
-      missing.map((c) =>
-        settle(ctx.qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location": c.entityId, "filter.location.radius": 0, take: HEATMAP_TAKE })),
-      ),
+      missing.map((c) => settle(ctx.qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location": c.entityId, "filter.location.radius": 0, take: HEATMAP_TAKE }))),
     );
     probes.forEach((p, i) => {
       const c = missing[i];
-      if (!c || !p.ok) return;
-      const own = (p.r.data.results.heatmap ?? []).flatMap((x) => (typeof x.query.affinity === "number" ? [x.query.affinity] : []));
-      if (own.length) probed.push({ ...c, affinity: Math.round((own.reduce((a, b) => a + b, 0) / own.length) * 1000) / 1000, key: p.r.meta.key });
+      if (!c) return;
+      if (!p.ok) return void probeErrors.push(`${c.name}: ${message(p.err)}`);
+      const own = cellsOf(p.r.data.results.heatmap);
+      const [ranked] = foldHeatmap([c], own);
+      if (!ranked) return void probeErrors.push(`${c.name}: ${own.length ? "cells outside the metro" : "no cells"}`);
+      probed.push({ ...ranked, key: p.r.meta.key });
     });
     probed.sort((a, b) => b.affinity - a.affinity);
   }
@@ -141,9 +117,9 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
   return {
     cities,
     heatmap: topCells(cells),
-    rankedBy: honoured ? "locality" : cities.length ? "heatmap" : "none",
+    rankedBy: cities.length ? "heatmap" : "none",
     heatmapError: heat.ok ? undefined : message(heat.err),
-    localityError: locality && !locality.ok ? message(locality.err) : dropped,
+    probeErrors,
     unranked: candidates.filter((c) => !placed.has(c.entityId)).map((c) => c.name),
   };
 }

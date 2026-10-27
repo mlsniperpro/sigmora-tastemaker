@@ -10,7 +10,6 @@ export const SURFACES = {
   demographics: "urn:demographics",
   tag: "urn:tag",
   heatmap: "urn:heatmap",
-  locality: "urn:entity:locality",
   location: "place + filter.location",
   trending: "/v2/trending",
   compare: "/v2/analysis/compare",
@@ -31,7 +30,6 @@ export function surfaceOf(key: string): Surface {
   if (type === "urn:demographics") return SURFACES.demographics;
   if (type === "urn:tag") return SURFACES.tag;
   if (type === "urn:heatmap") return SURFACES.heatmap;
-  if (type === "urn:entity:locality") return SURFACES.locality;
   if (p.has("filter.location.query") || p.has("filter.location")) return SURFACES.location;
   if (p.has("filter.results.entities")) return SURFACES.critic;
   return SURFACES.insights;

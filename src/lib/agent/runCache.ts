@@ -29,7 +29,7 @@ export const SHIPPED_TTL = 60 * 60 * 24 * 30;
 /** Seconds a custom run on a keyless deployment is kept (it can be made again for free). */
 export const UNMETERED_TTL = 60 * 60;
 
-export type ResolvedRequest = { ok: true; brief: Brief; presetId?: string; fresh: boolean } | { ok: false; status: 400 | 404; error: string };
+export type ResolvedRequest = { ok: true; brief: Brief; presetId?: string; fresh: boolean; shared?: boolean } | { ok: false; status: 400 | 404; error: string };
 
 /** Validates a run request and turns it into a brief, with field-level errors for a bad brief. */
 export function resolveRunRequest(raw: unknown): ResolvedRequest {
@@ -39,7 +39,7 @@ export function resolveRunRequest(raw: unknown): ResolvedRequest {
     const briefErr = typeof raw === "object" && raw !== null && "brief" in raw ? Brief.safeParse(raw.brief).error : undefined;
     return { ok: false, status: 400, error: formatZodIssues(briefErr ?? parsed.error, { root: "body" }) };
   }
-  if ("brief" in parsed.data) return { ok: true, brief: parsed.data.brief, fresh: false };
+  if ("brief" in parsed.data) return { ok: true, brief: parsed.data.brief, fresh: false, ...(parsed.data.shared ? { shared: true } : {}) };
   const preset = presetById(parsed.data.preset);
   return preset ? { ok: true, brief: Brief.parse(preset.brief), presetId: preset.id, fresh: parsed.data.fresh === true } : { ok: false, status: 404, error: "Unknown preset" };
 }

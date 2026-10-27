@@ -123,15 +123,24 @@ describe("aggregateDemographics", () => {
 });
 
 describe("rankCities", () => {
-  it("keeps the heatmap fallback when the locality ranking call fails", async () => {
+  it("never asks locality insights to rank cities for an audience: the docs allow only locality signals there (audit 14)", async () => {
+    const q = offline();
+    const spy = vi.spyOn(q, "insights");
+    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
+    expect(spy.mock.calls.some(([t]) => t === "urn:entity:locality")).toBe(false);
+    expect(r.rankedBy).toBe("heatmap");
+    expect(r.cities.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("when the nationwide heatmap fails, ranks up to three metros by their own heatmaps and says why", async () => {
     const q = offline();
     const real = q.insights.bind(q);
-    vi.spyOn(q, "insights").mockImplementation((t, p) => (t === "urn:entity:locality" ? Promise.reject(new Error("Qloo 500 on /v2/insights")) : real(t, p)));
-    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
-    expect(r.localityError).toMatch(/500/);
-    expect(r.rankedBy).toBe("heatmap");
-    expect(r.cities.length).toBeGreaterThan(0);
-    expect(r.heatmap.length).toBeGreaterThan(0);
+    vi.spyOn(q, "insights").mockImplementation((t, p) => (t === "urn:heatmap" && p["filter.location"] === US_WKT ? Promise.reject(new Error("Qloo 500 on /v2/insights")) : real(t, p)));
+    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC", "Chicago"]);
+    expect(r.heatmapError).toMatch(/500/);
+    expect(r.heatmap).toEqual([]);
+    expect(r.cities).toHaveLength(3);
+    expect(r.unranked).toHaveLength(1);
   });
 
   it("probes a heatmap inside each unranked metro while fewer than three are ranked, ranking them after the nationwide fold (audit 13)", async () => {
@@ -139,7 +148,6 @@ describe("rankCities", () => {
     const real = q.insights.bind(q);
     const probes: Record<string, unknown>[] = [];
     vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
-      if (t === "urn:entity:locality") throw new Error("Qloo 400 on /v2/insights");
       const r = await real(t, p);
       if (t !== "urn:heatmap") return r;
       if (p["filter.location"] === US_WKT) {
@@ -164,44 +172,28 @@ describe("rankCities", () => {
     expect(r.cities.slice(1).every((c) => c.key !== r.cities[0]?.key)).toBe(true);
   });
 
-  it("makes no probe when the nationwide fold already ranks three metros", async () => {
+  it("a per-metro heatmap whose cells lie elsewhere (the location filter dropped) ranks nothing, and the trace says so", async () => {
+    const q = offline();
+    const real = q.insights.bind(q);
+    const far = { location: { latitude: 47.6, longitude: -122.3 }, query: { affinity: 0.95 } };
+    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
+      const r = await real(t, p);
+      if (t !== "urn:heatmap") return r;
+      return { ...r, data: { ...r.data, results: { heatmap: [far] } } };
+    });
+    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston"]);
+    expect(r.cities).toEqual([]);
+    expect(r.rankedBy).toBe("none");
+    expect(r.probeErrors).toEqual(["Atlanta: cells outside the metro", "Houston: cells outside the metro"]);
+    expect(r.unranked).toEqual(["Atlanta", "Houston"]);
+  });
+
+  it("makes no probe when the nationwide fold already ranks three metros; one place named twice is one candidate", async () => {
     const q = offline();
     const spy = vi.spyOn(q, "insights");
     await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
     expect(spy.mock.calls.filter(([t, p]) => t === "urn:heatmap" && p["filter.location"] !== US_WKT)).toHaveLength(0);
-  });
-
-  it("ranks by heatmap when the locality reply holds places that aren't candidates (the filter dropped), saying why (audits 9, 10)", async () => {
-    const q = offline();
-    const real = q.insights.bind(q);
-    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
-      const r = await real(t, p);
-      if (t !== "urn:entity:locality") return r;
-      // As if the host ignored filter.results.entities: one candidate plus the nation's top places.
-      const kept = (r.data.results.entities ?? []).slice(0, 1);
-      const others = [{ name: "Elsewhere", entity_id: "not-a-candidate", query: { affinity: 0.99 } }];
-      return { ...r, data: { ...r.data, results: { ...r.data.results, entities: [...kept, ...others] } } };
-    });
-    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
-    expect(r.rankedBy).toBe("heatmap");
-    expect(r.localityError).toMatch(/aren't candidates, so the candidate filter was dropped/);
-    expect(r.cities.map((c) => c.name)).not.toContain("Elsewhere");
-  });
-
-  it("keeps a locality ranking of candidates only, listing a city it left out as unranked; one place named twice is one candidate (audit 10)", async () => {
-    const q = offline();
-    const real = q.insights.bind(q);
-    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
-      const r = await real(t, p);
-      return t === "urn:entity:locality" ? { ...r, data: { ...r.data, results: { ...r.data.results, entities: (r.data.results.entities ?? []).slice(0, 2) } } } : r;
-    });
-    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
-    expect(r.rankedBy).toBe("locality");
-    expect(r.cities).toHaveLength(2);
-    expect(r.unranked).toHaveLength(1);
-    const search = vi.spyOn(q, "search");
     const twice = await rankCities(ctxOf(q), ["Atlanta", "Atlanta, GA"]);
-    expect(search).toHaveBeenCalled();
     expect(new Set(twice.cities.map((c) => c.entityId)).size).toBe(twice.cities.length);
     expect(twice.cities.length + twice.unranked.length).toBe(1);
   });

@@ -21,7 +21,7 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 | Who over-indexes | `/v2/insights` `filter.type=urn:demographics` |
 | Taste vocabulary | `/v2/insights` `filter.type=urn:tag` |
 | Cross-domain culture map | `/v2/insights` × artist, brand, tv_show, movie, podcast, person, all with `signal.interests.entities` + `signal.demographics.*` |
-| Where to launch (ranking) | `/search` (localities) + `/v2/insights` `urn:entity:locality` with `filter.results.entities` |
+| Where to launch (candidates) | `/search` (localities) resolves each candidate metro; locality insights aren't used to rank them, since the docs allow only locality signals there |
 | Where to launch (heatmap) | `/v2/insights` `urn:heatmap` + `filter.location` (US polygon); cells folded into candidate cities; while fewer than three are ranked, a heatmap inside each missing metro (`filter.location=<locality id>`, `filter.location.radius=0`) |
 | Venues in the city | `/v2/insights` `urn:entity:place` + `filter.location.query` + `filter.location.radius=0` (the city's own boundary) |
 | Rising vs. fading | `GET /v2/trending` |

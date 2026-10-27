@@ -187,6 +187,36 @@ describe("e2e: refused presets on a keyed deployment (audit 9)", () => {
   }, 60_000);
 });
 
+describe("e2e: the owner running someone's shared ?b= brief (audit 14)", () => {
+  it("never makes that run shippable to real channels, while the owner's own brief stays shippable", async () => {
+    const owner = "kO9x2LmQp7zVb4nRt6yHw3sJd8fGc5aE";
+    vi.stubEnv("QLOO_API_KEY", "qloo-secret");
+    vi.stubEnv("QLOO_BASE_URL", QLOO);
+    vi.stubEnv("QLOO_MODE", "live");
+    vi.stubEnv("QLOO_RPS", "50");
+    vi.stubEnv("SIGMORA_PUBLISH_MODE", "live");
+    vi.stubEnv("SIGMORA_API_URL", "https://sigmora.example");
+    vi.stubEnv("SIGMORA_API_TOKEN", "tok");
+    vi.stubEnv("SIGMORA_OWNER_KEY", owner);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", stubQloo());
+    vi.resetModules();
+    const { POST } = await import("@/app/api/run/route");
+    const { POST: ship } = await import("@/app/api/ship/route");
+    // Two networks: each custom run reserves a network's whole daily share.
+    const headers = (ip: string) => ({ "content-type": "application/json", "x-tastemaker-owner": owner, "x-forwarded-for": ip });
+    const runOf = async (ip: string, body: unknown) =>
+      must((await readStream(await POST(new Request("http://tm.example/api/run", { method: "POST", headers: headers(ip), body: JSON.stringify(body) })))).result, "result");
+    const shipOf = (runId: string) => ship(new Request("http://tm.example/api/ship", { method: "POST", headers: headers("5.5.9.9"), body: JSON.stringify({ runId, acceptFlagged: true }) }));
+    const shared = await runOf("5.5.9.1", { brief: { family: "music", subject: "Link Act", product: "single", goal: "Grow streams", seeds: ["Tems"], ages: ["25_to_29"] }, shared: true });
+    expect((await shipOf(shared.id)).status).toBe(403);
+    const own = await runOf("5.5.9.2", { brief: { family: "music", subject: "Own Act", product: "single", goal: "Grow streams", seeds: ["Rema"], ages: ["25_to_29"] } });
+    // Past the owner check: it fails later only because the stub has no Sigmora host.
+    expect((await shipOf(own.id)).status).not.toBe(403);
+  }, 60_000);
+});
+
 describe("e2e: a judge's network on default budgets (audit 10)", () => {
   it("can audit the sample (cached for everyone after the day's first) and then its own plan", async () => {
     vi.stubEnv("QLOO_API_KEY", "qloo-secret");

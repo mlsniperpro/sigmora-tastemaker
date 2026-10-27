@@ -156,7 +156,7 @@ function SvgCityMap({ result, cells, located }: { result: RunResult; cells: read
 }
 
 /** Whether the run ranked metros to launch in (not a fixed market), with at least one on the map. */
-export const hasLaunchMap = (result: RunResult) => (result.citiesRankedBy === "locality" || result.citiesRankedBy === "heatmap") && locatedCities(result).length > 0;
+export const hasLaunchMap = (result: RunResult) => result.citiesRankedBy === "heatmap" && locatedCities(result).length > 0;
 
 /**
  * The launch decision at a glance, for the first screen on desktop: the ranked metros on the stylized
@@ -171,7 +171,7 @@ export function LaunchMap({ result }: { result: RunResult }) {
       <h3 className="text-meta font-semibold text-ink">Where to launch</h3>
       <UsDots result={result} cells={cells} located={located} className="mt-1 h-40 w-full" labelSize={15} label={`Where to launch: ${top.join(", ")}, ranked by audience affinity`} />
       <p className="mt-1 text-meta leading-snug text-muted">
-        Ranked by {result.citiesRankedBy === "heatmap" ? "the urn:heatmap cells around each metro" : "audience affinity (urn:entity:locality)"}
+        Ranked by the audience&apos;s urn:heatmap cells around each metro
         {result.qloo.simulated > 0 ? " in the simulator" : ""}. Stylized outline; the Taste Map has the full map.
       </p>
     </div>
@@ -314,9 +314,7 @@ export function TasteMap({ result }: { result: RunResult }) {
           sub={
             result.citiesRankedBy === "in-city"
               ? `Neighbourhood-scale audience affinity inside the brief's market (urn:heatmap + filter.location.query=${result.brief.targetCity ?? ""})`
-              : result.citiesRankedBy === "heatmap"
-                ? "Candidate metros ranked by the urn:heatmap cells around them (locality ranking came back empty)"
-                : "Candidate metros ranked by audience affinity (urn:entity:locality + filter.results.entities)"
+              : "Candidate metros ranked by the audience's urn:heatmap cells around them (a metro outside the nationwide top 50 cells gets its own in-boundary heatmap)"
           }
         >
           <CityMap result={result} />

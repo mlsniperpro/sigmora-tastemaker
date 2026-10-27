@@ -43,6 +43,7 @@ import { SCRIPTED_BASELINE } from "./evidence";
 import { Tracer } from "./trace";
 import { RUN_SCHEMA_VERSION, type PlanSide, type QlooHealth, type Receipt, type RunEvent, type RunResult, type TraceStep } from "./types";
 import { newRunId, normName, sameName } from "./util";
+import { publicErrorText } from "../net";
 
 const mentionNote = (m: Mentions) =>
   (m.picks.length ? ` · named in the copy but not listed, so added: ${m.picks.map((e) => e.name).join(", ")}` : "") + m.notes.map((n) => ` · ${n}`).join("");
@@ -211,13 +212,13 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           s.detail = `${where.heatmap.length} heatmap cells inside ${target}`;
         });
       } else if (brief.candidateCities.length) {
-        await tracer.optional("cities", "Where to launch (urn:entity:locality + urn:heatmap)", async (s) => {
+        await tracer.optional("cities", "Where to launch (urn:heatmap, folded into candidate metros)", async (s) => {
           const r = await rankCities(ctx, brief.candidateCities);
           ctx.candidates.city = r.cities;
           where.heatmap = r.heatmap;
           where.rankedBy = r.rankedBy;
           const top = r.cities.slice(0, 3).map((c) => (sim.on ? c.name : `${c.name} ${c.affinity.toFixed(2)}`)).join(" › ");
-          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.localityError ? ` (locality ranking not used: ${r.localityError})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}${r.unranked.length ? ` · unranked: ${r.unranked.join(", ")}` : ""}`;
+          s.detail = `${top || "No metro ranking"} · ranked by ${r.rankedBy} · ${r.heatmap.length} heatmap cells${r.probeErrors.length ? ` (per-metro heatmap: ${r.probeErrors.join("; ")})` : ""}${r.heatmapError ? ` (heatmap failed: ${r.heatmapError})` : ""}${r.unranked.length ? ` · unranked: ${r.unranked.join(", ")}` : ""}`;
         });
       }
       ctx.city = brief.targetCity ?? ctx.candidates.city?.[0]?.name;
@@ -307,11 +308,11 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           id: "baseline",
           title: "Same model, no Qloo access (baseline, drafted in parallel)",
           status: "err" in base ? "error" : "done",
-          detail: "err" in base ? base.err.message : `${base.draft.picks.length} cultural picks${llm.scripted ? `. ${SCRIPTED_BASELINE}` : ""}`,
+          detail: "err" in base ? publicErrorText(base.err) : `${base.draft.picks.length} cultural picks${llm.scripted ? `. ${SCRIPTED_BASELINE}` : ""}`,
           ms: base.ms,
           model: llm.label,
         });
-        if ("err" in base) return { base, baselineReceipts: [], baselineUnavailable: base.err.message };
+        if ("err" in base) return { base, baselineReceipts: [], baselineUnavailable: publicErrorText(base.err) };
         // The baseline's venues are judged in the baseline's own city, not the grounded plan's.
         const ownCity = brief.targetCity ?? base.draft.picks.find((p) => p.role === "city")?.name ?? ctx.city;
         // Optional: a failed audit marks the comparison unavailable instead of discarding the finished grounded plan.
@@ -333,7 +334,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
           return c.receipts;
         }).then(
           (receipts) => ({ receipts }),
-          (err: unknown) => ({ err: err instanceof Error ? err.message : String(err) }),
+          (err: unknown) => ({ err: publicErrorText(err) }),
         );
         return "err" in audited
           ? { base, baselineReceipts: [], baselineUnavailable: `the Qloo audit of the baseline failed (${audited.err})` }
@@ -380,7 +381,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
             try {
               choices = await byDeadline(llm.choose(offered, { brief, grounding }), deadlineAt, "the model's choice");
             } catch (err) {
-              failed = ` · model choice failed (${err instanceof Error ? err.message : String(err)}); ${sim.on ? "the simulator's" : "Qloo's"} top options kept`;
+              failed = ` · model choice failed (${publicErrorText(err)}); ${sim.on ? "the simulator's" : "Qloo's"} top options kept`;
             }
           }
           // The model's own ideas go through the same Qloo critic before they can be used.
@@ -392,7 +393,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
             try {
               verdicts = (await critique(ctx, proposals.map((p) => p.pick))).receipts;
             } catch (err) {
-              unchecked = ` · the model's own ideas weren't checked (${err instanceof Error ? err.message : String(err)})`;
+              unchecked = ` · the model's own ideas weren't checked (${publicErrorText(err)})`;
             }
           }
           const c = applyChoices(withOwnIdeas(offered, proposals, verdicts), choices, verdicts, sim.on);
@@ -422,7 +423,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
               // The model may not move picks, and may not bring a rejected name back into the copy.
               polished = applyReplacements({ ...p, picks: swapped.picks }, replacements);
             } catch (err) {
-              note = ` · LLM polish failed (${(err as Error).message}); swaps applied, copy unpolished`;
+              note = ` · LLM polish failed (${publicErrorText(err)}); swaps applied, copy unpolished`;
             }
           }
           s.detail = replacements.map((r) => `${r.from} → ${r.to}`).join("; ") + note;
@@ -441,7 +442,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     const grounded: PlanSide & { rounds: number } = { draft, receipts, rounds };
     // A failed baseline doesn't throw away a finished grounded plan; the comparison is marked unavailable.
     const baseline: PlanSide =
-      "err" in base ? { draft: emptyDraft(), receipts: [], unavailable: base.err.message } : { draft: base.draft, receipts: baselineReceipts, ...(baselineUnavailable ? { unavailable: baselineUnavailable } : {}) };
+      "err" in base ? { draft: emptyDraft(), receipts: [], unavailable: publicErrorText(base.err) } : { draft: base.draft, receipts: baselineReceipts, ...(baselineUnavailable ? { unavailable: baselineUnavailable } : {}) };
     const health = qlooHealth(tracer.steps);
     const sources = [...new Set(tracer.steps.flatMap((s) => s.calls.map((c) => c.source)))];
     const result: RunResult = {

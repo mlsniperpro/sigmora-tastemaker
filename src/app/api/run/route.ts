@@ -13,7 +13,7 @@ import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { qlooFromEnv } from "@/lib/qloo/client";
 import { crossSiteResponse, sameOrigin } from "@/lib/publisher/owner";
 
-// A live run is throttled to the Qloo key's rate (the hero preset makes ~76 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
+// A live run is throttled to the Qloo key's rate (the hero preset makes ~75 calls at 4/s with the scripted model; `pnpm demo` prints the count) plus up to four model calls.
 export const maxDuration = 120;
 
 const NDJSON = { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" };
@@ -165,11 +165,12 @@ export async function POST(req: Request) {
         // A preset is the first thing a visitor sees: if live Qloo fails outright and nothing is recorded, show its last
         // finished run, else the same preset on the labelled offline simulator (never mixed with live data), saying why.
         if (!request.presetId || recording) throw err;
-        return presetFallback({ brief: request.brief, lookup }, `the live run failed (${err instanceof Error ? err.message : String(err)})`, send);
+        return presetFallback({ brief: request.brief, lookup }, `the live run failed (${publicErrorText(err)})`, send);
       })
       .finally(() => lookup.deps.qloo.release());
-    // The owner was served this run from their own brief, so it may ship to real channels.
-    if (owner) await markOwnerRun(out.result.id, lookup.deps.cache);
+    // The owner was served this run from their own brief, so it may ship to real channels; a brief from someone's
+    // shared link wasn't written by the owner, so its run never may.
+    if (owner && !request.shared) await markOwnerRun(out.result.id, lookup.deps.cache);
     return out;
   };
   const res = ndjson(work, { "X-Run-Cache": lookup.result ? "hit" : "miss" });

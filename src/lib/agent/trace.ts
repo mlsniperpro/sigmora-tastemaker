@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { QlooCallMeta } from "../qloo/client";
 import type { RunEvent, TraceStep } from "./types";
+import { publicErrorText } from "../net";
 
 /**
  * Records the agent's steps and attributes every Qloo call to the step that
@@ -24,7 +25,7 @@ export class Tracer {
       return await this.current.run(s, () => fn(s));
     } catch (err) {
       s.status = "error";
-      s.detail = err instanceof Error ? err.message : String(err);
+      s.detail = publicErrorText(err);
       throw err;
     } finally {
       this.close(s, Date.now() - t0);

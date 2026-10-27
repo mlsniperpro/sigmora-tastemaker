@@ -174,7 +174,7 @@ export function renderReport(s: BenchSummary): string {
   if (!s.valid) {
     return `# Culture Miss Rate benchmark
 
-> **No measurement yet.** The last run does not count: ${s.invalidReasons.join("; ")}. Its numbers are not published here. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks, and all ${s.briefs} briefs completed. Run \`pnpm benchmark\` with \`QLOO_API_KEY\`, \`LLM_PROVIDER\`, \`LLM_MODEL\`, \`LLM_API_KEY\` (and optionally \`JUDGE_*\`) set and \`QLOO_DAILY_CALL_CAP\` above ${s.qlooCalls}, the request count of that run.
+> **No measurement yet.** The last run does not count: ${s.invalidReasons.join("; ")}. Its numbers are not published here. A measurement needs a real LLM, live (or recorded-live) Qloo responses with no fallbacks, and all ${s.briefs} briefs completed. Run \`pnpm benchmark\` with \`QLOO_API_KEY\`, \`LLM_PROVIDER\`, \`LLM_MODEL\`, \`LLM_API_KEY\` (and optionally \`JUDGE_*\`) set and \`QLOO_DAILY_CALL_CAP\` at least ${String(Math.ceil((s.qlooCalls * 1.25) / 100) * 100)} (that run made ${s.qlooCalls} Qloo requests; a real model names more entities, so leave headroom).
 ${failureList(s)}
 ${METHOD(s.briefs)}
 `;

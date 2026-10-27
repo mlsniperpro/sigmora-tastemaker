@@ -14,6 +14,7 @@ import type { LLMProvider, NamedPick } from "../llm/types";
 import type { PickType, Role } from "./brief";
 import { candidateMentions, knownNames } from "./mentions";
 import { normName } from "./util";
+import { publicErrorText } from "../net";
 
 /** At most this many picks are audited from one text. */
 export const MAX_AUDIT_PICKS = 15;
@@ -455,7 +456,7 @@ export async function extractPicks(text: string, opts: { qloo: QlooClient; llm: 
       });
       return { picks: picks.slice(0, MAX_AUDIT_PICKS), by: "model", model: llm.label, capped: picks.length > MAX_AUDIT_PICKS, ...cutOf(picks), ...notes };
     } catch (err) {
-      return { ...(await scanPicks(opts.qloo, text, opts.seeds)), fallback: `the model's list failed (${err instanceof Error ? err.message : String(err)})` };
+      return { ...(await scanPicks(opts.qloo, text, opts.seeds)), fallback: `the model's list failed (${publicErrorText(err)})` };
     }
   }
   return scanPicks(opts.qloo, text, opts.seeds);
