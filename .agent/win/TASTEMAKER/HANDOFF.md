@@ -43,11 +43,11 @@
 
 ## State now (session_01PMv2tP3mmaSRPtyxJJkQMv holds the lease)
 - **Submission materials (owner milestone 2026-10-29T18:00Z):** `docs/SUBMISSION.md` has every Devpost field in form order, `docs/demo-script.md` is the ≤ 2-minute shot list and voice-over, and `pnpm video` records every segment (verified end to end against a local server: ~90 s webm). The fresh-clone README run on 8c6f8f4 passed (install, demo 76/60/76 calls, 515 tests, GET / 200, branded 404, /docs redirect, /api/run streams, MCP 3 tools).
-- **Audit rounds this session:**
-  - round 12 on 1f0f04a: 0 high from all three lenses; mediums fixed (WIN-CHECKLIST "Re-audit 12");
-  - round 13 on 8c6f8f4: 1 high (locality ranking can't use audience signals; fixed with per-metro heatmap probes), mediums fixed (WIN-CHECKLIST "Re-audit 13");
-  - round 14 on 295b64a: running. Clean audits in a row so far: 0 (round 13 had a high).
-- **Soaks:** 8c6f8f4 deep pass clean (100k), 34/40 seeded rounds clean; the 6 failures were tests edited mid-run in the main checkout, so soaks now run in their own worktree (`scratchpad/wt2`). 295b64a soak running.
+- **Audit rounds this session** (details in WIN-CHECKLIST "Re-audit 12" to "15"):
+  - 12 on 1f0f04a: 0 high. 13 on 8c6f8f4: 1 high (locality ranking), fixed. 14 on 295b64a: 0 high. 15 on ee1540b: 1 high (city ranking mixed scales; an off-list city a "miss" Qloo never measured), fixed: one nationwide heatmap, off-list cities folded against the same cells.
+  - Round 16 on 153d2ea: running. Clean rounds in a row: 0 until 16 reports.
+- **Soaks:** 295b64a and ee1540b clean (100k deep pass + 39/40 seeded rounds each), run in `scratchpad/wt2`. 153d2ea running.
+- **Fresh clone of ee1540b:** install, demo 75/60/75, 519 tests, GET / 200, /nope 404, /api/run streams, MCP 3 tools, `next build` + `next start` with no console errors at 390/1440.
 - **CI:** GitHub Actions jobs end in 2–3 s with no runner (BLOCKED.md, Actions billing); local checks are the evidence.
 
 ## Open audit findings
