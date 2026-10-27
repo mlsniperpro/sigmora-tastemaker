@@ -368,7 +368,7 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] M1 Qloo: the benchmark method said brand and venue pools are diversified by subtype; only `urn:tag` is (`aggregate.ts`, `config.ts` comment, `docs/benchmark.md`)
 - [x] M2 Qloo: "in the launch city" was checked against Qloo's padded locality boundary; venue discovery, the critic's venue check and the in-city heatmap now send `filter.location.radius=0` per the parameter reference (`context.ts`, `critic.ts`, `run.ts`; `tests/integration/wire-params.test.ts`)
 - [P] M3 Qloo: compare, explainability, trending series and locality coordinates have never been seen live; `pnpm fixtures:record` first thing once `QLOO_API_KEY` lands (BLOCKED.md)
-- [-] L4 Qloo: `bias.trends` "off"/"very_*" values: Qloo's parameter reference lists no allowed values ("The level of impact a trending entity has on the results"), so the allow-list stays at the values we send until a live recording shows otherwise
+- [x] L4 Qloo: `bias.trends` values: superseded by re-audit 13 M1 (the insights deep dive does list off, very_low, low, mid, medium, high, very_high; the allow-list now takes all of them)
 - [-] L5 Qloo: venue score scale (pool vs. scoring call): unverified until live; both calls carry the same audience signal
 - [-] L6/L7 Qloo: unlisted invented names in copy and generic-title homonyms: accepted limits already disclosed (A4, benchmark "upper bound")
 - [x] M1 security: a hosted (Vercel) deployment with a paid key and no KV now fails the build ("Invalid KV setup"), and half a KV pair fails anywhere (`config.ts` `kvProblems`; `tests/unit/counter-guard-config.test.ts`)
@@ -384,3 +384,25 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] L5 judge: heading order (sr-only h2 on the diff card) and the mobile h1 orphan (`text-balance`); chips at 26 px clear WCAG 2.2 AA's 24 px target size
 - [-] L4 judge: the sample audit's "not audited" note names the sample's fictional artist and single; the note is accurate (no Qloo entity has those names)
 - [P] L7 judge: `docs/PLAYBOOK.md` and `.agent/` become public with the repo: owner decision before the public flip (BLOCKED.md)
+
+## Re-audit 13 (2026-10-27, three lenses on 8c6f8f4: 1 high from Qloo depth; 0 high from security and the judge path)
+
+- [x] H1 Qloo: locality insights take only locality signals (insights deep dive: "partially supported and only allows `signal.interests.entities` … when the provided entities are localities"), so on the live host the nationwide heatmap fold may rank too few metros. While fewer than three are ranked, each missing metro (up to three) now gets a heatmap inside its own boundary (`filter.location=<locality id>`, `filter.location.radius=0`) and ranks after the others (`cities.ts`; `tests/integration/failure-paths.test.ts` "probes a heatmap", "makes no probe"); BLOCKED #8 and `docs/judging.md` say so
+- [x] M1 Qloo: Qloo's default is `bias.trends=medium`, so sending `medium` did nothing: discovery now defaults to `high`, scoring calls on the same types send `bias.trends=off` for plain affinity, and the allow-list takes every documented value (`context.ts` `scoringParams`, `config.ts`, `params.ts`; `tests/integration/wire-params.test.ts`); README, `.env.example`, BLOCKED #15 updated
+- [P] M2 Qloo: `filter.location.query` on places is listed by the parameter reference but not by the availability table; BLOCKED #18 is the live check and the fallback
+- [x] M3 Qloo: SUBMISSION said "replay fixtures" for the keyless path; it is the offline simulator
+- [x] M4 Qloo: SUBMISSION overclaims softened: Ship stops on failing picks and needs an explicit yes (`api/ship/route.ts`), unscored picks are labelled, and "What we learned" makes no empirical claim without a script
+- [-] L1 Qloo: `video_game` vs `videogame`: no role uses that type, so nothing sends or reads it
+- [-] L2/L3 Qloo: compare subtype without `filter.type` (optional per the docs, BLOCKED #12) and the benchmark's circular bar (disclosed in `docs/benchmark.md`, SUBMISSION and the UI)
+- [x] M1 judge: the ROI line counted a custom brief's off-brief scripted baseline; it and the diff card's side now say "No plan without Qloo for your own brief offline" (`evidence.ts` `offBriefBaseline`, `App.tsx`, `DiffCard.tsx`)
+- [x] M2 judge: the offline catalog had only music genres, so the sports and DTC positioning compared music; it now has football, sports documentary, sitcom and skincare genres (`sim/catalog.ts`; `pnpm demo sports-club` → "+sitcom, +country, +afrobeats"; call counts unchanged 76/60/76)
+- [x] M3 judge: "Lagos Lanterns's" → "Lagos Lanterns'" (`deterministic.ts` `possessive`)
+- [-] M3 judge (part): an audit's replacement is chosen by affinity; its trend is read only when it becomes a pick, and Qloo's trending reads cost a call each, so the audit doesn't pre-read every option's trend
+- [x] L4 judge: the MCP reply printed simulator numbers inside notes; it now uses the web app's words-only notes (`mcp.ts`; `tests/integration/mcp.test.ts`), and `docs/evidence-status.md` says the terminal tools print labelled placeholders
+- [x] L5 judge: the trace jump link, "Hide steps" and the audit panel toggle are at least 24 px tall (WCAG 2.2 target size)
+- [-] L6 judge: one dev-only hydration warning on a cold compile, not reproducible in 8 loads; the production build check covers it
+- [x] L7 judge: the Culture Miss Rate section is outside the About paste block, marked "paste only after a live benchmark"
+- [x] L2 security: a backing service's status and path (model, KV, Sigmora) or a config problem are logged server-side and shown as a plain sentence (`net.ts` `publicErrorText`; `tests/integration/api.test.ts`)
+- [x] L3 security: a `?measure=` link waits for a click, like a shared brief (`App.tsx`; e2e "?measure= link waits")
+- [-] L1 security: a misconfigured runtime env fails the build first (`next.config.ts` runs the same check, and Vercel sets `VERCEL` at build time), so a live 500 needs the build and runtime env to differ
+- [-] L4 security: run caps fall back to per-instance counters in a KV outage (accepted C11/I16); the Qloo budget fails closed. Per-network share of one custom run a day is the documented default (BLOCKED quota item)
