@@ -50,8 +50,8 @@ describe("DiffCard", () => {
     const html = text(renderToStaticMarkup(<DiffCard result={await heroRun()} mode="qloo" />));
     expect(html).not.toMatch(/\d+%/);
     expect(html).not.toMatch(/\d\.\d\d/);
-    // Why, in one line at the top: both sources named, and that the numbers are withheld.
-    expect(html).toMatch(/^ ?Simulated Qloo data · Scripted model\. No Qloo or LLM key on this deployment: .*not Qloo data.* so numbers are not shown\./);
+    // Why, in one line at the top (after the card's screen-reader-only heading): both sources named, and that the numbers are withheld.
+    expect(html).toMatch(/^ ?With and without Qloo Simulated Qloo data · Scripted model\. No Qloo or LLM key on this deployment: .*not Qloo data.* so numbers are not shown\./);
     // No count and no "—" stand-in for one: the sides say what was checked.
     expect(html).not.toContain("—");
     expect(html).toMatch(/Same model, no Qloo 10 picks audited; counts not shown\./);
