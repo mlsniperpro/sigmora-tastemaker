@@ -419,3 +419,20 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 2 judge: the shared-brief and measure bars sit above the brief form, in view on a phone (e2e asserts `toBeInViewport`)
 - [-] 3 judge: renaming a preset's subject keeps its product and goal: the form shows them, and "Kept from the brief on screen" (L7) says so
 - [-] 4 judge: an audit replacement's trend (as re-audit 13 M3)
+
+## Re-audit 15 (2026-10-27, three lenses on ee1540b: 1 high from Qloo depth; 0 high from security and the judge path)
+
+- [x] 1 Qloo (high): the per-metro probes mixed scales (Qloo doesn't document whether heatmap affinities compare across calls) and a model's city outside the candidates was a "miss" Qloo never measured. Now one nationwide heatmap ranks every metro on one scale, no probes; a city pick outside the ranked list is folded against the same cells: near none of the audience's 50 strongest cells is a measured miss that names the call, and one Qloo can't place is unscored (`cities.ts`, `critic.ts`, `context.ts` `Resolved.at`/`cityHeat`; `tests/integration/failure-paths.test.ts`, `agent.test.ts` "judges a city the nationwide heatmap doesn't reach")
+- [P] 2 Qloo: the key's monthly quota is unpublished; BLOCKED #21 asks Qloo and checks `x-month-ratelimit-remaining` on the first live reply
+- [x] 3 Qloo: README and SUBMISSION now say people calls carry no demographics, and why; BLOCKED #20 is the live check
+- [-] 4 Qloo: a typed candidate city takes Qloo's top locality hit; the trace and the Taste Map name the ranked metros, so a wrong match is visible
+- [x] 5 Qloo: WIN-CHECKLIST's surface count corrected to 11; "place + filter.location" stays a surface of its own (the location filter is a distinct capability from cross-domain insights)
+- [x] 1 security: a run is marked the owner's only when the owner's request started it: not a cache hit and not a join onto someone else's run (`api/run/route.ts` `startsRun`; `tests/integration/api.test.ts`, verified to fail without the fix)
+- [x] 2 security: a model reply that isn't the provider's JSON (a gateway page, a changed API) is an `HttpError("LLM", …)`, so `publicErrorText` hides it (`llm/chat.ts` `reply`; `tests/integration/llm.test.ts`)
+- [-] 3 security: owner Ship and requery share the visitors' daily run cap; the owner ships before the freeze, and the cap resets daily
+- [x] 1 judge: map labels at 390 px grow away from the nearer edge and step up a row when they would overlap, the tile map's attribution folds to its (i) button on narrow maps, and the diff card's small map avoids overlaps the same way (`CityTileMap.tsx`, `TasteMap.tsx` `placeLabels`; screenshots checked at 390 and 1440 px)
+- [x] 2 judge: offline, "no seed resolved" says the deployment searches a small demo catalog and names seeds it knows (`context.ts` `NoSeedError`; `agent.test.ts`)
+- [x] 3 judge: the ROI line counts the plan's picks and names the plan without Qloo's separately
+- [x] 4 judge: the demo script's Taste Map line says heatmap, matching the code
+- [-] 5 judge: the audit replacement's trend (as re-audit 13 M3)
+- [-] 6 judge: a "Map ↓" jump in the sticky bar: the Taste Map follows the pack, and the diff card already shows where to launch on desktop
