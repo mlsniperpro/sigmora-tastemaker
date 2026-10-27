@@ -11,7 +11,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [P] Externally hosted demo: needs the Vercel project, keys and KV (BLOCKED.md: Vercel, QLOO_API_KEY, LLM_*, KV_*)
 - [P] Public repo: making it public is the owner's (BLOCKED.md: Make the repo public)
 - [P] MIT licence visible in About: `LICENSE` at the root; GitHub shows it after the merge to `main` (BLOCKED.md: Merge PR #1)
-- [x] Text description, Qloo-powered: `SUBMISSION.md`, `README.md`
+- [x] Text description, Qloo-powered: `docs/SUBMISSION.md`, `README.md`
 - [x] Stays up through judging under load and budget: per-IP limit, daily caps, run cache, recorded-run fallback (`src/lib/guard.ts`, `src/lib/agent/runCache.ts`, `tests/integration/recorded.test.ts`)
 
 ## Stage Two criteria
@@ -98,7 +98,7 @@ Every judging criterion, playbook requirement and audit finding, with evidence. 
 - [x] A28 whole-word, case-insensitive highlighting (`CampaignPack.tsx`)
 - [x] A29 aria-live trace; presets can switch mid-run (`App.tsx`)
 - [x] A30 misleading labels corrected (ranked-by, demographic units, scoreboard, strongest driver)
-- [x] A31 "every number links" claim corrected to what the UI does (`App.tsx`, `SUBMISSION.md`, `docs/responsible-taste.md`)
+- [x] A31 "every number links" claim corrected to what the UI does (`App.tsx`, `docs/SUBMISSION.md`, `docs/responsible-taste.md`)
 - [x] A32 numbers in docs come from scripts (`.env.example`, route comment, README throttle note)
 - [-] A33 benchmark families food and creators: the three preset families are the product's scope; the report states its families
 - [x] A34 component tests rendered with react-dom/server (`tests/unit/components.test.tsx`: Scoreboard blanking, ReceiptChip unscored/not-found/driver, highlighting, unavailable baseline)
@@ -357,3 +357,8 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] L8 (medium, judge) After the one-click sample, the audit audience is labelled as the sample's, and goes back to the brief's once the reader writes their own plan
 - [x] L9 (low, judge) "LA", "NYC", "SF", "ATL", "DC" in a city list are looked up by the city's name; "Smith & Co." and "Mumford & Sons" aren't split; MCP prints no numbers on simulated data; no double full stop after a seed ending in "."; `.env.example` gives the audit's 30-call reservation (`extract.test.ts`, `mcp.test.ts`)
 - [-] L10 (low, judge) "J. Cole" shown as "J Cole" (matching is unaffected); a repeated affinity sentence in audit rows; the audit 429's flat Retry-After; "N Qloo calls" counting cache hits (it counts the calls the run made, served live or from cache); subtitles searched before "&" splits (a wrong subtitle guess audits a different work; an unsplit "A & B" is at worst flagged); "Atlanta GA" without a comma: kept as is
+
+## Owner milestone for 2026-10-29T18:00Z (submission materials final and pushed)
+
+- [x] `docs/SUBMISSION.md` has every Devpost field in form order: name, elevator pitch (197 of 200 characters), thumbnail, About (Inspiration through What's next), Built with, Try it out, Video, Image gallery, and a pre-submit checklist
+- [x] Video demo script: `docs/demo-script.md` (≤ 2 min shot list and voice-over); `pnpm video` records every segment in that order, including Audit any AI's plan

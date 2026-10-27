@@ -147,7 +147,7 @@ e2e/                Playwright: the judge path in a real browser at 390 px
 - [docs/evidence-status.md](docs/evidence-status.md): what we claim and what we don't
 - [docs/new-work-disclosure.md](docs/new-work-disclosure.md)
 - [BLOCKED.md](BLOCKED.md): live calls still to verify
-- [SUBMISSION.md](SUBMISSION.md): Devpost text
+- [docs/SUBMISSION.md](docs/SUBMISSION.md): Devpost text
 
 ## License
 

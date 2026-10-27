@@ -54,6 +54,15 @@ await caption("Without Qloo: same model, no grounding. Invented names, wrong ref
 await page.mouse.wheel(0, -4000);
 await caption("That gap is the Culture Miss Rate, measured on every run.", 4500);
 await view.getByRole("button", { name: "With Qloo" }).click();
+await page.getByRole("link", { name: "Paste any AI's plan" }).click();
+await page.getByRole("button", { name: "Try a sample plan" }).click();
+await page.waitForFunction(() => {
+  const r = document.querySelector('[aria-label="Audit results"]');
+  return r?.getAttribute("aria-busy") === "false" && r.childElementCount > 0;
+}, undefined, { timeout: 60000 });
+await page.getByRole("region", { name: "Audit results" }).scrollIntoViewIfNeeded();
+await caption("Paste a plan from any chatbot: the same Qloo critic checks every name in it.", 6500);
+await page.mouse.wheel(0, -6000);
 await page.getByRole("button", { name: "Sports club: new fan market" }).click();
 await page.waitForSelector("text=Cultural picks", { timeout: 60000 });
 await caption("It generalizes: a football club picking its first US watch-party city…", 5000);
@@ -70,4 +79,4 @@ await ctx.close();
 await browser.close();
 const webm = readdirSync(outDir).filter((f) => f.endsWith(".webm") && !f.startsWith("tastemaker-")).pop();
 if (webm) renameSync(join(outDir, webm), join(outDir, "tastemaker-walkthrough.webm"));
-console.log(`Saved ${join(outDir, "tastemaker-walkthrough.webm")} (~80 s). Add a voice-over or music, then upload.`);
+console.log(`Saved ${join(outDir, "tastemaker-walkthrough.webm")} (~90 s). Add a voice-over or music, then upload.`);

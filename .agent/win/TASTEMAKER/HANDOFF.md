@@ -5,6 +5,7 @@
 - **Dates:**
   - Freeze: 2026-10-29 15:00 UTC (fixes only after that).
   - Deadline: 2026-10-31 03:45 UTC.
+  - **Owner milestone: 2026-10-29T18:00Z.** By then `docs/SUBMISSION.md` (every Devpost field, paste-ready), the README fresh-clone run, the demo script and `BLOCKED.md` must be final and pushed. The owner submits on Fri Oct 30 morning.
 - **PR:** mlsniperpro/sigmora-tastemaker#1 (branch `tastemaker` → `main`). Keep exactly one PR, and update its body with the gate's last line.
 - **Rules:**
   - read AGENTS.md and docs/PLAYBOOK.md first;
@@ -84,7 +85,7 @@
 - **`next build` runs locally,** because checks.sh requires it. `.agent/` and WIN-CHECKLIST.md stay tracked for the gate. `.claude/worktrees/` is gitignored.
 
 ## Commands
-- **Subagents (owner rule):** every Agent/Task launch sets `model: "sonnet"` and `effort: "high"`. That covers auditors, reviewers, fixers, researchers, and soak or log watchers. Keep these in the main session:
+- **Subagents (owner rule):** every subagent you launch must set model "sonnet" and effort "high" (every Agent/Task launch sets `model: "sonnet"` and `effort: "high"`. That covers auditors, reviewers, fixers, researchers, and soak or log watchers.) Keep these in the main session:
   - integrating changes;
   - the self-review of your diff;
   - deciding which findings are real;
