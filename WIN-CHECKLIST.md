@@ -362,3 +362,25 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 
 - [x] `docs/SUBMISSION.md` has every Devpost field in form order: name, elevator pitch (197 of 200 characters), thumbnail, About (Inspiration through What's next), Built with, Try it out, Video, Image gallery, and a pre-submit checklist
 - [x] Video demo script: `docs/demo-script.md` (≤ 2 min shot list and voice-over); `pnpm video` records every segment in that order, including Audit any AI's plan
+
+## Re-audit 12 (2026-10-27, three lenses on 1f0f04a: 0 critical and 0 high from Qloo depth, security and the judge path)
+
+- [x] M1 Qloo: the benchmark method said brand and venue pools are diversified by subtype; only `urn:tag` is (`aggregate.ts`, `config.ts` comment, `docs/benchmark.md`)
+- [x] M2 Qloo: "in the launch city" was checked against Qloo's padded locality boundary; venue discovery, the critic's venue check and the in-city heatmap now send `filter.location.radius=0` per the parameter reference (`context.ts`, `critic.ts`, `run.ts`; `tests/integration/wire-params.test.ts`)
+- [P] M3 Qloo: compare, explainability, trending series and locality coordinates have never been seen live; `pnpm fixtures:record` first thing once `QLOO_API_KEY` lands (BLOCKED.md)
+- [-] L4 Qloo: `bias.trends` "off"/"very_*" values: Qloo's parameter reference lists no allowed values ("The level of impact a trending entity has on the results"), so the allow-list stays at the values we send until a live recording shows otherwise
+- [-] L5 Qloo: venue score scale (pool vs. scoring call): unverified until live; both calls carry the same audience signal
+- [-] L6/L7 Qloo: unlisted invented names in copy and generic-title homonyms: accepted limits already disclosed (A4, benchmark "upper bound")
+- [x] M1 security: a hosted (Vercel) deployment with a paid key and no KV now fails the build ("Invalid KV setup"), and half a KV pair fails anywhere (`config.ts` `kvProblems`; `tests/unit/counter-guard-config.test.ts`)
+- [x] L5 security: secret-bearing base URLs must be https (plain http only for localhost) (`config.ts` `secureUrl`; same test file)
+- [-] L1 security: forwarded-IP headers are trusted as Vercel sets them; the deploy target is Vercel (README), and global caps bound spend on any host
+- [-] L2 security: owner key on `/api/run` isn't attempt-counted; the key is 32+ characters with 12+ distinct (config refine), so guessing is infeasible
+- [-] L3 security: no `max_tokens` on the OpenAI-compatible format: OpenAI's reasoning models reject `max_tokens`, so sending it would break valid configs; output is bounded by the 25 s timeout and at most 150 runs a day
+- [-] L4/L6/L7 security: body size (platform 4.5 MB cap, flood guard first), non-revocable 30-day owner cookie (HttpOnly, SameSite=Strict; rotate the key to revoke), KV-flap refunds on rate limits only (C11/I16)
+- [x] M1 judge: unknown paths get a branded 404 with "Back to the demo", and `/docs/*` on the demo domain redirects to the repo copy (`src/app/not-found.tsx`, `next.config.ts`; e2e "branded 404")
+- [x] M2 judge: below the desktop layout, flipping With/Without brings the campaign pack under the sticky bar (`App.tsx` `switchMode`; e2e "flipping the plan view")
+- [x] M3 judge: offline, a custom brief's diff card no longer shows a preset's scripted sample as "what the plain model would have shipped" (`DiffCard.tsx` `offBrief`; e2e "custom brief's diff card")
+- [x] L6 judge: an offline `pnpm benchmark` leaves `docs/benchmark.md` byte-identical (no timestamp in the not-a-measurement note)
+- [x] L5 judge: heading order (sr-only h2 on the diff card) and the mobile h1 orphan (`text-balance`); chips at 26 px clear WCAG 2.2 AA's 24 px target size
+- [-] L4 judge: the sample audit's "not audited" note names the sample's fictional artist and single; the note is accurate (no Qloo entity has those names)
+- [P] L7 judge: `docs/PLAYBOOK.md` and `.agent/` become public with the repo: owner decision before the public flip (BLOCKED.md)
