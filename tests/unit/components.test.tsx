@@ -202,7 +202,7 @@ describe("TasteMap", () => {
     const shown = text(renderToStaticMarkup(<TasteMap result={live} />));
     expect(shown).not.toContain("simulated data, not Qloo");
     expect(shown).toContain(must(live.cities[0], "top city").affinity.toFixed(2));
-    expect(shown).toContain(must(live.audience.tags[0], "a tag").affinity.toFixed(2));
+    expect(shown).toContain(must(must(live.audience.tags[0], "a tag").affinity, "its affinity").toFixed(2));
     expect(shown).toMatch(/[+-]\d+ /);
   });
 });

@@ -12,7 +12,7 @@ Every marketing agent guesses the culture. Tastemaker checks it: Qloo is the cri
 
 ## Thumbnail
 
-`src/app/opengraph-image.png` (3:2 crop works; it is the social card the live demo serves).
+`docs/screenshots/desktop.png` (1440 × 960, 3:2, Devpost's thumbnail ratio). The social card the live demo serves, `src/app/opengraph-image.png`, is 1200 × 630 and would be cropped.
 
 ## About the project
 
@@ -27,7 +27,7 @@ We run a small studio and use AI agents to market our own products. They kept pi
 Tastemaker plans a launch campaign for a creator or small brand (audience, launch city, collaborators, brand partners, hook references, podcast pitches, a venue, a presenter, hooks, a 30-second script and per-platform captions) and **uses Qloo as the critic inside the agent loop**:
 
 1. The model drafts the plan from Qloo's audience data.
-2. Every cultural entity it names is resolved in Qloo, with a typed search and then an untyped one. A name Qloo can't find is flagged "not found in Qloo"; a real entity filed under the wrong type is flagged as a role mismatch.
+2. Every pick it lists, and any other name in its copy that Qloo knows by that exact name, is resolved in Qloo, with a typed search and then an untyped one. A name Qloo can't find is flagged "not found in Qloo"; a real entity filed under the wrong type is flagged as a role mismatch.
 3. Every real pick is scored against the target audience with `filter.results.entities` and `feature.explainability` (the launch city is ranked on the audience's heatmap instead). Venues must be in the launch city; hook references must not be fading on `/v2/trending`.
 4. For each failure, the model either picks one of Qloo's above-bar options or proposes its own idea, which Qloo scores first and code keeps only if it clears the same bar. The model then revises the copy, and the critic checks the whole plan again.
 5. Every surviving pick carries a **receipt**: affinity, pass bar, which seed drove it, trend, and the exact Qloo call.
@@ -52,7 +52,7 @@ Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (a
 - `filter.results.entities` + `feature.explainability`: the critic
 - `/v2/trending`: rising vs. fading references
 - `/v2/analysis/compare`: the positioning gap vs. a comparable's audience
-- `signal.demographics.*` on every call the docs allow it on, except people, where entrants report the live host lets demographics replace the audience instead of narrowing it
+- `signal.demographics.*` on every call the docs allow it on (people calls pending a live check)
 
 Every request is validated against per-`filter.type` parameter allow-lists (Qloo silently drops unknown params), throttled, retried with backoff, budgeted, cached by normalized request, recordable as fixtures, and labeled live / replayed in the UI.
 

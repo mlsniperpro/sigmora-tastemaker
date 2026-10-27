@@ -112,6 +112,8 @@ describe("isTitlePart", () => {
     expect(isTitlePart("Wakanda Forever", "Black Panther: Wakanda Forever")).toBe(true);
     expect(isTitlePart("The Daily Show", "The Daily Show with Trevor Noah")).toBe(true);
     expect(isTitlePart("Stranger Things", "Stranger Things - Season 4")).toBe(true);
+    // A subtitle that itself contains "with" is still a whole part (found by the deep property run).
+    expect(isTitlePart("Dinner with Friends", "Movie Night: Dinner with Friends")).toBe(true);
     expect(isTitlePart("Boy", "Burna Boy")).toBe(false);
     expect(isTitlePart("Burna Boy", "Burna Boy")).toBe(false);
     // Audit 7: a run inside a longer name is another entity.

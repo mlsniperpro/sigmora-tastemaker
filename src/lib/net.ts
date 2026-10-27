@@ -29,9 +29,13 @@ export class HttpError extends Error {
 export function publicErrorText(err: unknown): string {
   const backing = (err instanceof HttpError || err instanceof TimeoutError) && err.service !== "Qloo";
   const parser = err instanceof Error && (["ZodError", "QlooSchemaError", "LLMOutputError"].includes(err.name) || err instanceof SyntaxError);
-  if (backing || parser || (err instanceof Error && err.name === "ConfigError")) {
+  // A runtime fault (a bug) says nothing a visitor can act on, and its text can name internals.
+  const fault = err instanceof TypeError || err instanceof RangeError || err instanceof ReferenceError;
+  if (backing || parser || fault || (err instanceof Error && err.name === "ConfigError")) {
     console.error(err);
-    return backing ? "a backing service didn't answer" : parser ? "a backing service sent a reply it couldn't read" : "this deployment is misconfigured";
+    if (backing) return "a backing service didn't answer";
+    if (parser) return "a backing service sent a reply it couldn't read";
+    return fault ? "something went wrong on the server" : "this deployment is misconfigured";
   }
   return err instanceof Error ? err.message : String(err);
 }

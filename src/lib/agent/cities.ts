@@ -9,9 +9,10 @@
  * insights aren't used: the insights deep dive says urn:entity:locality "only
  * allows signal.interests.entities … when the provided entities are
  * localities", so it can't rank cities for an audience of artists and tags. We
- * don't send output.heatmap.boundary: on the hackathon host it is reported to
+ * don't send output.heatmap.boundary: on the hackathon host it was reported (unverified) to
  * return 500 for urn:entity:locality and 400 for city (see BLOCKED.md).
  */
+import { publicErrorText } from "../net";
 import { resolveByName, signalFor, type Ctx, type RankedCandidate } from "./context";
 import type { HeatCell } from "./types";
 import { normName, sameName } from "./util";
@@ -20,7 +21,7 @@ import { normName, sameName } from "./util";
 export const US_WKT = "POLYGON((-125 24, -66 24, -66 50, -125 50, -125 24))";
 /** Cells kept for the map, in case the host returns more than asked for. */
 export const MAX_MAP_CELLS = 400;
-/** `take` sent on heatmap calls: the documented maximum (1..50, default 20). */
+/** `take` sent on heatmap calls: the insights maximum (1..50, default 20); the heatmap docs list no take of their own (BLOCKED #9). */
 export const HEATMAP_TAKE = 50;
 /** Cells within this distance of a city centre count toward it. */
 export const FOLD_RADIUS_KM = 60;
@@ -63,7 +64,7 @@ export interface CityRanking {
 }
 
 const settle = <T>(p: Promise<T>) => p.then((r) => ({ ok: true as const, r })).catch((err: unknown) => ({ ok: false as const, err }));
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const message = (err: unknown) => publicErrorText(err);
 const cellsOf = (heatmap: readonly { location: { latitude: number; longitude: number }; query: { affinity?: number | null } }[] | undefined): HeatCell[] =>
   (heatmap ?? []).flatMap((c) => (typeof c.query.affinity === "number" ? [{ lat: c.location.latitude, lon: c.location.longitude, affinity: c.query.affinity }] : []));
 

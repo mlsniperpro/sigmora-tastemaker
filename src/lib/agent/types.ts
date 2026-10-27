@@ -121,7 +121,8 @@ export interface RunResult {
   audience: {
     age: { bucket: string; value: number }[];
     gender: { bucket: string; value: number }[];
-    tags: { name: string; affinity: number }[];
+    /** The vocabulary is the names; an affinity is shown when Qloo returns one (its urn:tag example returns none). */
+    tags: { name: string; affinity?: number }[];
   };
   cities: CityScore[];
   heatmap: HeatCell[];

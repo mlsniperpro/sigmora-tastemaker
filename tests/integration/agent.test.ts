@@ -246,7 +246,7 @@ describe("agent loop: failure paths", () => {
     const r = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Houston", type: "locality", role: "city" }] }, { qloo: q });
     const houston = must(r.receipts.find((x) => x.name === "Houston"));
     expect(houston.verdict).toBe("miss");
-    expect(houston.note).toMatch(/None of this audience's 50 strongest US heatmap cells \(urn:heatmap\) lies within 60 km of it/);
+    expect(houston.note).toMatch(/None of this audience's strongest US heatmap cells \(urn:heatmap, 1 returned\) lies within 60 km of it/);
     expect(houston.calls.some((k) => k.includes("urn%3Aheatmap") || k.includes("urn:heatmap"))).toBe(true);
     expect(r.receipts.find((x) => x.name === "Washington")?.verdict).toBe("pass");
 
@@ -260,6 +260,19 @@ describe("agent loop: failure paths", () => {
     });
     const r2 = await tasteCheck({ seeds: ["Tems", "Rema"], ages: ["25_to_29"], picks: [{ name: "Washington", type: "locality", role: "city" }, { name: "Houston", type: "locality", role: "city" }] }, { qloo: q2 });
     expect(r2.receipts.find((x) => x.name === "Houston")?.verdict).toBe("unscored");
+  });
+
+  it("keeps the taste vocabulary when Qloo returns tags without an affinity, as its urn:tag example does (audit 19)", async () => {
+    const q = qloo();
+    const real = q.insights.bind(q);
+    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
+      const r = await real(t, p);
+      if (t !== "urn:tag") return r;
+      return { ...r, data: { ...r.data, results: { tags: (r.data.results.tags ?? []).map((x) => ({ ...x, query: {} })) } } };
+    });
+    const r = await runTastemaker(must(PRESETS[0]).brief, { qloo: q, llm: new DeterministicLLM() });
+    expect(r.audience.tags.length).toBeGreaterThan(0);
+    expect(r.audience.tags.every((x) => x.affinity === undefined)).toBe(true);
   });
 
   it("names the seeds that didn't resolve in the trace (audit 17)", async () => {

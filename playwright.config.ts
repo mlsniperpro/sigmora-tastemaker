@@ -39,6 +39,20 @@ export default defineConfig({
     timeout: 180_000,
     reuseExistingServer: false,
     // No keys: Qloo answers from recorded fixtures (else the labeled simulator), drafts from the scripted model.
-    env: { QLOO_MODE: "replay", QLOO_API_KEY: "", LLM_PROVIDER: "", LLM_API_KEY: "", SIGMORA_PUBLISH_MODE: "sandbox", NEXT_TELEMETRY_DISABLED: "1" },
+    // Every credential is blanked (blank means unset), which also stops `next dev` loading it from a pulled .env.local,
+    // so the suite never spends live quota or writes to a production KV.
+    env: {
+      QLOO_MODE: "replay",
+      QLOO_API_KEY: "",
+      LLM_PROVIDER: "",
+      LLM_API_KEY: "",
+      JUDGE_API_KEY: "",
+      KV_REST_API_URL: "",
+      KV_REST_API_TOKEN: "",
+      SIGMORA_PUBLISH_MODE: "sandbox",
+      SIGMORA_API_TOKEN: "",
+      SIGMORA_OWNER_KEY: "",
+      NEXT_TELEMETRY_DISABLED: "1",
+    },
   },
 });

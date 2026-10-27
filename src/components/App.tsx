@@ -137,7 +137,7 @@ export function App() {
   // The URL decides what runs on first load; read it once, at mount.
   const [initial] = useState(() => ({ measure: measureFromUrl(params), runId: runIdFromUrl(params), request: requestFromUrl(params) }));
   const [activePreset, setActivePreset] = useState(!initial.measure && !initial.runId && "preset" in initial.request ? initial.request.preset : undefined);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"copied" | "failed">();
   // Kept here so the toggle bar's jump link can open a collapsed trace.
   const [traceCollapsed, setTraceCollapsed] = useState(false);
   // The brief form folds into a one-line summary once there is a run to look at.
@@ -332,14 +332,17 @@ export function App() {
               onClick={() => {
                 // Absent outside secure contexts, whatever lib.dom says.
                 const clipboard = navigator.clipboard as Clipboard | undefined;
-                void clipboard?.writeText(window.location.href).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                });
+                const show = (state: "copied" | "failed") => {
+                  setCopied(state);
+                  setTimeout(() => setCopied(undefined), 2500);
+                };
+                // Denied (an embedded view, a browser setting) or absent: say where the link is instead of doing nothing.
+                if (!clipboard) show("failed");
+                else clipboard.writeText(window.location.href).then(() => show("copied"), () => show("failed"));
               }}
               className="ml-auto rounded-full px-3 py-1.5 text-meta text-violet hover:underline"
             >
-              {copied ? "Link copied" : "Copy permalink"}
+              {copied === "copied" ? "Link copied" : copied === "failed" ? "Copy it from the address bar" : "Copy permalink"}
             </button>
           )}
         </div>
@@ -436,7 +439,7 @@ export function App() {
         </p>
         <p>
           Built for the Qloo Agentic Hackathon. Open source (MIT) on{" "}
-          <a className="text-violet hover:underline" href="https://github.com/mlsniperpro/sigmora-tastemaker">GitHub</a>. Qloo data via the hackathon
+          <a className="text-violet underline" href="https://github.com/mlsniperpro/sigmora-tastemaker">GitHub</a>. Qloo data via the hackathon
           API; Sigmora is the publishing engine behind &ldquo;Ship&rdquo;.
         </p>
       </footer>

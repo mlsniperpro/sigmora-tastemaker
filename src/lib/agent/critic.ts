@@ -7,10 +7,11 @@
 import type { Pick as PlanPick, Replacement } from "../llm/types";
 import { isQlooStop } from "../qloo/errors";
 import { ROLE_SPEC, type PickType, type Role } from "./brief";
-import { FOLD_RADIUS_KM, HEATMAP_TAKE, foldHeatmap } from "./cities";
+import { FOLD_RADIUS_KM, foldHeatmap } from "./cities";
 import { entityTypesOf, inCityKey, isFading, pickKey, readTrends, resolveByName, resolvedType, scoreEntities, signalFor, type Ctx, type Resolved } from "./context";
 import type { Metrics, Receipt, Verdict } from "./types";
 import { median, normName, sameName } from "./util";
+import { publicErrorText } from "../net";
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
@@ -138,7 +139,7 @@ async function checkInCity(ctx: Ctx, resolved: readonly Resolved[], refused: Map
     const found = new Set((res.data.results.entities ?? []).map((e) => e.entity_id));
     for (const id of ids) ctx.inCity.set(inCityKey(city, id), { ok: found.has(id), key: res.meta.key });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = publicErrorText(err);
     for (const id of ids) {
       if (isQlooStop(err)) refused.set(id, msg);
       else ctx.inCity.set(inCityKey(city, id), { error: msg });
@@ -207,7 +208,7 @@ function judge(ctx: Ctx, r: Resolved): Receipt {
   if (affinity === undefined && spec.scoreFromPool && threshold !== undefined) {
     // Measured: none of the audience's strongest US cells is near it. Not measured (no coordinates, no heatmap): no verdict.
     if (heat && r.at) {
-      return { ...scoredBase, calls: [...calls, heat.key], verdict: "miss", note: `None of this audience's ${String(HEATMAP_TAKE)} strongest US heatmap cells (urn:heatmap) lies within ${String(FOLD_RADIUS_KM)} km of it.` };
+      return { ...scoredBase, calls: [...calls, heat.key], verdict: "miss", note: `None of this audience's strongest US heatmap cells (urn:heatmap, ${String(heat.cells.length)} returned) lies within ${String(FOLD_RADIUS_KM)} km of it.` };
     }
     return { ...scoredBase, verdict: "unscored", note: "Qloo's heatmap couldn't place it for this audience, so it can't be judged." };
   }

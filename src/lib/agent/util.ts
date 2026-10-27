@@ -105,9 +105,13 @@ export function compactKey(s: string): string {
  * ("Rema Dupe" is not "Rema Dupe Tribute Band", "Los Angeles" is not "Los Angeles Lakers").
  */
 export function isTitlePart(short: string, full: string): boolean {
-  const segments = full.split(/\s*:\s+|\s+[-–—]\s+|\s+with\s+/u).map((x) => x.trim()).filter(Boolean);
-  if (segments.length < 2 || normName(short).split(" ").length < 2) return false;
-  return segments.some((seg) => sameName(seg, short));
+  const clean = (xs: string[]) => xs.map((x) => x.trim()).filter(Boolean);
+  // Title and subtitle first, then each split at "with" (a featured credit): a whole segment at either level is a
+  // part, so a subtitle that itself contains "with" still matches whole (fast-check found "aa aa: aa with aa").
+  const top = clean(full.split(/\s*:\s+|\s+[-–—]\s+/u));
+  const fine = clean(top.flatMap((seg) => seg.split(/\s+with\s+/u)));
+  if (fine.length < 2 || normName(short).split(" ").length < 2) return false;
+  return [...top, ...fine].some((seg) => sameName(seg, short));
 }
 
 export function median(xs: number[]): number {

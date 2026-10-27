@@ -5,7 +5,7 @@ import type { Metrics, Receipt } from "../agent/types";
 import type { JudgeSummary } from "./judge";
 
 /** What the sensitivity analysis needs from a receipt. */
-export type SensReceipt = Pick<Receipt, "verdict" | "affinity" | "poolMedian">;
+export type SensReceipt = Pick<Receipt, "verdict" | "affinity" | "poolMedian" | "outOfCity">;
 
 export interface BenchRow {
   subject: string;
@@ -61,7 +61,8 @@ export function missRateAt(receipts: readonly SensReceipt[], ratio: number, minA
   for (const r of receipts) {
     if (r.verdict === "unscored") continue;
     judged++;
-    if (r.verdict === "hallucination") missed++;
+    // Not found, or a venue outside the launch city, misses at any pass bar: the bar only re-tests affinity.
+    if (r.verdict === "hallucination" || r.outOfCity) missed++;
     else if (r.affinity !== undefined && r.poolMedian !== undefined) {
       if (r.affinity < Math.max(minAffinity, ratio * r.poolMedian)) missed++;
     } else if (r.verdict === "miss") missed++;

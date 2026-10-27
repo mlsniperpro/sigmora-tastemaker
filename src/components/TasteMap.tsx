@@ -319,9 +319,9 @@ export function TasteMap({ result }: { result: RunResult }) {
         <Panel title="Taste vocabulary" sub="urn:tag — the words this audience's taste is described in (feeds the copy)">
           <ul className="flex flex-wrap gap-1.5">
             {audience.tags.map((t) => (
-              <li key={t.name} className="rounded-full border border-line px-2 py-0.5 text-caption text-ink/85" title={plain ? undefined : `affinity ${t.affinity.toFixed(2)}`}>
+              <li key={t.name} className="rounded-full border border-line px-2 py-0.5 text-caption text-ink/85" title={plain || t.affinity === undefined ? undefined : `affinity ${t.affinity.toFixed(2)}`}>
                 {t.name}
-                {!plain && <span className="font-mono text-muted"> {t.affinity.toFixed(2)}</span>}
+                {!plain && t.affinity !== undefined && <span className="font-mono text-muted"> {t.affinity.toFixed(2)}</span>}
               </li>
             ))}
           </ul>

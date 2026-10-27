@@ -48,7 +48,7 @@ for (const input of BRIEFS) {
     // Without a baseline there is nothing to compare: the brief counts as failed, not as a 0% baseline.
     if (r.baseline.unavailable) throw new Error(`baseline draft failed: ${r.baseline.unavailable}`);
     runs.push(r);
-    const sens = (rs: typeof r.grounded.receipts) => rs.map(({ verdict, affinity, poolMedian }) => ({ verdict, affinity, poolMedian }));
+    const sens = (rs: typeof r.grounded.receipts) => rs.map(({ verdict, affinity, poolMedian, outOfCity }) => ({ verdict, affinity, poolMedian, ...(outOfCity ? { outOfCity } : {}) }));
     const cut = [...r.grounded.receipts, ...r.baseline.receipts].filter((x) => x.note.startsWith("Not checked")).length;
     rows.push({
       subject: brief.subject,

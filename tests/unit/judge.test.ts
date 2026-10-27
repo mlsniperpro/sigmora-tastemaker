@@ -230,6 +230,14 @@ describe("summaries and the report", () => {
 });
 
 describe("pass-bar sensitivity", () => {
+  it("keeps a venue outside the launch city a miss at every bar, as the critic does (audit 19)", () => {
+    const rs = [
+      { verdict: "miss" as const, affinity: 0.8, poolMedian: 0.5, outOfCity: "Atlanta" },
+      { verdict: "pass" as const, affinity: 0.9, poolMedian: 0.5 },
+    ];
+    for (const ratio of [0.5, 0.7, 0.9]) expect(missRateAt(rs, ratio)).toBe(0.5);
+  });
+
   const rec = fc.record({
     verdict: fc.constantFrom<Verdict>("pass", "miss", "hallucination", "fading", "unscored"),
     affinity: fc.option(fc.double({ min: 0, max: 1, noNaN: true }), { nil: undefined }),

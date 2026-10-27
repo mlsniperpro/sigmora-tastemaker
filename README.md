@@ -71,7 +71,7 @@ The same model also drafts with no Qloo context; the critic audits that plan wit
 | `filter.results.entities` + `feature.explainability=true` | **The critic**: score the model's shortlist and attribute why |
 | `GET /v2/trending` | Rising vs. fading references |
 | `GET /v2/analysis/compare` | Positioning gap vs. a comparable's audience |
-| `signal.demographics.age/gender` | Every call the docs allow it on is conditioned on the target audience, except `urn:entity:person`, where entrants report that the live host lets demographics replace the audience instead of narrowing it (BLOCKED #20) |
+| `signal.demographics.age/gender` | Every call the docs allow it on is conditioned on the target audience. Person calls are sent without it for now, pending a live check of how the hackathon host treats it there (BLOCKED #20) |
 
 Every request is validated against a per-`filter.type` parameter allow-list before it leaves the server (Qloo silently drops unknown params), throttled under the key's rate limit (per server instance), retried with backoff on 429/5xx/timeouts, capped by a per-run and a daily call budget, cached by normalized request, and labeled in the UI as **live**, **replayed** (recorded fixture) or **simulated**. When a live call fails and an answer comes from a fallback, the trace and a banner say so and why.
 

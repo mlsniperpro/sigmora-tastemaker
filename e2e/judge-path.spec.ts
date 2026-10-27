@@ -507,3 +507,20 @@ test("an unreadable ?b= link says so and shows the hero preset", async ({ page }
   await expect(page.getByText("That shared brief couldn't be read;")).toBeVisible();
   await finished(page);
 });
+
+test("Copy permalink says where the link is when the clipboard is refused, and copies it when allowed", async ({ page, context }) => {
+  await page.goto("/?preset=indie-release");
+  await finished(page);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: () => Promise.reject(new Error("denied")) }, configurable: true });
+  });
+  await page.getByRole("button", { name: "Copy permalink" }).click();
+  await expect(page.getByRole("button", { name: "Copy it from the address bar" })).toBeVisible();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const fresh = await context.newPage();
+  await fresh.goto("/?preset=indie-release");
+  await finished(fresh);
+  await fresh.getByRole("button", { name: "Copy permalink" }).click();
+  await expect(fresh.getByRole("button", { name: "Link copied" })).toBeVisible();
+  await fresh.close();
+});

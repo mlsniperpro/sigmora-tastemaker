@@ -193,7 +193,7 @@ export async function runTastemaker(input: BriefInput, opts: RunOptions = {}): P
     });
     const tags = tracer.optional("tags", "Taste vocabulary (urn:tag)", async (s) => {
       const r = await qloo.insights("urn:tag", { ...tagSignalFor(ctx), ...tagDiscoveryParams(ctx.discovery), take: 10 });
-      audience.tags = (r.data.results.tags ?? []).flatMap((t) => (typeof t.query?.affinity === "number" ? [{ name: t.name, affinity: t.query.affinity }] : []));
+      audience.tags = (r.data.results.tags ?? []).map((t) => (typeof t.query?.affinity === "number" ? { name: t.name, affinity: t.query.affinity } : { name: t.name }));
       s.detail = audience.tags.slice(0, 5).map((t) => t.name).join(", ") || "No tags returned";
     });
     const culture = tracer.step("culture", "Cross-domain culture map (/v2/insights)", async (s) => {
