@@ -122,7 +122,7 @@ export function Trace({
         <span className="font-mono text-meta text-muted">
           {callsLabel(tally)} · {tally.surfaces} Qloo surfaces{allSimulated ? " exercised (simulated)" : ""}
         </span>
-        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="text-meta text-violet hover:underline">
+        <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="inline-flex min-h-6 items-center text-meta text-violet hover:underline">
           {collapsed ? "Show steps" : "Hide steps"}
         </button>
       </header>

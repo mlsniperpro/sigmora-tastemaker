@@ -1,4 +1,4 @@
-/** What actually goes on the wire: discovery calls carry bias.trends, the tag call diversify.*, scoring calls neither. */
+/** What actually goes on the wire: discovery calls carry bias.trends, the tag call diversify.*, scoring calls bias.trends=off (Qloo defaults to medium) and no diversify. */
 import { describe, expect, it } from "vitest";
 import { Brief } from "@/lib/agent/brief";
 import { DIVERSIFY_TAKE, discoveryParams, tagDiscoveryParams } from "@/lib/agent/context";
@@ -28,7 +28,7 @@ const scoring = (us: URL[]) => us.filter((u) => u.searchParams.has("filter.resul
 describe("Qloo params on the wire", () => {
   const brief = Brief.parse(PRESETS[0].brief);
 
-  it("sends bias.trends on timing-sensitive discovery, diversify.by=subtype only on urn:tag (the docs' rule), neither on scoring", async () => {
+  it("sends bias.trends on timing-sensitive discovery, diversify.by=subtype only on urn:tag (the docs' rule), plain affinity (bias.trends=off) on scoring", async () => {
     const { urls, qloo } = wiredClient();
     const run = await runTastemaker(brief, { qloo, llm: new DeterministicLLM(), discovery: { trendBias: "high", diversify: true } });
     expect(run.sources).toEqual(["live"]);
@@ -61,9 +61,12 @@ describe("Qloo params on the wire", () => {
     const scored = scoring(urls.filter((u) => u.pathname === "/v2/insights"));
     expect(scored.length).toBeGreaterThan(0);
     for (const u of scored) {
-      expect(u.searchParams.has("bias.trends")).toBe(false);
+      // Qloo's default is bias.trends=medium, so plain affinity on the timing-sensitive types asks for "off".
+      const biased = ["artist", "tv_show", "movie", "podcast"].some((t) => u.searchParams.get("filter.type") === `urn:entity:${t}`);
+      expect(u.searchParams.get("bias.trends"), u.search).toBe(biased ? "off" : null);
       expect(u.searchParams.has("diversify.by")).toBe(false);
     }
+    expect(scored.some((u) => u.searchParams.get("bias.trends") === "off")).toBe(true);
     expect(insights(urls, "locality").every((u) => !u.searchParams.has("bias.trends") && !u.searchParams.has("diversify.by"))).toBe(true);
   });
 
@@ -148,7 +151,7 @@ describe("discoveryParams", () => {
     expect(checkParams("/v2/insights", { "filter.type": "urn:tag", "signal.interests.entities": ["a"], ...tagDiscoveryParams({ trendBias: "off", diversify: true }), take: 10 })).toEqual([]);
   });
   it("rejects malformed values before they leave the server", () => {
-    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:artist", "bias.trends": "max" })).toEqual(['bias.trends "max" is not low, medium or high']);
+    expect(checkParams("/v2/insights", { "filter.type": "urn:entity:artist", "bias.trends": "max" })).toEqual(['bias.trends "max" is not one of off, very_low, low, mid, medium, high, very_high']);
     expect(checkParams("/v2/insights", { "filter.type": "urn:entity:place", "diversify.take": 3 })).toEqual(["diversify.take needs diversify.by"]);
   });
 });

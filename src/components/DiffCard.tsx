@@ -1,7 +1,6 @@
 "use client";
 
-import { SCRIPTED_BASELINE, formatRate, placeholderReason } from "@/lib/agent/evidence";
-import { presetIdOf } from "@/lib/agent/presets";
+import { SCRIPTED_BASELINE, formatRate, offBriefBaseline, placeholderReason } from "@/lib/agent/evidence";
 import type { Metrics, Receipt, RunResult, Served, Verdict } from "@/lib/agent/types";
 import { VERDICT_STYLE, isSimulated, receiptNote, verdictLabel } from "./Receipt";
 import { SourceBanner } from "./SourceBanner";
@@ -81,9 +80,7 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
   const flagged = b.hallucinations + b.misses + b.fading;
   const replaced = grounded.filter((r) => r.replaced).length;
   const passed = grounded.filter((r) => r.verdict === "pass").length;
-  // Offline, the scripted model only has sample plans for the presets' categories: on someone's own brief its
-  // "plan without Qloo" names have nothing to do with that brief, so they aren't shown as if they were.
-  const offBrief = result.llm.scripted && !noBaseline && !presetIdOf(result.brief);
+  const offBrief = offBriefBaseline(result);
   const worst = noBaseline || offBrief ? [] : worstMisses(base);
   const replacementFor = (name: string) => grounded.find((r) => r.replaced?.name.toLowerCase() === name.toLowerCase())?.name;
   const where = hasLaunchMap(result);
@@ -103,7 +100,9 @@ export function DiffCard({ result, mode, served }: { result: RunResult; mode: "q
             lines={
               noBaseline
                 ? ["The plan without Qloo isn’t available on this run."]
-                : blank
+                : offBrief
+                  ? ["No plan without Qloo for your own brief offline."]
+                  : blank
                   ? [`${plural(b.picks, "pick")} audited; counts not shown.`, <WhatItCounts key="what">With live Qloo and a model, this counts the invented, low-affinity and fading picks, and the Culture Miss Rate.</WhatItCounts>]
                   : [
                       `${b.hallucinations} invented · ${b.misses} low-affinity · ${b.fading} fading`,

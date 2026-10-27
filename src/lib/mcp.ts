@@ -7,7 +7,7 @@ import { z } from "zod";
 import { BriefFields, PICK_TYPES, ROLES } from "./agent/brief";
 import { PRESETS } from "./agent/presets";
 import { RunRequest } from "./agent/brief";
-import { formatRate, placeholderReason } from "./agent/evidence";
+import { formatRate, placeholderReason, receiptNote } from "./agent/evidence";
 import { cachedRun, costsMoney, getOrRun, isInFlight, recordedRuns, resolveRunRequest } from "./agent/runCache";
 import { tasteCheck } from "./agent/tasteCheck";
 import { AuditRequest, auditWithBudget } from "./agent/audit";
@@ -79,7 +79,8 @@ type RpcReply = ReturnType<typeof ok> | ReturnType<typeof fail>;
 /** One receipt as a line. On simulated data no number is printed (as in the UI): placeholders aren't Qloo's. */
 function receiptLine(r: Receipt, simulated = false) {
   const aff = !simulated && r.affinity !== undefined ? ` affinity ${r.affinity.toFixed(2)}${r.threshold !== undefined ? ` (bar ${r.threshold.toFixed(2)})` : ""}` : "";
-  return `- [${r.verdict}] ${r.role}: ${r.name}${aff}${r.replaced ? ` — replaced ${r.replaced.name}` : ""}. ${r.note}`;
+  // A simulated note quotes the simulator's placeholder affinities, so it gets the UI's words-only note instead.
+  return `- [${r.verdict}] ${r.role}: ${r.name}${aff}${r.replaced ? ` — replaced ${r.replaced.name}` : ""}. ${receiptNote(r, simulated)}`;
 }
 
 /** Admits a paid (uncached, live) tool call, or says why not. */

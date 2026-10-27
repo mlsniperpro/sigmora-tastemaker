@@ -51,7 +51,7 @@ resolve seeds ─► who over-indexes ─► taste vocabulary ─► cross-domai
          rate become the next run's seeds (signal.interests.entities)
 ```
 
-Discovery is set to lean toward what's rising (`bias.trends` on artist, TV, film and podcast candidates; sent by default, but unverified on the hackathon host until the key lands, see [BLOCKED.md](BLOCKED.md) #15), and the taste vocabulary is spread across tag subtypes (`diversify.by=subtype` on `urn:tag`, its documented use). Trend-biased pools are re-scored with plain affinity, so the critic's pass bar and the pick scores are on the same scale, and scoring calls never carry either parameter.
+Discovery is set to lean toward what's rising (`bias.trends` on artist, TV, film and podcast candidates; sent by default, but unverified on the hackathon host until the key lands, see [BLOCKED.md](BLOCKED.md) #15), and the taste vocabulary is spread across tag subtypes (`diversify.by=subtype` on `urn:tag`, its documented use). Qloo applies `bias.trends=medium` when the parameter is absent, so discovery sends `high` and every scoring call on those types sends `bias.trends=off`: trend-biased pools are re-scored with plain affinity, the critic's pass bar and the pick scores are on the same scale, and scoring calls never diversify.
 
 The same model also drafts with no Qloo context; the critic audits that plan without fixing it, which powers the Without Qloo view and the Culture Miss Rate.
 
@@ -108,7 +108,7 @@ With no keys, Qloo answers come from an **offline simulator** (placeholder numbe
 | `SIGMORA_PUBLISH_MODE=live`, `SIGMORA_API_URL`, `SIGMORA_API_TOKEN`, `SIGMORA_OWNER_KEY` | The owner (and only the owner, by key) ships to real channels through Sigmora `/v1`; visitors always get the sandbox |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Shared Redis-over-REST cache and rate-limit/budget counters (per instance otherwise). A Vercel deployment with a paid key refuses to build without both; all secret-bearing `*_URL` values must be https |
 | `QLOO_RUN_CALL_CAP`, `QLOO_DAILY_CALL_CAP`, `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_PER_DAY`, `RUN_DAILY_CAP` | Budgets and abuse limits; defaults in [.env.example](.env.example) |
-| `QLOO_BIAS_TRENDS` | `bias.trends` on artist / TV / movie / podcast discovery (`medium` by default, `off` to stop sending it) |
+| `QLOO_BIAS_TRENDS` | `bias.trends` on artist / TV / movie / podcast discovery (`high` by default since Qloo's own default is `medium`; scoring calls send `off` for plain affinity; `off` here stops sending the parameter anywhere) |
 | `JUDGE_PROVIDER`, `JUDGE_MODEL`, `JUDGE_API_KEY`, `JUDGE_BASE_URL` | The benchmark's blind pairwise judge (falls back to `LLM_*`; a different vendor avoids self-preference) |
 
 Scripts:

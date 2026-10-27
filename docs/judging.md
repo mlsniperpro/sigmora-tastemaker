@@ -22,8 +22,8 @@ Then try the other two presets, or "Your own brief" (paste names your audience l
 | Taste vocabulary | `/v2/insights` `filter.type=urn:tag` |
 | Cross-domain culture map | `/v2/insights` × artist, brand, tv_show, movie, podcast, person, all with `signal.interests.entities` + `signal.demographics.*` |
 | Where to launch (ranking) | `/search` (localities) + `/v2/insights` `urn:entity:locality` with `filter.results.entities` |
-| Where to launch (heatmap) | `/v2/insights` `urn:heatmap` + `filter.location` (US polygon); cells folded into candidate cities |
-| Venues in the city | `/v2/insights` `urn:entity:place` + `filter.location.query` |
+| Where to launch (heatmap) | `/v2/insights` `urn:heatmap` + `filter.location` (US polygon); cells folded into candidate cities; while fewer than three are ranked, a heatmap inside each missing metro (`filter.location=<locality id>`, `filter.location.radius=0`) |
+| Venues in the city | `/v2/insights` `urn:entity:place` + `filter.location.query` + `filter.location.radius=0` (the city's own boundary) |
 | Rising vs. fading | `GET /v2/trending` |
 | Positioning | `GET /v2/analysis/compare` |
 | Qloo critic (each pass) | `/search` per named entity + `/v2/insights` with `filter.results.entities` + `feature.explainability=true`; place check with `filter.location.query` |

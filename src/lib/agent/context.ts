@@ -76,7 +76,9 @@ export interface Resolved {
 }
 
 /** How strongly candidate discovery leans toward trending entities (Qloo's bias.trends); "off" sends nothing. */
-export type TrendBias = "off" | "low" | "medium" | "high";
+/** bias.trends levels as the insights deep dive lists them (Qloo's default is "medium"). Here "off" means: don't send the parameter at all. */
+export const TREND_BIAS_LEVELS = ["off", "very_low", "low", "mid", "medium", "high", "very_high"] as const;
+export type TrendBias = (typeof TREND_BIAS_LEVELS)[number];
 
 /** How candidate pools are discovered (never how picks are scored). */
 export interface Discovery {
@@ -319,8 +321,8 @@ const TREND_BIASED: readonly PickType[] = ["artist", "tv_show", "movie", "podcas
 export const DIVERSIFY_TAKE = 5;
 
 /**
- * Extra parameters for candidate-discovery calls (never for the critic's
- * scoring calls, which must measure plain affinity): bias.trends on
+ * Extra parameters for candidate-discovery calls (the critic's scoring calls
+ * measure plain affinity instead, see scoringParams): bias.trends on
  * timing-sensitive types.
  *
  * No diversify.by on entities: the docs allow `subtype` on urn:tag only, and
@@ -330,6 +332,15 @@ export const DIVERSIFY_TAKE = 5;
  */
 export function discoveryParams(type: PickType, d: Discovery): QlooParams {
   return TREND_BIASED.includes(type) && d.trendBias !== "off" ? { "bias.trends": d.trendBias } : {};
+}
+
+/**
+ * The scoring side of the same types: Qloo applies bias.trends=medium when it isn't sent, so plain affinity has to
+ * ask for "off" explicitly. With QLOO_BIAS_TRENDS=off the parameter is never sent anywhere (the escape hatch if the
+ * host rejects it).
+ */
+export function scoringParams(type: PickType, d: Discovery): QlooParams {
+  return TREND_BIASED.includes(type) && d.trendBias !== "off" ? { "bias.trends": "off" } : {};
 }
 
 /** The taste-vocabulary call (urn:tag): at most DIVERSIFY_TAKE tags per tag subtype, so one subtype can't fill the list. */
@@ -349,6 +360,7 @@ export function tagSignalFor(ctx: Pick<Ctx, "seedIds" | "tagIds">): QlooParams {
 export async function scoreEntities(ctx: Ctx, type: PickType, ids: readonly string[]): Promise<Entity[]> {
   const res = await ctx.qloo.insights(`urn:entity:${type as EntityType}`, {
     ...signalFor(ctx),
+    ...scoringParams(type, ctx.discovery),
     "filter.results.entities": [...ids],
     "feature.explainability": true,
     take: ids.length,

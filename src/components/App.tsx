@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PRESETS, presetIdOf } from "@/lib/agent/presets";
 import type { RunResult, Served } from "@/lib/agent/types";
-import { entityNames, placeholderReason } from "@/lib/agent/evidence";
+import { entityNames, offBriefBaseline, placeholderReason } from "@/lib/agent/evidence";
 import { measureFromUrl, requestFromUrl, runIdFromUrl } from "@/lib/permalink";
 import { AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
 import { AuditPanel } from "./AuditPanel";
@@ -35,10 +35,11 @@ export function RunError({ error, hasResult }: { error: string; hasResult: boole
  */
 export function RoiLine({ result, served }: { result: RunResult; served?: Served }) {
   const seconds = Math.max(1, Math.round(result.durationMs / 1000));
-  const checked = result.grounded.receipts.length + result.baseline.receipts.length;
+  const offBrief = offBriefBaseline(result);
+  const checked = result.grounded.receipts.length + (result.baseline.unavailable || offBrief ? 0 : result.baseline.receipts.length);
   const blank = placeholderReason(result);
   const simulated = result.qloo.simulated > 0;
-  const caught = blank || result.baseline.unavailable ? 0 : result.baseline.receipts.filter((r) => r.verdict !== "pass" && r.verdict !== "unscored").length;
+  const caught = blank || result.baseline.unavailable || offBrief ? 0 : result.baseline.receipts.filter((r) => r.verdict !== "pass" && r.verdict !== "unscored").length;
   const when = served && served.from !== "simulated" ? (served.from === "recording" ? " (recorded run)" : " (when it first ran)") : "";
   return (
     <p className="mt-1 text-meta text-ink/80">
@@ -99,7 +100,7 @@ function PlanToggle({
                 e.preventDefault();
                 onTrace();
               }}
-              className="whitespace-nowrap text-meta font-medium text-violet hover:underline lg:hidden"
+              className="inline-flex min-h-6 items-center whitespace-nowrap text-meta font-medium text-violet hover:underline lg:hidden"
             >
               Trace · {callsLabel(calls)} ↓
             </a>
@@ -144,6 +145,8 @@ export function App() {
   const [auditOpen, setAuditOpen] = useState(false);
   // A shared `?b=` brief is someone else's text: it is shown, and runs (spending the demo's budget) only on a click.
   const [shared, setShared] = useState(!initial.measure && !initial.runId && "brief" in initial.request ? initial.request : undefined);
+  // A ?measure= link reads a shipped campaign's metrics as the signed-in owner, so like a shared brief it waits for a click.
+  const [pendingMeasure, setPendingMeasure] = useState(initial.measure);
   // A `?run=` link the server doesn't know (or couldn't be asked about): the hero preset is shown instead, with this notice on top.
   const [deadLink, setDeadLink] = useState<"gone" | "failed">();
 
@@ -157,8 +160,8 @@ export function App() {
 
   // All deps are stable (a useState value and useCallbacks), so this starts once per mount.
   useEffect(() => {
-    if (initial.measure) void requery(initial.measure).then((outcome) => settle(undefined, outcome));
-    else if (initial.runId) {
+    if (initial.measure) return;
+    if (initial.runId) {
       let preset: string | undefined;
       // A permalink to a preset's run highlights that preset (and offers "Re-run live").
       void open(initial.runId, (r) => {
@@ -341,6 +344,27 @@ export function App() {
             className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
           >
             Plan &amp; taste-check it
+          </button>
+        </div>
+      )}
+      {pendingMeasure && (
+        <div role="region" aria-label="Measure a campaign" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent/5 px-3 py-2 text-body text-ink">
+          <span className="min-w-0">
+            Measure campaign <strong className="font-mono">{pendingMeasure}</strong> and re-plan with what performed.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              const id = pendingMeasure;
+              setPendingMeasure(undefined);
+              void requery(id).then((outcome) => {
+                settle(undefined, outcome);
+                if (outcome === "failed") setPendingMeasure(id);
+              });
+            }}
+            className="rounded-lg bg-accent px-3 py-1.5 text-body font-semibold text-accent-ink"
+          >
+            Measure &amp; re-plan
           </button>
         </div>
       )}

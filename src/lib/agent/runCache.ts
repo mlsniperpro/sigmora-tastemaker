@@ -10,6 +10,7 @@ import { llmFromEnv } from "../llm";
 import type { LLMProvider } from "../llm/types";
 import { defaultCache, type CacheStore } from "../qloo/cache";
 import { qlooFromEnv, type QlooClient } from "../qloo/client";
+import { publicErrorText } from "../net";
 import { formatZodIssues } from "../zod";
 import { Brief, RunRequest } from "./brief";
 import { PRESETS, presetById } from "./presets";
@@ -237,7 +238,7 @@ export async function getOrRun(lookup: Lookup, emit?: (e: RunEvent) => void, fal
     return { result: await flight.done };
   } catch (err) {
     if (!fallback) throw err;
-    const reason = `the live run failed (${err instanceof Error ? err.message : String(err)})`;
+    const reason = `the live run failed (${publicErrorText(err)})`;
     return { result: replay(fallback, { from: "recording", reason }, emit), served: { from: "recording", reason } };
   } finally {
     if (emit) flight.listeners.delete(emit);

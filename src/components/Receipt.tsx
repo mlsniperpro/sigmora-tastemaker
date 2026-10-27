@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { receiptNote } from "@/lib/agent/evidence";
 import type { Receipt, Verdict } from "@/lib/agent/types";
 import { FADING_BELOW } from "@/lib/vocab";
 
@@ -24,15 +25,6 @@ export const SIMULATED_LABEL: Record<Verdict, string> = {
   unscored: "Simulated: no score",
 };
 
-/** What a simulated verdict means, in words only: the simulator's numbers are placeholders, so none are printed. */
-const SIMULATED_NOTE: Record<Verdict, string> = {
-  pass: "Cleared the pass bar for this role in the offline simulator. With a Qloo key, this is checked against Qloo.",
-  miss: "Scored below the pass bar for this role in the offline simulator. With a Qloo key, Qloo's affinity decides this.",
-  hallucination: "The offline simulator's catalog has no entity by this name. With a Qloo key, this is a search of Qloo's catalog.",
-  fading: "Fit the audience in the offline simulator, but its simulated trend is falling.",
-  unscored: "The offline simulator gave no score for this pick.",
-};
-
 const SOURCE_LABEL = { live: "live Qloo", replay: "replayed Qloo response", simulated: "simulated (not Qloo data)" } as const;
 
 /**
@@ -44,11 +36,7 @@ export const isSimulated = (r: Pick<Receipt, "source">, runSimulated = false) =>
 /** The chip label for a verdict, honest about simulated data. */
 export const verdictLabel = (verdict: Verdict, simulated: boolean) => (simulated ? SIMULATED_LABEL[verdict] : VERDICT_STYLE[verdict].label);
 
-/**
- * The one-line note for a pick; a simulated one gets words with no placeholder numbers. A pick outside the
- * launch city keeps its own note (words only, naming the city), since "scored below the bar" would be wrong.
- */
-export const receiptNote = (r: Pick<Receipt, "verdict" | "note" | "outOfCity">, simulated: boolean) => (simulated && !r.outOfCity ? SIMULATED_NOTE[r.verdict] : r.note);
+export { receiptNote };
 
 /** A signed percent change, e.g. "−4.2%" or "+1.2%". */
 const percentChange = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(1)}%`;

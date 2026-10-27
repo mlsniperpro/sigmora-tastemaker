@@ -1,7 +1,7 @@
 /** Failure paths and Qloo call-shape rules from the API-contract review: each one used to sink a run or show a wrong number. */
 import { describe, expect, it, vi } from "vitest";
 import { fc, test } from "@fast-check/vitest";
-import { rankCities } from "@/lib/agent/cities";
+import { US_WKT, rankCities } from "@/lib/agent/cities";
 import { TREND_POOL_TOP, aggregateDemographics, loadCulture, loadTrends, loadVenues, makeCtx, parseSeedLinks, resolveSeeds, trendItems, trendWindow, type Audience, type RankedCandidate } from "@/lib/agent/context";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
@@ -132,6 +132,43 @@ describe("rankCities", () => {
     expect(r.rankedBy).toBe("heatmap");
     expect(r.cities.length).toBeGreaterThan(0);
     expect(r.heatmap.length).toBeGreaterThan(0);
+  });
+
+  it("probes a heatmap inside each unranked metro while fewer than three are ranked, ranking them after the nationwide fold (audit 13)", async () => {
+    const q = offline();
+    const real = q.insights.bind(q);
+    const probes: Record<string, unknown>[] = [];
+    vi.spyOn(q, "insights").mockImplementation(async (t, p) => {
+      if (t === "urn:entity:locality") throw new Error("Qloo 400 on /v2/insights");
+      const r = await real(t, p);
+      if (t !== "urn:heatmap") return r;
+      if (p["filter.location"] === US_WKT) {
+        // As if the nationwide top 50 sat around Atlanta only.
+        const atl = { location: { latitude: 33.75, longitude: -84.39 }, query: { affinity: 0.9 } };
+        return { ...r, data: { ...r.data, results: { heatmap: [atl] } } };
+      }
+      probes.push(p);
+      return r;
+    });
+    const r = await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC", "Chicago"]);
+    expect(r.rankedBy).toBe("heatmap");
+    expect(must(r.cities[0]).name).toBe("Atlanta");
+    // Two more needed, so two probes: inside each metro's own boundary, never more than the plan needs.
+    expect(probes).toHaveLength(2);
+    for (const p of probes) {
+      expect(p["filter.location.radius"]).toBe(0);
+      expect(String(p["filter.location"])).not.toBe(US_WKT);
+    }
+    expect(r.cities).toHaveLength(3);
+    expect(r.unranked).toHaveLength(1);
+    expect(r.cities.slice(1).every((c) => c.key !== r.cities[0]?.key)).toBe(true);
+  });
+
+  it("makes no probe when the nationwide fold already ranks three metros", async () => {
+    const q = offline();
+    const spy = vi.spyOn(q, "insights");
+    await rankCities(ctxOf(q), ["Atlanta", "Houston", "Washington, DC"]);
+    expect(spy.mock.calls.filter(([t, p]) => t === "urn:heatmap" && p["filter.location"] !== US_WKT)).toHaveLength(0);
   });
 
   it("ranks by heatmap when the locality reply holds places that aren't candidates (the filter dropped), saying why (audits 9, 10)", async () => {

@@ -206,7 +206,7 @@ export function AuditPanel({
   return (
     <section id="audit" aria-labelledby={`${id}-title`} className="scroll-mt-16 rounded-2xl border border-violet/40 bg-violet/5 p-3 sm:p-4">
       <h2 id={`${id}-title`} className="text-sm font-semibold text-ink">
-        <button type="button" aria-expanded={open} aria-controls={`${id}-body`} onClick={() => setOpen(!open)} className="flex w-full items-baseline justify-between gap-3 text-left">
+        <button type="button" aria-expanded={open} aria-controls={`${id}-body`} onClick={() => setOpen(!open)} className="flex min-h-6 w-full items-baseline justify-between gap-3 text-left">
           <span className="shrink-0">Audit any AI&apos;s plan</span>
           {/* On desktop the description shares the title's line (the paragraph below is then for screen readers only). */}
           <span aria-hidden className="hidden min-w-0 flex-1 truncate text-meta font-normal text-muted lg:block">

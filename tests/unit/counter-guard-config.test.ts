@@ -187,7 +187,7 @@ describe("blank env values", () => {
     expect(c.SIGMORA_PUBLISH_MODE).toBe("sandbox");
     expect(c.QLOO_MODE).toBe("auto");
     expect(c.QLOO_DAILY_CALL_CAP).toBe(480);
-    expect(c.QLOO_BIAS_TRENDS).toBe("medium");
+    expect(c.QLOO_BIAS_TRENDS).toBe("high");
     expect(c.QLOO_API_KEY).toBeUndefined();
   });
 });

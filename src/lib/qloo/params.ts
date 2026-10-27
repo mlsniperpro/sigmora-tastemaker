@@ -71,6 +71,8 @@ const DIVERSIFY_BY: Partial<Record<string, string[]>> = {
   "urn:entity:destination": DIVERSIFY_GEO,
 };
 const DIVERSIFY = ["diversify.by", "diversify.take"];
+/** bias.trends values the insights deep dive lists (default "medium"). */
+const BIAS_TRENDS = ["off", "very_low", "low", "mid", "medium", "high", "very_high"];
 
 /** signal.demographics.age values the insights docs enumerate (coarse and fine buckets). */
 export const SIGNAL_AGE_VALUES = ["35_and_younger", "36_to_55", "24_and_younger", "25_to_29", "30_to_34", "35_to_44", "45_to_54", "55_and_older"] as const;
@@ -211,7 +213,7 @@ export function checkParams(path: QlooPath, params: QlooParams): string[] {
     problems.push(`/entities needs entity_ids or an external.*.ids parameter`);
   }
   const bias = params["bias.trends"];
-  if (bias !== undefined && bias !== "low" && bias !== "medium" && bias !== "high") problems.push(`bias.trends "${String(bias)}" is not low, medium or high`);
+  if (bias !== undefined && !BIAS_TRENDS.includes(String(bias))) problems.push(`bias.trends "${String(bias)}" is not one of ${BIAS_TRENDS.join(", ")}`);
   if (keys.includes("diversify.take") && !keys.includes("diversify.by")) problems.push(`diversify.take needs diversify.by`);
   const div = params["diversify.by"];
   if (div !== undefined && filterType && DIVERSIFY_BY[filterType] && !DIVERSIFY_BY[filterType].includes(String(div))) {

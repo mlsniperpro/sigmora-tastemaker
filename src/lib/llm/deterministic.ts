@@ -106,6 +106,8 @@ function choose(input: DraftInput): Pick[] {
   return picks;
 }
 
+/** "Nia Sol's", "Lagos Lanterns'". */
+export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
 const first = (picks: Pick[], role: Role, i = 0, fallback = "") => picks.filter((p) => p.role === role)[i]?.name ?? fallback;
 
 function write(brief: Brief, picks: Pick[], grounding?: DraftInput["grounding"]): Draft {
@@ -125,7 +127,7 @@ function write(brief: Brief, picks: Pick[], grounding?: DraftInput["grounding"])
 
   if (brief.family === "music") {
     return {
-      positioning: `${subject}'s ${product}: ${tagLine ? `${tagLine} ` : ""}music for people who already have ${c1} and ${c2} on repeat${gap ? ` — and lean further into ${gap} than the mainstream Afrobeats crowd` : ""}.`,
+      positioning: `${possessive(subject)} ${product}: ${tagLine ? `${tagLine} ` : ""}music for people who already have ${c1} and ${c2} on repeat${gap ? ` — and lean further into ${gap} than the mainstream Afrobeats crowd` : ""}.`,
       hooks: [
         `If ${c1} is on your rotation, ${product} is your next obsession.`,
         `${r1} energy, ${city} nights. ${subject} — out now.`,

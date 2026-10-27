@@ -6,7 +6,7 @@ import type { RunEvent, RunResult, Served } from "@/lib/agent/types";
 import { loadConfig } from "@/lib/config";
 import { isOwnerRequest } from "@/lib/publisher";
 import { admit, clientIp, floodGuard, guardResponse, qlooBudget, qlooRefusal, refundAdmission, unmeteredGuard, type GuardResult } from "@/lib/guard";
-import { HttpError } from "@/lib/net";
+import { HttpError, publicErrorText } from "@/lib/net";
 import { NoSeedError } from "@/lib/agent/context";
 import { runTastemaker } from "@/lib/agent/run";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
@@ -24,8 +24,9 @@ export function runErrorMessage(err: unknown): string {
     const what = err.status === 401 || err.status === 403 ? "refused this deployment's key" : "couldn't answer";
     return `Live Qloo ${what} (HTTP ${String(err.status)} on ${err.path}), so this brief can't run right now. The presets still load.`;
   }
-  const text = err instanceof Error ? err.message : "The run failed.";
-  return /[.!?]$/.test(text) ? text : `${text}.`;
+  const text = err instanceof Error ? publicErrorText(err) : "The run failed.";
+  const sentence = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
 }
 
 /** Streams events written by `work`; if the client goes away, the work carries on (so the result still gets cached). */

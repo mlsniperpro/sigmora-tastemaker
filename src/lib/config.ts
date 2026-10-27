@@ -38,8 +38,8 @@ export const EnvSchema = z.object({
   /** Requests per second to the Qloo host (the hackathon key allows ~5). */
   QLOO_RPS: int(4, 1, 50),
   QLOO_TIMEOUT_MS: int(12000, 1000, 60000),
-  /** bias.trends on candidate discovery for timing-sensitive types; "off" to stop sending it. */
-  QLOO_BIAS_TRENDS: z.enum(["off", "low", "medium", "high"]).default("medium"),
+  /** bias.trends on candidate discovery for timing-sensitive types (Qloo's own default is "medium", so "high" is what leans); "off" to stop sending it. */
+  QLOO_BIAS_TRENDS: z.enum(["off", "very_low", "low", "mid", "medium", "high", "very_high"]).default("high"),
   /** diversify.by=subtype on taste-vocabulary (urn:tag) discovery; "off" to stop sending it. */
   QLOO_DIVERSIFY: z.enum(["on", "off"]).default("on"),
 

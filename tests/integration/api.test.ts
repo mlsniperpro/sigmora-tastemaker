@@ -1,7 +1,8 @@
 /** Route handlers (/api/run, /api/ship) over the offline stack: streaming, caching, validation and failure paths. */
 import { describe, expect, it, vi } from "vitest";
 import { POST as run, runErrorMessage } from "@/app/api/run/route";
-import { HttpError } from "@/lib/net";
+import { HttpError, TimeoutError } from "@/lib/net";
+import { ConfigError } from "@/lib/config";
 import { POST as owner } from "@/app/api/owner/route";
 import { POST as requery } from "@/app/api/requery/route";
 import { POST as ship } from "@/app/api/ship/route";
@@ -34,6 +35,17 @@ describe("/api/run", () => {
     expect(runErrorMessage(new HttpError("Qloo", 401, "/search"))).toMatch(/^Live Qloo refused this deployment's key \(HTTP 401/);
     expect(runErrorMessage(new Error("Model timed out"))).toBe("Model timed out.");
     expect(runErrorMessage(new Error("Done already."))).toBe("Done already.");
+  });
+
+  it("never shows a visitor a backing service's status, path or a config variable (audit 13)", () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(runErrorMessage(new HttpError("LLM", 401, "/v1/messages"))).toBe("A backing service didn't answer.");
+    expect(runErrorMessage(new HttpError("KV", 500, "/pipeline"))).toBe("A backing service didn't answer.");
+    expect(runErrorMessage(new TimeoutError("LLM", "/v1/chat/completions", 25000))).toBe("A backing service didn't answer.");
+    expect(runErrorMessage(new ConfigError("Invalid KV setup: set both KV_REST_API_URL and KV_REST_API_TOKEN"))).toBe("This deployment is misconfigured.");
+    // Each one is still logged server-side.
+    expect(quiet).toHaveBeenCalledTimes(4);
+    quiet.mockRestore();
   });
 
   it("caps unmetered fresh preset runs and audits per network too, and floods of owner sign-ins never reach the store (audit 10)", async () => {

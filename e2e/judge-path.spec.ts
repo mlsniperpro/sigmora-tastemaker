@@ -442,3 +442,17 @@ test("an unknown path gets the branded 404 with a way back to the demo", async (
   await page.getByRole("link", { name: "Back to the demo" }).click();
   await finished(page);
 });
+
+test("a ?measure= link waits for a click before reading a campaign or spending a run", async ({ page }) => {
+  const calls: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/")) calls.push(r.url());
+  });
+  await page.goto("/?measure=c_demo-1");
+  const ask = page.getByRole("region", { name: "Measure a campaign" });
+  await expect(ask).toContainText("Measure campaign c_demo-1");
+  await page.waitForTimeout(500);
+  expect(calls).toEqual([]);
+  await ask.getByRole("button", { name: "Measure & re-plan" }).click();
+  await expect.poll(() => calls.some((u) => u.includes("/api/"))).toBe(true);
+});

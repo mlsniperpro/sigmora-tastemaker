@@ -2,8 +2,10 @@
  * "Where to launch": rank the brief's candidate metros for the audience.
  *
  * Primary signal: /v2/insights on urn:entity:locality restricted to the
- * candidates. Map and fallback ranking: a urn:heatmap over the contiguous US,
- * whose geohash cells are folded into each candidate city. We don't send
+ * candidates (the docs call locality insights partly supported, so this is
+ * tried, not trusted). Map and fallback ranking: a urn:heatmap over the
+ * contiguous US, whose geohash cells are folded into each candidate city, then
+ * a heatmap inside each still-unranked metro while fewer than three are ranked. We don't send
  * output.heatmap.boundary: on the hackathon host it is reported to return 500
  * for urn:entity:locality and 400 for city (see BLOCKED.md).
  */
@@ -19,6 +21,8 @@ export const MAX_MAP_CELLS = 400;
 export const HEATMAP_TAKE = 50;
 /** Cells within this distance of a city centre count toward it. */
 export const FOLD_RADIUS_KM = 60;
+/** The plan's "where to launch" needs this many ranked metros (the critic's top-3 rule). */
+export const CITIES_NEEDED = 3;
 
 const toRad = (d: number) => (d * Math.PI) / 180;
 
@@ -111,10 +115,31 @@ export async function rankCities(ctx: Ctx, candidateCities: readonly string[], o
     : strangers > 0
       ? `the reply held ${String(strangers)} places that aren't candidates, so the candidate filter was dropped`
       : `the reply ranked ${String(byLocality.length)} of ${String(candidates.length)} candidate cities`;
-  const cities = honoured ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
+  const folded = honoured ? byLocality : heat.ok ? foldHeatmap(candidates, cells).map((c) => ({ ...c, key: heat.r.meta.key })) : [];
+  folded.sort((a, b) => b.affinity - a.affinity);
+  // The nationwide heatmap holds at most 50 cells, so a metro with none of the country's strongest cells near it goes
+  // unranked. When that leaves fewer than the plan needs, each missing metro (up to that many) gets its own heatmap
+  // inside its boundary, and ranks after every metro the nationwide signal placed: none of its cells made the top 50.
+  const probed: RankedCandidate[] = [];
+  if (!honoured && folded.length < CITIES_NEEDED) {
+    const missing = candidates.filter((c) => !folded.some((f) => f.entityId === c.entityId)).slice(0, CITIES_NEEDED - folded.length);
+    const probes = await Promise.all(
+      missing.map((c) =>
+        settle(ctx.qloo.insights("urn:heatmap", { ...signalFor(ctx), "filter.location": c.entityId, "filter.location.radius": 0, take: HEATMAP_TAKE })),
+      ),
+    );
+    probes.forEach((p, i) => {
+      const c = missing[i];
+      if (!c || !p.ok) return;
+      const own = (p.r.data.results.heatmap ?? []).flatMap((x) => (typeof x.query.affinity === "number" ? [x.query.affinity] : []));
+      if (own.length) probed.push({ ...c, affinity: Math.round((own.reduce((a, b) => a + b, 0) / own.length) * 1000) / 1000, key: p.r.meta.key });
+    });
+    probed.sort((a, b) => b.affinity - a.affinity);
+  }
+  const cities = [...folded, ...probed];
   const placed = new Set(cities.map((c) => c.entityId));
   return {
-    cities: cities.sort((a, b) => b.affinity - a.affinity),
+    cities,
     heatmap: topCells(cells),
     rankedBy: honoured ? "locality" : cities.length ? "heatmap" : "none",
     heatmapError: heat.ok ? undefined : message(heat.err),

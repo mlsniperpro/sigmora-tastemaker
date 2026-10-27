@@ -20,6 +20,20 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * An error's text as a visitor may read it. Qloo's own failures are part of the product's story and stay; a
+ * backing service's (model, KV, Sigmora) status and path, or a configuration problem, are logged server-side and
+ * replaced by a plain sentence, so the page never discloses vendors, paths or variable names.
+ */
+export function publicErrorText(err: unknown): string {
+  const backing = (err instanceof HttpError || err instanceof TimeoutError) && err.service !== "Qloo";
+  if (backing || (err instanceof Error && err.name === "ConfigError")) {
+    console.error(err);
+    return backing ? "a backing service didn't answer" : "this deployment is misconfigured";
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
 export class TimeoutError extends Error {
   constructor(
     readonly service: string,

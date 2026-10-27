@@ -47,18 +47,14 @@ Next.js + TypeScript, a zod-typed Qloo client, and a model-agnostic LLM layer (a
 - `/search` and `/entities` (Spotify/IMDb external IDs) to resolve seeds and catch names that aren't in Qloo
 - `/v2/insights` with `urn:demographics` (who over-indexes) and `urn:tag` (taste vocabulary for the copy)
 - `/v2/insights` across artist, brand, tv_show, movie, podcast and person: the cross-domain culture map
-- `urn:entity:locality` ranking and a `urn:heatmap` over the US folded into candidate cities: where to launch
-- `urn:entity:place` with `filter.location.query`: venues, and the venue-in-city check
+- `urn:heatmap` over the US folded into candidate cities, a heatmap inside each metro the nationwide one misses, and `urn:entity:locality` ranking where the host honours it (the docs call it partly supported): where to launch
+- `urn:entity:place` with `filter.location.query` and `filter.location.radius=0`: venues, and the venue-in-city check on the city's own boundary
 - `filter.results.entities` + `feature.explainability`: the critic
 - `/v2/trending`: rising vs. fading references
 - `/v2/analysis/compare`: the positioning gap vs. a comparable's audience
-- `signal.demographics.*` on every call
+- `signal.demographics.*` on every call the docs allow it on
 
 Every request is validated against per-`filter.type` parameter allow-lists (Qloo silently drops unknown params), throttled, retried with backoff, budgeted, cached by normalized request, recordable as fixtures, and labeled live / replayed in the UI.
-
-## Culture Miss Rate
-
-Across 30 briefs (music, DTC, sports), the same model with no Qloo access produced **[X]%** picks that weren't in Qloo or fell below the audience's affinity bar; with the Qloo critic the shipped plans had **[Y]%**. Method, script and summary: `docs/benchmark.md`, `benchmark/summary.json`; blind LLM-judge preference in the same report. *(Fill only from a live run.)*
 
 ## Responsible taste
 
@@ -77,22 +73,28 @@ Sigmora (content production and publishing) pre-existed and is reached only thro
 
 ## Accomplishments that we're proud of
 
-- Qloo isn't a lookup step bolted onto a chatbot. It decides what the agent may ship, and the agent can't publish a pick Qloo hasn't scored.
+- Qloo isn't a lookup step bolted onto a chatbot. It decides what the agent may ship: Ship stops on any pick Qloo can't find, scores below the audience's bar or sees fading, and goes ahead only after an explicit yes; a pick Qloo couldn't score is labelled unscored, never passed.
 - The Without Qloo toggle makes the value visible on every run, not only in a benchmark.
-- The whole product runs from a fresh clone with zero credentials (replay fixtures and a scripted model, each labelled on screen), so judges and contributors can try every path.
-- Honest numbers: the demo never prints a number computed from simulated data, and no benchmark figure appears anywhere until a live run produces it.
+- The whole product runs from a fresh clone with zero credentials (an offline Qloo simulator and a scripted model, each labelled on screen), so judges and contributors can try every path.
+- Honest numbers: the demo's screens never show a number computed from simulated data, and no benchmark figure is published until a live run produces it.
 
 ## What we learned
 
-- LLMs are confident about culture they've never measured. Most bad picks aren't invented; they're real names that the target audience simply doesn't care about, which only audience-level affinity data can catch.
-- Explainability (`feature.explainability`) turns a score into something a marketer will trust: knowing *which* seed drove an affinity is what makes a receipt useful.
-- Locality and heatmap data change the plan more than any other surface: where to launch is the decision a small brand gets wrong most often.
+- The hard part isn't spotting invented names, it's knowing whether a real name fits this audience. A model can't know that from pretraining; audience-level affinity can measure it.
+- Explainability (`feature.explainability`) turns a score into something a marketer can check: knowing *which* seed drove an affinity is what makes a receipt useful.
+- Read the API docs line by line. Qloo drops unsupported parameters silently, defaults matter (`bias.trends` is `medium` unless you say otherwise, so plain affinity has to ask for `off`), and locality insights accept only locality signals, so ranking cities for an audience needs heatmaps.
 
 ## What's next for Tastemaker
 
 - Run the first real campaign planned by Tastemaker through Sigmora's publishing engine, and publish its reach next to the plan.
 - Re-check live campaigns against `/v2/trending` and swap references that start fading.
 - Offer the critic as a tool any agent can call (the repo already exposes it over MCP as `audit_plan`).
+
+## Culture Miss Rate (not part of the paste block)
+
+Add this to About, after **Why it can't work without Qloo**, only once `docs/benchmark.md` is a live measurement. Otherwise leave it out.
+
+Across 30 briefs (music, DTC, sports), the same model with no Qloo access produced **[X]%** picks that weren't in Qloo or fell below the audience's affinity bar; with the Qloo critic the shipped plans had **[Y]%**. Method, script and summary: `docs/benchmark.md`, `benchmark/summary.json`; blind LLM-judge preference in the same report. *(Fill only from a live run.)*
 
 ## Built with
 
@@ -123,5 +125,5 @@ Upload in this order (3:2 works best). Retake first with `pnpm screenshots <live
 - [ ] Live demo URL opens with no login in a private window, and the hero preset runs.
 - [ ] Repo is public and GitHub shows "MIT license" in About.
 - [ ] Every [bracketed] item above is filled from a measured source or removed.
-- [ ] The Culture Miss Rate section is removed unless `docs/benchmark.md` is a live measurement.
+- [ ] The Culture Miss Rate section is pasted only if `docs/benchmark.md` is a live measurement.
 - [ ] Press **Submit**: a saved draft doesn't count.
