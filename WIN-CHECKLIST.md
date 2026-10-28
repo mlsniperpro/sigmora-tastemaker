@@ -517,3 +517,14 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 2 judge: the offline simulator's vocabulary is the labelled stand-in; the hosted demo serves recorded live runs once `pnpm runs:record` has run (BLOCKED)
 - [-] 3 judge: a bad `?measure=` id shows the sandbox's reason; measuring is an owner flow
 - [-] 4 judge: `pnpm demo` prints simulator metrics under "Qloo sources: simulated" (a developer tool, labelled on the line above)
+
+## Re-audit 21 (2026-10-28, three lenses on 23228cb after a date-dependent test failure: 1 high from Qloo depth; 0 high from security and the judge path)
+
+- [x] Gate re-run find (heartbeat, 2026-10-28): the time-pinned last-run test spent the budgets of "2026-10-28", the real date that night, so two later tests in its module saw today's presets pool spent. It now spends days relative to now (30 days back) and resets module state (`tests/e2e/stub-live-fallback.test.ts`); a sweep found no other fixed date that can meet a future real day
+- [x] 1 Qloo (high): once the owner commits `pnpm fixtures:record` / `pnpm runs:record` output, the suites would see the recordings and go red (reproduced: 5 failures). `TASTEMAKER_RECORDINGS=off` (in `tests/setup.ts` and the e2e server) keeps both suites on the offline stack; the recording tests turn it on; the live site serves recordings by default (`config.ts` `recordings`, `qloo/client.ts`, `runCache.ts`, `audit.ts`; verified with filled run recordings: 525/525); README, `.env.example` and BLOCKED's recording step say so
+- [x] 2 Qloo: `scripts/record-runs.ts`'s duplicated check removed
+- [-] 3 Qloo: `pnpm benchmark` raises only the per-run cap; the daily cap it needs is stated in `docs/benchmark.md`, and a budget-cut run is never published
+- [-] 1/2 security (info): `spentMemo` prunes past 5000 entries (60 s entries, flood-guarded); the "live call needs an API key" error is unreachable
+- [-] 1 judge: a blocked tile host shows "Loading map…" until the 6 s fallback (e2e "a tile map that never draws" covers it)
+- [-] 2 judge: an offline custom brief's plan is the labelled stand-in's
+- [x] 3 judge: `pnpm demo` labels its metrics "placeholders, NOT A MEASUREMENT" when they are (`scripts/demo.ts`)
