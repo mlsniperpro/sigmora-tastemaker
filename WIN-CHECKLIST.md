@@ -581,3 +581,12 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 3 Qloo (info): `feature.explainability` isn't listed for `urn:entity:place` in the availability table; a venue receipt without drivers says so (the explainability warning path), and BLOCKED #14 checks the allow-lists live
 - [-] 1 judge (low): offline, the sample audit swaps fading "Black Panther" for "Wakanda Forever", which the simulator also reads as fading; same root as re-audit 20's accepted item (an audit's replacement gets no trend read), and live candidates differ
 - [-] 2 judge (low): offline, the sports preset's simulated metro ranking reads oddly (Seattle first); labelled simulated, and a keyed or recorded deployment ranks from Qloo's heatmap
+
+## Re-audit 26 (2026-10-28, Qloo depth on d506412: 0 critical, 0 high; security and judge path superseded by the fixes below)
+
+- [x] 1 Qloo (medium): the swap rule missed the documented New York itself (lat -73.9, lng 40.7: both in range). `latLon` now also puts back a US point written backwards (latitude at or below -60 with a longitude of 15–72; only Antarctica lies there for real), keeping real southern-hemisphere points (Sydney, Johannesburg, São Paulo tested). The contract test expects the doc's New York at 40.66, -73.94 and folds it onto the doc's own New York heatmap cells
+- [x] 2 Qloo (medium): `pnpm fixtures:record` wrote the file before its checks; it now checks first and on failure leaves the committed recording unchanged, saving the attempt to a temp file (verified with a fake Qloo failing the heatmap: exit 1, file untouched)
+- [-] 3 Qloo (low): the committed-recordings assertions are vacuous while the stores are empty; the test's header says so, and the recorder runs the same checks
+- [x] 4 Qloo (low): a parsed, swapped locality is now tested through `foldHeatmap`, not only the parser
+- [x] security (round 26 on d506412: 0 critical, 0 high, 0 medium) info 3: the recorder's failed attempt goes to a fresh `mkdtemp` directory, not a predictable temp name
+- [-] security info 1–2: a sibling-subdomain cookie could shadow the owner's (sandbox only, `vercel.app` is on the public-suffix list); owner tokens are stateless for 30 days (rotate `SIGMORA_OWNER_KEY` after the demo, as BLOCKED's Sigmora step can say when it's set)

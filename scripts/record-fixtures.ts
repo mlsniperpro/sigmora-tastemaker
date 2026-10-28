@@ -7,7 +7,8 @@
  * Refuses to run without a key. Never writes the key anywhere: fixture keys
  * are normalized request paths.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRESETS } from "../src/lib/agent/presets";
 import { runTastemaker } from "../src/lib/agent/run";
@@ -65,14 +66,13 @@ for (const [name, fn] of probes) {
   }
 }
 
-writeFileSync(file, JSON.stringify({ ...existing, ...recorder }, null, 1) + "\n");
-console.log(`Wrote ${Object.keys(recorder).length} responses to ${file}`);
+const merged = { ...existing, ...recorder };
 
 // The same check as tests/integration/committed-recordings.test.ts: every preset must replay from the recordings
 // alone. A call that failed live was never recorded, and would fail that test after the commit.
 const missing = new Set<string>();
 for (const p of PRESETS) {
-  const replay = new QlooClient({ cache: new MemoryCache(5000), fixtures: { ...existing, ...recorder } });
+  const replay = new QlooClient({ cache: new MemoryCache(5000), fixtures: merged });
   replay.observe((m) => {
     if (m.source !== "replay") missing.add(m.key);
   });
@@ -87,4 +87,12 @@ if (missing.size) {
   failures++;
   console.error(`✗ ${missing.size} request(s) have no recording (a live call failed); fix or re-run before committing:\n  ${[...missing].join("\n  ")}`);
 }
-process.exit(failures ? 1 : 0);
+// Checked before writing, so a failed re-record never replaces a good committed recording.
+if (failures) {
+  const kept = join(mkdtempSync(join(tmpdir(), "tastemaker-recorded-")), "recorded.json");
+  writeFileSync(kept, JSON.stringify(merged, null, 1) + "\n");
+  console.error(`✗ ${file} left unchanged; this attempt's ${Object.keys(recorder).length} responses are in ${kept} for inspection`);
+  process.exit(1);
+}
+writeFileSync(file, JSON.stringify(merged, null, 1) + "\n");
+console.log(`Wrote ${Object.keys(recorder).length} responses to ${file}`);

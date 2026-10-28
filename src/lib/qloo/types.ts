@@ -97,11 +97,18 @@ export const Tag = z
   .loose();
 export type Tag = z.infer<typeof Tag>;
 
-/** A location with `lon` (or Qloo's documented `lng`), latitude and longitude in range when they were swapped. */
-function latLon<T extends { lat?: number; lon?: number; lng?: number }>(v: T): T & { lat?: number; lon?: number } {
+/**
+ * A location with `lon` (or Qloo's documented `lng`), put back when the two values come swapped: an
+ * out-of-range latitude, or a US point written (lon, lat) as in the heatmaps use-case's New York
+ * (lat -73.9, lng 40.7). Nothing real lies south of -60 at those longitudes but Antarctica, and every
+ * place these are read for (candidate metros, city picks) is judged against a US heatmap.
+ */
+export function latLon<T extends { lat?: number; lon?: number; lng?: number }>(v: T): T & { lat?: number; lon?: number } {
   const lon = v.lon ?? v.lng;
-  const swapped = v.lat !== undefined && lon !== undefined && Math.abs(v.lat) > 90 && Math.abs(lon) <= 90;
-  return swapped ? { ...v, lat: lon, lon: v.lat } : { ...v, lon };
+  if (v.lat === undefined || lon === undefined) return { ...v, lon };
+  const outOfRange = Math.abs(v.lat) > 90 && Math.abs(lon) <= 90;
+  const usBackwards = v.lat <= -60 && v.lat >= -180 && lon >= 15 && lon <= 72;
+  return outOfRange || usBackwards ? { ...v, lat: lon, lon: v.lat } : { ...v, lon };
 }
 
 export const Entity = z
