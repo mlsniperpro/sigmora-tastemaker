@@ -93,7 +93,7 @@ export function CampaignPack({
       {/* Offline on someone's own brief, the simulator's small catalog can run out of alternatives a pick could be swapped for. */}
       {mode === "qloo" && offBrief && runSimulated && receipts.some((r) => r.verdict !== "pass") && (
         <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">
-          Offline, the simulator&apos;s small catalog can run out of alternatives for a brief outside the presets, so the picks still marked here had nothing to be swapped for. With a Qloo key, the critic swaps from Qloo&apos;s live candidates.
+          Offline, the simulator&apos;s small catalog can run out of alternatives for a brief outside the presets, so picks still marked here may have had nothing left to be swapped for. With a Qloo key, the critic swaps from Qloo&apos;s live candidates.
         </p>
       )}
 

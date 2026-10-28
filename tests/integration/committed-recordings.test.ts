@@ -49,7 +49,9 @@ describe("committed recordings", () => {
       const qloo = new QlooClient({ cache: new MemoryCache(), fixtures: store });
       const run = await runTastemaker(preset.brief, { qloo, llm: new DeterministicLLM(), newId: () => `replay-${preset.id}` });
       const failed = run.trace.filter((s) => s.status !== "done").map((s) => `${s.id}: ${s.status} ${s.detail}`);
-      expect({ preset: preset.id, failed }).toEqual({ preset: preset.id, failed: [] });
+      // Recorded with the same scripted model, so every request must hit a recording: a stale key (a request
+      // whose params changed since recording) would fall through to the simulator unnoticed.
+      expect({ preset: preset.id, failed, sources: run.sources, simulated: run.qloo.simulated }).toEqual({ preset: preset.id, failed: [], sources: ["replay"], simulated: 0 });
     }
   }, 60_000);
 });

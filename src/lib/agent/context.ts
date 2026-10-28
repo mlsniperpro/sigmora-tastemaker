@@ -78,7 +78,6 @@ export interface Resolved {
   at?: { lat: number; lon: number };
 }
 
-/** How strongly candidate discovery leans toward trending entities (Qloo's bias.trends); "off" sends nothing. */
 /** bias.trends levels as the insights deep dive lists them (Qloo's default is "medium"). Here "off" means: don't send the parameter at all. */
 export const TREND_BIAS_LEVELS = ["off", "very_low", "low", "mid", "medium", "high", "very_high"] as const;
 export type TrendBias = (typeof TREND_BIAS_LEVELS)[number];

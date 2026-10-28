@@ -7,7 +7,10 @@ export const maxDuration = 120;
 const rpcError = (code: number, message: string, status: number) =>
   Response.json({ jsonrpc: "2.0", id: null, error: { code, message } }, { status });
 
-/** Browsers send Origin; server-side MCP clients don't. Cross-origin browser calls need an allow-list entry (DNS-rebinding guard). */
+/**
+ * Browsers send Origin; server-side MCP clients don't. Cross-origin browser calls need an allow-list entry.
+ * (A rebound host looks same-origin here; the endpoint holds no credentials or session, so that reaches nothing a direct call can't.)
+ */
 function originAllowed(req: Request): boolean {
   const origin = req.headers.get("origin");
   if (!origin) return true;
