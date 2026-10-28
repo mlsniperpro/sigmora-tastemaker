@@ -610,3 +610,10 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [P] judge (low; round 28 judge path: 0 critical, 0 high, 0 medium): the README's demo link waits for hosting (BLOCKED: deploy, then fill the URL in README and SUBMISSION)
 - [-] judge (low): offline own-brief packs carry the scripted stand-in's sample picks (labelled; live keys replace them); the scanner's free-prose limit is item 3 above
 - [P] judge (info): the walkthrough video is recorded by the owner against the keyed deployment (BLOCKED "Video"; no video is committed); map tiles come from OpenFreeMap with the SVG fallback after 6 s
+
+## Re-audit 29 (2026-10-28, three lenses on 14cb06b, a full fresh pass each)
+
+- [x] 1 Qloo (low): SUBMISSION said the allow-lists reject an invalid request; they reject in development and tests and log in production (as judging.md says). Reworded
+- [-] 2 Qloo (low): the one `/search` for a plan city outside the candidate metros (`followPlanCity` → `rankPlanCity`) runs outside a trace step, so the trace counts one call fewer in that case; the city's receipt names the heatmap call that judged it, and the case needs a plan city off the brief's list. Left for after the freeze
+- [-] 3 Qloo (low): `TrendPoint`'s rank fields are integers as the trending docs type them (the contract test pins the docs); BLOCKED #11 checks trending live and the recorder now fails loudly if the live host disagrees
+- [x] 4 Qloo (low): SUBMISSION cites `wire-params.test.ts` for request shapes and `qloo-contract.test.ts` for the docs' response examples

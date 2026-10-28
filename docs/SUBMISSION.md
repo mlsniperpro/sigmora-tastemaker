@@ -66,7 +66,7 @@ Sigmora (content production and publishing) pre-existed and is reached only thro
 
 ## Challenges we ran into
 
-- **Qloo drops parameters it doesn't support, silently.** A misspelled or unsupported filter returns an empty or unfiltered result instead of an error. We built per-`filter.type` allow-lists from the docs (`src/lib/qloo/params.ts`) that reject an invalid request before it is sent, and contract tests that pin each call's shape (`tests/unit/qloo-contract.test.ts`).
+- **Qloo drops parameters it doesn't support, silently.** A misspelled or unsupported filter returns an empty or unfiltered result instead of an error. We built per-`filter.type` allow-lists from the docs (`src/lib/qloo/params.ts`) that reject an invalid request in development and tests (in production they log it), wire tests that pin each request's parameters (`tests/integration/wire-params.test.ts`), and contract tests that parse the response examples the docs publish (`tests/unit/qloo-contract.test.ts`).
 - **Search always finds something.** A fuzzy `/search` hit for an invented name looks like a real entity. The critic only accepts a match whose normalized name agrees with the one the model wrote, so a hallucinated name is reported as "not found in Qloo" instead of being quietly swapped for a lookalike.
 - **A circular pass bar.** The bar is drawn from the same Qloo pool the plan is grounded in, so we say so in the UI and keep a fixed floor under it.
 - **A free public demo with a paid quota.** Every visitor runs a real agent, so Qloo calls are budgeted per run, per network and per day, presets and custom briefs draw from separate pools, and a refused run shows the last recorded run for that preset instead of a blank screen.
