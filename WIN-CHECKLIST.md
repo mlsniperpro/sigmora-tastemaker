@@ -570,3 +570,9 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 1 judge (low, round 24 judge path on 84c34d1: 0 critical, 0 high): the trace header pluralises "call" and "surface" from the count (`Trace.tsx`, component test)
 - [-] 2 judge (low): `?preset=bogus` opens the hero silently (no state is lost; only `?b=`/`?run=` links carry a visitor's work)
 - [-] 3 judge (low): an offline minimal DTC link draws music-leaning stand-ins from the simulator's small catalog, labelled simulated (the note above covers it); live runs draw from Qloo
+
+## Re-audit 25 (2026-10-28, three lenses on 4e908c4, code frozen)
+
+- [x] 1 security (low): `judgeChatFromEnv` reuses `LLM_API_KEY` when both providers share a name, even with a different `JUDGE_BASE_URL`. Reached only by the owner's `pnpm benchmark`; BLOCKED's benchmark step now says to set `JUDGE_API_KEY` whenever the judge host differs
+- [-] 2 security (low): on a live publisher missing its Sigmora settings, a request carrying any owner header or cookie gets "Publishing is misconfigured" instead of the sandbox; no access is gained, the message names no setting, and BLOCKED's Sigmora step sets all four together
+- [-] 3 security (info): `DELETE /api/owner` has no flood guard; it only clears the caller's own cookie
