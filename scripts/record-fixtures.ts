@@ -35,7 +35,11 @@ for (const p of PRESETS) {
     const r = await runTastemaker(p.brief, { qloo, llm: new DeterministicLLM() });
     const empty = r.trace.filter((s) => s.status === "error").map((s) => `${s.id}: ${s.detail}`);
     console.log(`✓ ${p.id}: ${r.trace.reduce((n, s) => n + s.calls.length, 0)} calls; failed steps: ${empty.join(" | ") || "none"}`);
-    if (!r.cities.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: no metro ranking — check the nationwide urn:heatmap call and that /search locality hits carry location.lat/lon (BLOCKED #8)`);
+    // An empty ranking leaves the trace step "done", so it is checked here: it would ship a launch city Qloo never placed.
+    if (!r.cities.length && !p.brief.targetCity) {
+      failures++;
+      console.error(`✗ ${p.id}: no metro ranking — check the nationwide urn:heatmap call and that /search locality hits carry location.lat/lon or lat/lng (BLOCKED #8)`);
+    }
     if (!r.heatmap.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: empty heatmap — check heatmap params`);
   } catch (err) {
     failures++;
@@ -73,7 +77,11 @@ for (const p of PRESETS) {
     if (m.source !== "replay") missing.add(m.key);
   });
   const r = await runTastemaker(p.brief, { qloo: replay, llm: new DeterministicLLM() });
-  if (r.trace.some((s) => s.status !== "done")) failures++;
+  const notDone = r.trace.filter((s) => s.status !== "done").map((s) => `${s.id}: ${s.detail}`);
+  if (notDone.length) {
+    failures++;
+    console.error(`✗ ${p.id} replay: ${notDone.join(" | ")}`);
+  }
 }
 if (missing.size) {
   failures++;

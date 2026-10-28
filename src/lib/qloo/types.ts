@@ -97,6 +97,13 @@ export const Tag = z
   .loose();
 export type Tag = z.infer<typeof Tag>;
 
+/** A location with `lon` (or Qloo's documented `lng`), latitude and longitude in range when they were swapped. */
+function latLon<T extends { lat?: number; lon?: number; lng?: number }>(v: T): T & { lat?: number; lon?: number } {
+  const lon = v.lon ?? v.lng;
+  const swapped = v.lat !== undefined && lon !== undefined && Math.abs(v.lat) > 90 && Math.abs(lon) <= 90;
+  return swapped ? { ...v, lat: lon, lon: v.lat } : { ...v, lon };
+}
+
 export const Entity = z
   .object({
     name: z.string(),
@@ -106,11 +113,13 @@ export const Entity = z
     types: absent(z.array(z.string())),
     popularity: absent(z.number()),
     properties: absent(z.record(z.string(), z.unknown())),
+    // Qloo's heatmap use-case doc shows a locality as { lat, lng } with the two values swapped; read either key
+    // and put an out-of-range latitude back, so a metro is never dropped for its spelling.
     location: z
-      .object({ lat: absent(z.number()), lon: absent(z.number()) })
+      .object({ lat: absent(z.number()), lon: absent(z.number()), lng: absent(z.number()) })
       .loose()
       .nullish()
-      .transform((v) => v ?? undefined)
+      .transform((v) => (v ? latLon(v) : undefined))
       .optional(),
     tags: absent(z.array(Tag)),
     external: absent(z.record(z.string(), z.unknown())),

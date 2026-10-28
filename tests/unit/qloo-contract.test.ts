@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { fc, test } from "@fast-check/vitest";
 import { simulate } from "@/lib/qloo/sim/simulator";
-import { CompareResponse, InsightsResponse, TrendingResponse, compareItems, explainabilityOf, latestTrend, type TrendPoint } from "@/lib/qloo/types";
+import { CompareResponse, InsightsResponse, SearchResponse, TrendingResponse, compareItems, explainabilityOf, latestTrend, type TrendPoint } from "@/lib/qloo/types";
 import { must } from "../must";
 
 const TRENDING_DOC = {
@@ -92,6 +92,16 @@ describe("documented payloads parse", () => {
     const r = InsightsResponse.parse(HEATMAP_DOC);
     expect(r.results.heatmap?.[0]?.location.geohash).toBe("dr5wct");
     expect(r.results.heatmap?.[1]?.query.affinity).toBeCloseTo(0.99925, 4);
+  });
+  it("a locality's location reads from `lon` or the heatmaps use-case's `lng`, and an out-of-range latitude is put back", () => {
+    const loc = (location: unknown) => SearchResponse.parse({ results: [{ name: "New York", entity_id: "x", location }] }).results[0]?.location;
+    // The doc's example ({ lat, lng }) parses with a longitude; its values look swapped but both are in range (BLOCKED #8 checks live).
+    expect(loc(HEATMAP_DOC.query.localities.filter.location)?.lon).toBe(40.66320611815103);
+    expect(loc({ lat: 40.7, lon: -74 })).toMatchObject({ lat: 40.7, lon: -74 });
+    expect(loc({ lat: 40.7, lng: -74 })).toMatchObject({ lat: 40.7, lon: -74 });
+    expect(loc({ lat: -118.2, lng: 34.05 })).toMatchObject({ lat: 34.05, lon: -118.2 });
+    expect(loc({ lat: 33.7, lon: 84.4 })).toMatchObject({ lat: 33.7, lon: 84.4 });
+    expect(loc(null)).toBeUndefined();
   });
   it("urn:demographics: one row per input signal", () => {
     const r = InsightsResponse.parse(DEMOGRAPHICS_DOC);

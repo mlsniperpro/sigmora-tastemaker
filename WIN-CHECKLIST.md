@@ -571,8 +571,13 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 2 judge (low): `?preset=bogus` opens the hero silently (no state is lost; only `?b=`/`?run=` links carry a visitor's work)
 - [-] 3 judge (low): an offline minimal DTC link draws music-leaning stand-ins from the simulator's small catalog, labelled simulated (the note above covers it); live runs draw from Qloo
 
-## Re-audit 25 (2026-10-28, three lenses on 4e908c4, code frozen)
+## Re-audit 25 (2026-10-28, three lenses on 4e908c4: 0 critical and 0 high from Qloo depth, security and the judge path)
 
 - [x] 1 security (low): `judgeChatFromEnv` reuses `LLM_API_KEY` when both providers share a name, even with a different `JUDGE_BASE_URL`. Reached only by the owner's `pnpm benchmark`; BLOCKED's benchmark step now says to set `JUDGE_API_KEY` whenever the judge host differs
 - [-] 2 security (low): on a live publisher missing its Sigmora settings, a request carrying any owner header or cookie gets "Publishing is misconfigured" instead of the sandbox; no access is gained, the message names no setting, and BLOCKED's Sigmora step sets all four together
 - [-] 3 security (info): `DELETE /api/owner` has no flood guard; it only clears the caller's own cookie
+- [x] 1 Qloo (medium): Qloo's heatmaps use-case doc shows a locality's location as `{ lat, lng }`; the code read only `lon`, so a live `/search` answering that way would drop every candidate metro (reproduced: 0 metros ranked from `lng` answers; 11 with the fix). `Entity.location` (`qloo/types.ts` `latLon`) now reads `lon ?? lng` and puts an out-of-range latitude back; contract test on the doc's payload and both spellings; BLOCKED #8 checks the live spelling and that New York reads as latitude ≈ 40.7 (the doc's example has its two in-range values swapped)
+- [x] 2 Qloo (low): an empty metro ranking leaves its trace step "done"; `pnpm fixtures:record` now fails on it, names any replay step not done, and the committed-recordings test requires a ranking for every preset without a fixed city
+- [-] 3 Qloo (info): `feature.explainability` isn't listed for `urn:entity:place` in the availability table; a venue receipt without drivers says so (the explainability warning path), and BLOCKED #14 checks the allow-lists live
+- [-] 1 judge (low): offline, the sample audit swaps fading "Black Panther" for "Wakanda Forever", which the simulator also reads as fading; same root as re-audit 20's accepted item (an audit's replacement gets no trend read), and live candidates differ
+- [-] 2 judge (low): offline, the sports preset's simulated metro ranking reads oddly (Seattle first); labelled simulated, and a keyed or recorded deployment ranks from Qloo's heatmap
