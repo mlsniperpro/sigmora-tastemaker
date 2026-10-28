@@ -90,12 +90,8 @@ export function CampaignPack({
       </header>
       {/* The scripted model has one plan per kind of launch, whatever the brief says. */}
       {mode === "without" && scripted && <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">{SCRIPTED_BASELINE}</p>}
-      {/* Offline on someone's own brief, the simulator's small catalog can run out of alternatives a pick could be swapped for. */}
-      {mode === "qloo" && offBrief && runSimulated && receipts.some((r) => r.verdict !== "pass") && (
-        <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">
-          Offline, the simulator&apos;s small catalog can run out of alternatives for a brief outside the presets, so picks still marked here may have had nothing left to be swapped for. With a Qloo key, the critic swaps from Qloo&apos;s live candidates.
-        </p>
-      )}
+      {/* Offline on someone's own brief, the simulator's small catalog can run out of swaps, or have no score to give. */}
+      {mode === "qloo" && offBrief && runSimulated && <OfflineNote receipts={receipts} />}
 
       <Block title="Positioning">
         <p className="text-lead leading-relaxed text-ink">
@@ -160,5 +156,19 @@ export function CampaignPack({
         </p>
       </Block>
     </section>
+  );
+}
+
+/** Why picks can stay marked on an offline run of someone's own brief; nothing when every pick passed. */
+function OfflineNote({ receipts }: { receipts: readonly Receipt[] }) {
+  const failed = receipts.some((r) => r.verdict !== "pass" && r.verdict !== "unscored");
+  const unscored = receipts.some((r) => r.verdict === "unscored");
+  if (!failed && !unscored) return null;
+  return (
+    <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">
+      {failed && "Offline, the simulator's small catalog can run out of alternatives for a brief outside the presets, so a pick still flagged here had nothing left to be swapped for. "}
+      {unscored && "\u201cNo score\u201d picks are ones the simulator has no score for on this brief, often a venue or city the brief didn't name. "}
+      With a Qloo key, the critic scores and swaps from Qloo&apos;s live candidates.
+    </p>
   );
 }

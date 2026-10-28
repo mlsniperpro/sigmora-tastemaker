@@ -21,7 +21,7 @@ import { endSentence, followsDraft, initialRunState, parseServed, runReducer, st
 import { DEFAULT_CRITIC } from "@/lib/agent/context";
 import { PRESETS } from "@/lib/agent/presets";
 import { runTastemaker } from "@/lib/agent/run";
-import type { Receipt, RunEvent, RunResult } from "@/lib/agent/types";
+import type { Receipt, RunEvent, RunResult, Verdict } from "@/lib/agent/types";
 import { DeterministicLLM } from "@/lib/llm/deterministic";
 import { Draft } from "@/lib/llm/types";
 import { MemoryCache } from "@/lib/qloo/cache";
@@ -171,14 +171,19 @@ describe("CampaignPack highlighting", () => {
     // The plan with Qloo is the critic's output, so it isn't labelled.
     expect(text(renderToStaticMarkup(<CampaignPack side={side} mode="qloo" scripted />))).not.toContain("Scripted stand-in");
   });
-  it("explains flagged picks on an offline own brief (the simulator ran out of swaps), and only there", () => {
-    const note = /simulator.s small catalog can run out of alternatives/;
-    const flagged = { draft, receipts: [receipt({ verdict: "miss", affinity: 0.1 })] };
-    const clean = { draft, receipts: [receipt({ verdict: "pass", affinity: 0.9 })] };
-    expect(text(renderToStaticMarkup(<CampaignPack side={flagged} mode="qloo" runSimulated offBrief />))).toMatch(note);
-    expect(text(renderToStaticMarkup(<CampaignPack side={clean} mode="qloo" runSimulated offBrief />))).not.toMatch(note);
-    expect(text(renderToStaticMarkup(<CampaignPack side={flagged} mode="qloo" runSimulated />))).not.toMatch(note);
-    expect(text(renderToStaticMarkup(<CampaignPack side={flagged} mode="qloo" offBrief />))).not.toMatch(note);
+  it("explains flagged and unscored picks on an offline own brief, each only when present, and only there", () => {
+    const swaps = /simulator.s small catalog can run out of alternatives/;
+    const noScore = /No score.{1,2} picks are ones the simulator has no score for/;
+    const render = (verdicts: Verdict[], props: { runSimulated?: boolean; offBrief?: boolean }) =>
+      text(renderToStaticMarkup(<CampaignPack side={{ draft, receipts: verdicts.map((verdict) => receipt({ verdict, affinity: 0.1 })) }} mode="qloo" {...props} />));
+    const both = { runSimulated: true, offBrief: true };
+    expect(render(["miss"], both)).toMatch(swaps);
+    expect(render(["miss"], both)).not.toMatch(noScore);
+    expect(render(["unscored"], both)).toMatch(noScore);
+    expect(render(["unscored"], both)).not.toMatch(swaps);
+    expect(render(["pass"], both)).not.toMatch(/critic scores and swaps from Qloo/);
+    expect(render(["miss", "unscored"], { runSimulated: true })).not.toMatch(/critic scores and swaps from Qloo/);
+    expect(render(["miss", "unscored"], { offBrief: true })).not.toMatch(/critic scores and swaps from Qloo/);
   });
   it("says so when the plan without Qloo couldn't be drafted", () => {
     const html = text(renderToStaticMarkup(<CampaignPack side={{ draft, receipts: [], unavailable: "LLM 529" }} mode="without" />));

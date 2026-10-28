@@ -545,7 +545,7 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 3 judge (low): the Taste Map is the audience's Qloo data in both modes; the pack header says which plan is shown
 - [-] 4 judge (low): an unknown `/api/*` path gets the HTML 404 (no client calls one)
 
-## Re-audit 23 (2026-10-28, three lenses on 48f84b6: 0 critical and 0 high from Qloo depth and security; judge path pending at commit time)
+## Re-audit 23 (2026-10-28, three lenses on 48f84b6: 0 critical and 0 high from Qloo depth, security and the judge path)
 
 - [x] 1 Qloo (medium): the committed-recordings test didn't notice stale Qloo fixture keys (a request whose params changed falls through to the simulator). The replay now must come entirely from the recordings (`sources: ["replay"]`, `qloo.simulated: 0`); checked with a 154-key recording (passes) and the same keys with one extra param (fails: 75 simulated)
 - [x] 2 Qloo (low): BLOCKED's quota advice now leaves room for recording and the benchmark (15 × daily cap + 2,000 under the confirmed quota)
@@ -556,3 +556,6 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] `scripts/record-fixtures.ts` merges into existing recordings; stale extra keys are now harmless (the test requires every request to hit one)
 - [-] 1 security (low): a garbage owner header counts toward the per-IP owner-attempt bucket; a lockout of at most a minute for someone sharing the owner's IP, no disclosure
 - [x] 2 security (info): the MCP origin comment no longer claims a DNS-rebinding guard; the endpoint holds no credentials or session
+- [x] 1 judge (medium-low): the offline own-brief note fired on "no score" picks with a sentence about failed swaps. It now has one sentence per case: flagged picks (miss, not found, fading) ran out of alternatives; "no score" picks are ones the simulator can't score (often a venue or city the brief didn't name); nothing when every pick passes (`CampaignPack.tsx` `OfflineNote`, component test per case)
+- [-] 2 judge (low): an offline minimal brief's scripted venue and city are the stand-in's sample, shown as "Simulated: no score" with the note above; live runs pick both from Qloo
+- [-] 3 judge (low): a shared `?b=` link waits for "Plan & taste-check it" by design (a link never spends someone else's budget on load); the shared bar above the form names that button
