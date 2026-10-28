@@ -601,3 +601,8 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 2 judge (low): unscored picks ship without the confirm step; Ship stops on what Qloo scored against the audience (miss, not found, fading), and an unscored pick is labelled "no score" on its chip and in the offline note
 - [-] 3 judge (low): the offline name scanner can miss names in free prose; the panel's "How the names were found" says how, evidence-status says so, and a live model extracts them
 - [-] 4–6 judge (low): Ship sits below the trace on phones (the trace folds with "Hide steps"); a `?measure=` link waits for a run like `?b=`; an unknown `?preset=` opens the hero (undocumented parameter)
+
+## Re-audit 28 (2026-10-28, three lenses on 14cb06b, docs at 9159e1d)
+
+- [P] 1 Qloo (medium): `pnpm benchmark`'s validity check doesn't look at step status, so a rejected trending or heatmap call on the live host could publish a 0% fading rate with cities unscored. The benchmark is an owner-run step after the key lands; BLOCKED #26 now makes "every step done in the raw run" a condition for publishing it
+- [x] 2 Qloo (low): README says candidate metros are US-only (the contiguous-US polygon) and to use a target city elsewhere
