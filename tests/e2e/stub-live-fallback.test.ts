@@ -37,7 +37,11 @@ describe("e2e: a refused cold preset shows its last finished run", () => {
     vi.stubEnv("QLOO_MODE", "live");
     vi.stubEnv("QLOO_RPS", "50");
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: new Date("2026-10-26T09:00:05Z") });
+    // Days well before the real one, so spending their budgets can't touch today's counters (the module's in-memory
+    // store outlives this test); a fixed calendar date here broke the later tests on the day it named.
+    const day = 86_400_000;
+    const start = Math.floor(Date.now() / day) * day - 30 * day + 9 * 3_600_000 + 5_000;
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true, now: start });
     try {
       vi.stubGlobal("fetch", stubQloo());
       const { POST } = await import("@/app/api/run/route");
@@ -46,7 +50,7 @@ describe("e2e: a refused cold preset shows its last finished run", () => {
       const first = await readStream(await POST(req()));
       const original = must(first.result, "first run");
       // Two days later the brief's day-long pointer has expired, and today's presets pool is already spent.
-      vi.setSystemTime(new Date("2026-10-28T09:00:05Z"));
+      vi.setSystemTime(start + 2 * day);
       await incrDaily(budgetCounter(), "qloo-scope:pool:presets", Date.now(), 10_000);
       const res = await POST(req());
       expect(res.status).toBe(200);
@@ -58,6 +62,8 @@ describe("e2e: a refused cold preset shows its last finished run", () => {
       expect(served?.reason).toMatch(/a new live run was refused \(Today's Qloo budget/);
     } finally {
       vi.useRealTimers();
+      // Later tests start from fresh module state rather than this test's spent counters.
+      vi.resetModules();
     }
   }, 60_000);
 });
