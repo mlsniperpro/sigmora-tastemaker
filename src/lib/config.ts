@@ -141,16 +141,16 @@ export const AUDIT_RESERVE = 30;
 /** The custom pool must hold at least this many networks' full daily shares. */
 export const NETWORKS_PER_POOL = 3;
 
-/**
- * Budget settings that can't work together: a run must fit every share it
- * reserves from, or that kind of run is refused all day (a live config is only
- * checked when Qloo can actually be called, i.e. outside offline mode).
- */
 /** The committed recordings, unless TASTEMAKER_RECORDINGS=off. */
 export function recordings<T extends object>(store: T): T | Record<string, never> {
   return loadConfig().TASTEMAKER_RECORDINGS === "off" ? {} : store;
 }
 
+/**
+ * Budget settings that can't work together: a run must fit every share it
+ * reserves from, or that kind of run is refused all day (a live config is only
+ * checked when Qloo can actually be called, i.e. outside offline mode).
+ */
 export function budgetProblems(c: Env): string[] {
   const customPool = c.QLOO_DAILY_CALL_CAP - c.QLOO_PRESET_POOL;
   const out: string[] = [];

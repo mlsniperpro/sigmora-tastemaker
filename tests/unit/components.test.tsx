@@ -171,6 +171,15 @@ describe("CampaignPack highlighting", () => {
     // The plan with Qloo is the critic's output, so it isn't labelled.
     expect(text(renderToStaticMarkup(<CampaignPack side={side} mode="qloo" scripted />))).not.toContain("Scripted stand-in");
   });
+  it("explains flagged picks on an offline own brief (the simulator ran out of swaps), and only there", () => {
+    const note = /simulator.s small catalog can run out of alternatives/;
+    const flagged = { draft, receipts: [receipt({ verdict: "miss", affinity: 0.1 })] };
+    const clean = { draft, receipts: [receipt({ verdict: "pass", affinity: 0.9 })] };
+    expect(text(renderToStaticMarkup(<CampaignPack side={flagged} mode="qloo" runSimulated offBrief />))).toMatch(note);
+    expect(text(renderToStaticMarkup(<CampaignPack side={clean} mode="qloo" runSimulated offBrief />))).not.toMatch(note);
+    expect(text(renderToStaticMarkup(<CampaignPack side={flagged} mode="qloo" runSimulated />))).not.toMatch(note);
+    expect(text(renderToStaticMarkup(<CampaignPack side={flagged} mode="qloo" offBrief />))).not.toMatch(note);
+  });
   it("says so when the plan without Qloo couldn't be drafted", () => {
     const html = text(renderToStaticMarkup(<CampaignPack side={{ draft, receipts: [], unavailable: "LLM 529" }} mode="without" />));
     expect(html).toMatch(/isn.t available on this run \(LLM 529\)/);

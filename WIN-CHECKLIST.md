@@ -528,3 +528,19 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 1 judge: a blocked tile host shows "Loading map…" until the 6 s fallback (e2e "a tile map that never draws" covers it)
 - [-] 2 judge: an offline custom brief's plan is the labelled stand-in's
 - [x] 3 judge: `pnpm demo` labels its metrics "placeholders, NOT A MEASUREMENT" when they are (`scripts/demo.ts`)
+
+## Re-audit 22 (2026-10-28, three lenses on 96cd706: 0 critical and 0 high from Qloo depth, security and the judge path)
+
+- [x] 1 Qloo (medium): the committed recordings were never read by any suite. `tests/integration/committed-recordings.test.ts` reads the real `fixtures/*/recorded.json` from disk: each run recording must be a preset's, current-schema, healthy, live-sourced and of the preset's current brief; the audit store only the non-simulated sample; every Qloo fixture a known endpoint, with every preset replaying from them with no failed step (empty stores pass; checked with a filled and a bad fixture)
+- [-] 2 Qloo (low): `pnpm benchmark` rewrites the report on every run; the owner runs it once (BLOCKED "Benchmark run"), and an invalid run never writes `benchmark/summary.json` or shows numbers
+- [-] 3 Qloo (low): MCP `plan_campaign` doesn't say a run came from a recording; the recording is a live run, and `/api/run` and the UI label it
+- [-] 4 Qloo (low): `pnpm demo`'s request count on a replay run is a developer script's wording
+- [x] 5 Qloo (low): `urn:entity:video_game` vs the docs' `videogame` is dormant (no role uses it); added as live check #27 in BLOCKED.md
+- [x] 6 Qloo (low): the orphaned `budgetProblems` JSDoc is back above it (`config.ts`)
+- [x] 7 Qloo (low): README says to retake screenshots against `TASTEMAKER_RECORDINGS=off pnpm dev`
+- [x] 8 Qloo (info): BLOCKED.md no longer names internal audit rounds
+- [-] 1–3 security (low/info): `runById` parses the recordings per lookup (bounded by the flood guard; empty until recorded); the header owner key has no per-minute counter (32+ characters, 12 distinct: not guessable); a refund across 00:00 UTC credits the new day once
+- [x] 1 judge (medium): an offline own brief outside the presets can leave flagged picks (the simulator's small catalog has no alternative left; reproduced with a two-seed `?b=` brief). The pack now says so in one line on exactly that case (offline, own brief, a pick not passing), and that live Qloo supplies the alternatives (`CampaignPack.tsx`, component test)
+- [-] 2 judge (low): the toggle on an empty `?measure=` page is inert until the run arrives
+- [-] 3 judge (low): the Taste Map is the audience's Qloo data in both modes; the pack header says which plan is shown
+- [-] 4 judge (low): an unknown `/api/*` path gets the HTML 404 (no client calls one)

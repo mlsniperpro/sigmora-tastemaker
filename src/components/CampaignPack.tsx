@@ -59,7 +59,7 @@ export function CampaignPack({
   mode: "qloo" | "without";
   runSimulated?: boolean;
   scripted?: boolean;
-  /** Offline on someone's own brief: the stand-in's plan without Qloo is a preset's sample, not an answer to this brief. */
+  /** Offline on someone's own brief: the stand-in's plan without Qloo is a preset's sample, not an answer to this brief, and the simulator can run out of swaps. */
   offBrief?: boolean;
 }) {
   const { draft, receipts } = side;
@@ -90,6 +90,12 @@ export function CampaignPack({
       </header>
       {/* The scripted model has one plan per kind of launch, whatever the brief says. */}
       {mode === "without" && scripted && <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">{SCRIPTED_BASELINE}</p>}
+      {/* Offline on someone's own brief, the simulator's small catalog can run out of alternatives a pick could be swapped for. */}
+      {mode === "qloo" && offBrief && runSimulated && receipts.some((r) => r.verdict !== "pass") && (
+        <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">
+          Offline, the simulator&apos;s small catalog can run out of alternatives for a brief outside the presets, so the picks still marked here had nothing to be swapped for. With a Qloo key, the critic swaps from Qloo&apos;s live candidates.
+        </p>
+      )}
 
       <Block title="Positioning">
         <p className="text-lead leading-relaxed text-ink">
