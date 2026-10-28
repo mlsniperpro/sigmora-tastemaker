@@ -72,6 +72,11 @@ export const EnvSchema = z.object({
   RUN_DAILY_CAP: int(150, 1, 1000000),
   /** Comma-separated origins allowed to call /api/mcp from a browser. */
   MCP_ALLOWED_ORIGINS: optional,
+  /**
+   * The committed recordings (fixtures/qloo, fixtures/runs, fixtures/audits) answer by default; "off" ignores them, so
+   * the test suites see the same offline stack before and after the owner records live data.
+   */
+  TASTEMAKER_RECORDINGS: z.enum(["on", "off"]).default("on"),
   /** Set by Vercel on every build and function: a hosted, multi-instance deployment. */
   VERCEL: optional,
 });
@@ -141,6 +146,11 @@ export const NETWORKS_PER_POOL = 3;
  * reserves from, or that kind of run is refused all day (a live config is only
  * checked when Qloo can actually be called, i.e. outside offline mode).
  */
+/** The committed recordings, unless TASTEMAKER_RECORDINGS=off. */
+export function recordings<T extends object>(store: T): T | Record<string, never> {
+  return loadConfig().TASTEMAKER_RECORDINGS === "off" ? {} : store;
+}
+
 export function budgetProblems(c: Env): string[] {
   const customPool = c.QLOO_DAILY_CALL_CAP - c.QLOO_PRESET_POOL;
   const out: string[] = [];

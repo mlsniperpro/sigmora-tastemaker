@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { CacheStore } from "../qloo/cache";
 import { qlooBudget, qlooRefusal, type GuardResult } from "../guard";
-import { AUDIT_RESERVE } from "../config";
+import { AUDIT_RESERVE, recordings } from "../config";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "../auditSample";
 import recordedAudits from "../../../fixtures/audits/recorded.json";
 import type { QlooClient, QlooSource } from "../qloo/client";
@@ -175,7 +175,7 @@ export function isSampleAudit(input: AuditRequest): boolean {
 }
 
 /** The recorded live audit of the sample (`pnpm runs:record` writes it), when there is one. */
-export function recordedSampleAudit(store: Record<string, unknown> = recordedAudits): AuditResult | undefined {
+export function recordedSampleAudit(store: Record<string, unknown> = recordings(recordedAudits)): AuditResult | undefined {
   const v = store.sample;
   return CachedAudit.safeParse(v).success && !(v as AuditResult).simulated ? (v as AuditResult) : undefined;
 }

@@ -1,5 +1,5 @@
 /** Recorded preset runs, single-flight runs and run permalinks, through the real routes. */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as getRun, POST as postRun } from "@/app/api/run/route";
 import { Brief } from "@/lib/agent/brief";
 import { PRESETS } from "@/lib/agent/presets";
@@ -43,6 +43,9 @@ class FailingLLM extends DeterministicLLM {
 }
 
 describe("recorded preset runs", () => {
+  // The suites run with the committed recordings off (tests/setup.ts); these tests are about them.
+  beforeEach(() => vi.stubEnv("TASTEMAKER_RECORDINGS", "on"));
+
   it("loads only valid current-schema recordings", () => {
     const runs = recordedRuns();
     expect([...runs.keys()]).toEqual([PRESETS[0].id]);

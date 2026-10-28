@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import recorded from "../../../fixtures/qloo/recorded.json";
-import { loadConfig } from "../config";
+import { loadConfig, recordings } from "../config";
 import { budgetCounter, incrDaily, type Counter } from "../counter";
 import { DEFAULT_RETRY, HttpError, ensureOk, fetchWithTimeout, joinUrl, publicErrorText, withRetry, type RetryPolicy } from "../net";
 import { formatZodIssues, wellFormed } from "../zod";
@@ -177,7 +177,7 @@ export class QlooClient {
     this.mode = opts.mode ?? "auto";
     this.baseUrl = opts.baseUrl ?? HACKATHON_HOST;
     this.cache = opts.cache ?? defaultCache();
-    this.fixtures = opts.fixtures ?? recorded;
+    this.fixtures = opts.fixtures ?? recordings(recorded);
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 

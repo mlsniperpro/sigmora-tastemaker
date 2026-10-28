@@ -110,6 +110,7 @@ With no keys, Qloo answers come from an **offline simulator** (placeholder numbe
 | `QLOO_RUN_CALL_CAP`, `QLOO_DAILY_CALL_CAP`, `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_PER_DAY`, `RUN_DAILY_CAP` | Budgets and abuse limits; defaults in [.env.example](.env.example) |
 | `QLOO_BIAS_TRENDS` | `bias.trends` on artist / TV / movie / podcast discovery (`high` by default since Qloo's own default is `medium`; scoring calls send `off` for plain affinity; `off` here stops sending the parameter anywhere) |
 | `JUDGE_PROVIDER`, `JUDGE_MODEL`, `JUDGE_API_KEY`, `JUDGE_BASE_URL` | The benchmark's blind pairwise judge (falls back to `LLM_*`; a different vendor avoids self-preference) |
+| `TASTEMAKER_RECORDINGS` | `on` (default): the committed recordings answer; `off` ignores them (the unit and e2e suites set it) |
 
 Scripts:
 - `pnpm fixtures:record` records live Qloo responses for every preset.

@@ -1,5 +1,5 @@
 /** The audit panel's one-click sample answers even when a new audit is refused: its recorded live audit is served, labelled. */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as audit } from "@/app/api/audit/route";
 import { isSampleAudit, recordedSampleAudit, type AuditResult } from "@/lib/agent/audit";
 import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
@@ -24,6 +24,9 @@ const post = (body: unknown, ip: string) =>
   new Request("http://tm.example/api/audit", { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": ip, host: "tm.example" }, body: JSON.stringify(body) });
 
 describe("the recorded sample audit", () => {
+  // The suites run with the committed recordings off (tests/setup.ts); these tests are about them.
+  beforeEach(() => vi.stubEnv("TASTEMAKER_RECORDINGS", "on"));
+
   it("knows the sample exactly, and only the sample", () => {
     expect(isSampleAudit(sample)).toBe(true);
     expect(isSampleAudit({ ...sample, text: `${AUDIT_SAMPLE}\nOne more line.` })).toBe(false);

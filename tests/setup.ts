@@ -19,3 +19,6 @@ import { EnvSchema } from "@/lib/config";
 
 // Removed once for the whole run (vi.stubEnv would be restored after each test, bringing the exported value back).
 for (const key of Object.keys(EnvSchema.shape)) Reflect.deleteProperty(process.env, key);
+// The committed recordings stay out of the suites too (the recording tests turn them on themselves), so recording live
+// data with `pnpm fixtures:record` / `pnpm runs:record` never changes what the tests see.
+process.env.TASTEMAKER_RECORDINGS = "off";

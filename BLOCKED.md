@@ -8,7 +8,7 @@ Everything below is already built behind a stub, fixture or sandbox, so each ite
   1. `pnpm fixtures:record`. It records every Qloo response the presets use into `fixtures/qloo/recorded.json`, so a failed live call can fall back to a recorded live answer.
   2. `pnpm runs:record`. It records one finished live run per preset into `fixtures/runs/recorded.json`, and the audit panel's sample audit into `fixtures/audits/recorded.json` (served, labelled, when a new audit of the sample is refused). The demo serves these instantly, labelled "a recorded live run", and offers "Re-run live". It also serves them when a live run is refused (budget or rate limit) or fails, so the preset buttons keep working during judging whatever the key does. The script refuses simulated or scripted runs.
 
-  Commit the three files.
+  Commit the three files. After committing the recordings, run `pnpm lint && pnpm typecheck && pnpm test` and `pnpm test:e2e`: both suites ignore the recordings (`TASTEMAKER_RECORDINGS=off`), so they should stay green; the live site serves them.
 - [ ] **`LLM_PROVIDER`, `LLM_MODEL`, `LLM_API_KEY`** (and `LLM_BASE_URL` for OpenAI-compatible hosts). Without them, drafts come from the scripted model, which is labeled in the UI.
 - [ ] **Vercel project.** Connect `mlsniperpro/sigmora-tastemaker`, set the env vars above (see `.env.example`), and deploy by `git push`. Point `tastemaker.sigmora.org` at it.
   - Serve the domain from Vercel directly: behind another proxy (e.g. Cloudflare) every visitor shares the proxy's IP, so everyone shares one network's budget and one flood bucket.

@@ -52,6 +52,8 @@ export default defineConfig({
       SIGMORA_PUBLISH_MODE: "sandbox",
       SIGMORA_API_TOKEN: "",
       SIGMORA_OWNER_KEY: "",
+      // The committed recordings stay out too: the judge path is asserted on the labelled offline stack.
+      TASTEMAKER_RECORDINGS: "off",
       NEXT_TELEMETRY_DISABLED: "1",
     },
   },

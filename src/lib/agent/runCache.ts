@@ -17,6 +17,7 @@ import { PRESETS, presetById } from "./presets";
 import { runTastemaker } from "./run";
 import recorded from "../../../fixtures/runs/recorded.json";
 import { RUN_SCHEMA_VERSION, type RunEvent, type RunResult, type Served } from "./types";
+import { recordings } from "../config";
 
 /** How long the brief → latest-run pointer serves a healthy run, before a fresh run replaces it. */
 export const RESULT_TTL = 60 * 60 * 24;
@@ -90,7 +91,7 @@ const lastKey = (key: string) => `last:${key}`;
 const resultKey = (id: string) => `result:v${RUN_SCHEMA_VERSION}:${id}`;
 
 /** Recorded live runs, one per preset (`pnpm runs:record` writes them). Only current-schema runs count. */
-export function recordedRuns(store: Record<string, unknown> = recorded): Map<string, RunResult> {
+export function recordedRuns(store: Record<string, unknown> = recordings(recorded)): Map<string, RunResult> {
   return new Map(Object.entries(store).flatMap(([preset, v]) => {
     const run = asRun(v);
     return run ? [[preset, run] as const] : [];

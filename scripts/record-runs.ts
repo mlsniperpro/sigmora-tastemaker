@@ -40,7 +40,6 @@ for (const preset of PRESETS.filter((p) => !only.length || only.includes(p.id)))
       (r.trace.some((s) => s.status !== "done") ? "a step failed or was skipped" : undefined) ??
       (unscored ? `${String(unscored)} picks unscored (raise QLOO_RUN_CALL_CAP if the trace says the run's budget cut them)` : undefined);
     if (why || !isHealthy(r)) throw new Error(`not recorded: ${why ?? "not a healthy run"}`);
-    if (why) throw new Error(`not recorded: ${why}`);
     out[preset.id] = r;
     console.log(`${preset.id.padEnd(14)} recorded ${r.id} · ${r.qloo.calls} Qloo calls · ${Math.round(r.durationMs / 1000)} s`);
   } catch (err) {
