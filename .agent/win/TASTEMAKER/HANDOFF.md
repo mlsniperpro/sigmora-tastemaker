@@ -43,8 +43,8 @@
 
 ## State now (session_01PMv2tP3mmaSRPtyxJJkQMv holds the lease)
 - **Submission materials (owner milestone 2026-10-29T18:00Z):** `docs/SUBMISSION.md` has every Devpost field in form order, `docs/demo-script.md` is the ≤ 2-minute shot list and voice-over, and `pnpm video` records every segment (verified end to end against a local server: ~90 s webm). The fresh-clone README run on 8c6f8f4 passed (install, demo 76/60/76 calls, 515 tests, GET / 200, branded 404, /docs redirect, /api/run streams, MCP 3 tools).
-- **Audit rounds this session:** 12–23 (WIN-CHECKLIST "Re-audit 12" … ). Rounds 19 and 20 were clean, then a date-dependent test (fixed 23228cb), round 21's recordings high (`TASTEMAKER_RECORDINGS`, 6a353a0) and round 22's mediums (committed-recordings test, offline own-brief note; 48f84b6) changed code, so the clean count restarted. Round 23 on 48f84b6 is running (2026-10-28 ~05:00Z); round 24 on the same commit is needed for two clean in a row. `reaudit.md`/`break-it.md` still name 466a68a (stale) until then.
-- **Soaks:** every audited commit soaked in `scratchpad/wt2` (100k deep pass + 40–60 seeded rounds; script `scratchpad/soak.sh`); 466a68a: 60/60; 96cd706: 40/40; 48f84b6 running. A deep run on b5cd475 found the `isTitlePart` "with" bug, fixed in 5268c3e.
+- **Audit rounds this session:** 12–29 (WIN-CHECKLIST "Re-audit 12" … "29"). Rounds 28 and 29 are two clean rounds in a row on 14cb06b (0 critical, 0 high in all three lenses; 0 medium left open in 29); every commit after 14cb06b touches only Markdown. `reaudit.md` and `break-it.md` name 14cb06b.
+- **Soaks:** every audited commit soaked in `scratchpad/wt2` (100k deep pass + 40–60 seeded rounds; script `scratchpad/soak.sh`); 14cb06b: deep 533/533, 40/40 rounds; fresh clone of 14cb06b green. A deep run on b5cd475 found the `isTitlePart` "with" bug, fixed in 5268c3e.
 - **Fresh clone of 466a68a:** install, demo 75/60/75, 525 tests (with keys exported), benchmark not a measurement, `next build` + `next start` clean at 390/1440.
 - **Subagent usage limits** stopped rounds 16 and 20 midway (resets 18:20 and 23:20 UTC on Oct 27); resume the agents with SendMessage after the reset.
 - **CI:** GitHub Actions jobs end in 2–3 s with no runner (BLOCKED.md, Actions billing); local checks are the evidence.
@@ -54,7 +54,7 @@
 - Owner decisions: judging-period quota settings (BLOCKED.md); making the repo public exposes `docs/PLAYBOOK.md` and `.agent/`.
 
 ## Next steps, in order
-1. Collect round 23 (48f84b6); if clean, run round 24 on the same commit with no code changes between. Any code change restarts the count: fresh three-lens round and soak before re-running the gate.
+1. Done: two clean rounds (28, 29) on 14cb06b. The code is frozen; after the Oct 29 15:00 UTC freeze only fixes for critical/high findings. Any code change restarts the count: two fresh three-lens rounds and a soak before re-running the gate. Post-freeze candidates (low): `normalizeRole` null-prototype maps, tracing `followPlanCity`'s search, the offline stand-in's blank-city copy.
 2. Break-it on the final code commit in a separate worktree: `FC_NUM_RUNS=100000 pnpm exec vitest run --testTimeout=0`, ~40 seeded `FC_NUM_RUNS=500 FC_SEED=<random>` rounds, `pnpm test:e2e`, a fresh clone running the README commands.
 3. Write `reaudit.md` (`AUDITED_COMMIT`, `OPEN_CRITICAL: 0`, `OPEN_HIGH: 0`, `CLEAN_AUDITS_IN_A_ROW: 2`) and `break-it.md` (`TESTED_COMMIT`), commit, push, run the gate until PASS.
 4. Update the PR body (status, Decisions, Self-review, load), then post the final status comment.
