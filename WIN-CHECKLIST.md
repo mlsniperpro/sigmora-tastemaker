@@ -549,7 +549,7 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 
 - [x] 1 Qloo (medium): the committed-recordings test didn't notice stale Qloo fixture keys (a request whose params changed falls through to the simulator). The replay now must come entirely from the recordings (`sources: ["replay"]`, `qloo.simulated: 0`); checked with a 154-key recording (passes) and the same keys with one extra param (fails: 75 simulated)
 - [x] 2 Qloo (low): BLOCKED's quota advice now leaves room for recording and the benchmark (15 × daily cap + 2,000 under the confirmed quota)
-- [x] 3 Qloo (low): the offline own-brief note says flagged picks "may have had" nothing to swap to (the case also covers unscored picks)
+- [x] 3 Qloo (low): the offline own-brief note no longer claims every flagged pick had nothing to swap to (superseded by the per-case `OfflineNote`, below and re-audit 24)
 - [x] 4 Qloo (low): evidence-status says the 10-surface hero claim is measured on the offline run
 - [-] 5 Qloo (low): the place-in-city critic call counts as the location surface; it understates the critic, never overstates
 - [x] 6 Qloo (low): the stale duplicate JSDoc above `TREND_BIAS_LEVELS` removed
@@ -559,3 +559,11 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 1 judge (medium-low): the offline own-brief note fired on "no score" picks with a sentence about failed swaps. It now has one sentence per case: flagged picks (miss, not found, fading) ran out of alternatives; "no score" picks are ones the simulator can't score (often a venue or city the brief didn't name); nothing when every pick passes (`CampaignPack.tsx` `OfflineNote`, component test per case)
 - [-] 2 judge (low): an offline minimal brief's scripted venue and city are the stand-in's sample, shown as "Simulated: no score" with the note above; live runs pick both from Qloo
 - [-] 3 judge (low): a shared `?b=` link waits for "Plan & taste-check it" by design (a link never spends someone else's budget on load); the shared bar above the form names that button
+
+## Re-audit 24 (2026-10-28, three lenses on 84c34d1: 0 critical and 0 high from Qloo depth and security; judge path pending at commit time)
+
+- [x] 1 Qloo (medium): a live call failing during `pnpm fixtures:record` left a hole the committed-recordings test would catch only after the commit, while BLOCKED said the suites ignore recordings. `scripts/record-fixtures.ts` now replays every preset from what it recorded and exits non-zero listing each unrecorded request (checked against a local fake Qloo: healthy run exit 0 with 157 responses; a 400 on the Atlanta heatmap names that request, exit 1); BLOCKED's recording step says so
+- [x] 2 Qloo (low): the quota advice reserves about 4,000 calls (benchmark cap 2,500 per `docs/benchmark.md` plus recording), so a cap near 400 at the reported 10,000 a month
+- [x] 3 Qloo (low): the flagged-pick sentence names the three ways a pick stays unswapped (no alternative left, only named in the copy, last round)
+- [-] 1 security (info): `normalizeType("constructor")` returns `Object` from a plain-object lookup; probed through extraction and audit, no crash or wrong verdict
+- [-] 2–3 security (info): the lone-surrogate scan stops at depth 64 (strict schemas reject deeper bodies); CI actions pinned by tag, read-only

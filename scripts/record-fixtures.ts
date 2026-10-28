@@ -63,4 +63,20 @@ for (const [name, fn] of probes) {
 
 writeFileSync(file, JSON.stringify({ ...existing, ...recorder }, null, 1) + "\n");
 console.log(`Wrote ${Object.keys(recorder).length} responses to ${file}`);
+
+// The same check as tests/integration/committed-recordings.test.ts: every preset must replay from the recordings
+// alone. A call that failed live was never recorded, and would fail that test after the commit.
+const missing = new Set<string>();
+for (const p of PRESETS) {
+  const replay = new QlooClient({ cache: new MemoryCache(5000), fixtures: { ...existing, ...recorder } });
+  replay.observe((m) => {
+    if (m.source !== "replay") missing.add(m.key);
+  });
+  const r = await runTastemaker(p.brief, { qloo: replay, llm: new DeterministicLLM() });
+  if (r.trace.some((s) => s.status !== "done")) failures++;
+}
+if (missing.size) {
+  failures++;
+  console.error(`✗ ${missing.size} request(s) have no recording (a live call failed); fix or re-run before committing:\n  ${[...missing].join("\n  ")}`);
+}
 process.exit(failures ? 1 : 0);

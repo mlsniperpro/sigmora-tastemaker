@@ -166,7 +166,7 @@ function OfflineNote({ receipts }: { receipts: readonly Receipt[] }) {
   if (!failed && !unscored) return null;
   return (
     <p className="-mt-2 rounded-lg border border-fade/40 bg-fade/10 px-2.5 py-1.5 text-meta leading-snug text-fade">
-      {failed && "Offline, the simulator's small catalog can run out of alternatives for a brief outside the presets, so a pick still flagged here had nothing left to be swapped for. "}
+      {failed && "Offline, the simulator's small catalog can run out of alternatives for a brief outside the presets, so a pick still flagged here wasn't swapped: no alternative was left, it was only named in the copy, or the last round ran out. "}
       {unscored && "\u201cNo score\u201d picks are ones the simulator has no score for on this brief, often a venue or city the brief didn't name. "}
       With a Qloo key, the critic scores and swaps from Qloo&apos;s live candidates.
     </p>
