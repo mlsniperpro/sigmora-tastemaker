@@ -1,6 +1,7 @@
 /** Run a preset end to end in the terminal: `pnpm demo [preset-id]`. */
 import { runTastemaker } from "../src/lib/agent/run";
 import { PRESETS, presetById } from "../src/lib/agent/presets";
+import { placeholderReason } from "../src/lib/agent/evidence";
 
 const id = process.argv[2] ?? "indie-release";
 const preset = presetById(id);
@@ -21,5 +22,7 @@ console.log("\nWith Qloo:");
 result.grounded.receipts.forEach((r) => console.log(fmt(r)));
 console.log("\nWithout Qloo (audited):");
 result.baseline.receipts.forEach((r) => console.log(fmt(r)));
-console.log("\nMetrics:", JSON.stringify(result.metrics));
+// Simulated or scripted numbers are placeholders: label them where they print, not only on the sources line.
+const placeholder = placeholderReason(result);
+console.log(`\nMetrics${placeholder ? " (placeholders, NOT A MEASUREMENT)" : ""}:`, JSON.stringify(result.metrics));
 console.log("\nHooks:", result.grounded.draft.hooks);
