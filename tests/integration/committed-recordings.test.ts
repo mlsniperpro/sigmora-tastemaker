@@ -51,8 +51,8 @@ describe("committed recordings", () => {
       const failed = run.trace.filter((s) => s.status !== "done").map((s) => `${s.id}: ${s.status} ${s.detail}`);
       // Recorded with the same scripted model, so every request must hit a recording: a stale key (a request
       // whose params changed since recording) would fall through to the simulator unnoticed.
-      // An empty metro ranking leaves its step "done", so it is checked on its own.
-      const ranked = preset.brief.targetCity !== undefined || run.cities.length > 0;
+      // An empty metro ranking (or a fixed market's empty heatmap) leaves its step "done", so it is checked on its own.
+      const ranked = preset.brief.targetCity !== undefined ? run.heatmap.length > 0 : run.cities.length > 0;
       expect({ preset: preset.id, failed, sources: run.sources, simulated: run.qloo.simulated, ranked }).toEqual({ preset: preset.id, failed: [], sources: ["replay"], simulated: 0, ranked: true });
     }
   }, 60_000);

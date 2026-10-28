@@ -446,6 +446,23 @@ describe("audit-6 regressions", () => {
     const full = await runTastemaker(must(PRESETS[0]).brief, { qloo: offline(), llm: new DeterministicLLM() });
     expect(isHealthy(full)).toBe(true);
   });
+
+  it("a run with no where-to-play answer (its step still \"done\") isn't cached as healthy for a day", async () => {
+    // The nationwide heatmap rejected (rankCities swallows it), or a fixed market's heatmap with no cells.
+    const noHeatmap = (atTarget: boolean) =>
+      (async (u: string | URL) => {
+        const url = new URL(String(u));
+        const params: Record<string, string> = {};
+        url.searchParams.forEach((v, k) => (params[k] = v));
+        if (params["filter.type"] === "urn:heatmap") return atTarget ? Response.json({ success: true, results: { heatmap: [] } }) : Response.json({ error: "bad" }, { status: 400 });
+        return Response.json(simulate(url.pathname as QlooPath, params));
+      }) as typeof fetch;
+    for (const preset of [must(PRESETS[0]), must(PRESETS.find((p) => p.brief.targetCity))]) {
+      const qloo = new QlooClient({ mode: "live", apiKey: "k", cache: new MemoryCache(), fixtures: {}, fetchImpl: noHeatmap(preset.brief.targetCity !== undefined) });
+      const r = await runTastemaker(preset.brief, { qloo, llm: new DeterministicLLM() });
+      expect({ preset: preset.id, step: r.trace.find((s) => s.id === "cities")?.status, healthy: isHealthy(r) }).toEqual({ preset: preset.id, step: "done", healthy: false });
+    }
+  });
 });
 
 describe("seed links (audit 9)", () => {

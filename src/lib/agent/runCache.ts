@@ -64,12 +64,21 @@ function asRun(value: unknown): RunResult | undefined {
 }
 
 /**
- * A run worth serving for a day: no fallbacks, every step done, and every pick
+ * A run worth serving for a day: no fallbacks, every step done, every pick
  * judged (a run cut short by the Qloo budget or deadline leaves picks unscored,
- * and must not replace a complete result for everyone for 24 hours).
+ * and must not replace a complete result for everyone for 24 hours), and where
+ * the brief asks where to play, an answer: a failed heatmap leaves its step
+ * "done" with nothing ranked, which mustn't be served for a day either.
  */
 export function isHealthy(r: RunResult): boolean {
-  return r.qloo.fallbacks.length === 0 && r.trace.every((s) => s.status === "done") && r.metrics.grounded.unscored === 0 && r.metrics.baseline.unscored === 0;
+  return r.qloo.fallbacks.length === 0 && r.trace.every((s) => s.status === "done") && r.metrics.grounded.unscored === 0 && r.metrics.baseline.unscored === 0 && placed(r);
+}
+
+/** The "where" step answered: cells inside a fixed market, or candidate metros ranked by the heatmap. */
+function placed(r: RunResult): boolean {
+  if (r.brief.targetCity) return r.heatmap.length > 0;
+  if (r.brief.candidateCities.length) return r.citiesRankedBy === "heatmap" && r.cities.length > 0;
+  return true;
 }
 
 export interface RunDeps {

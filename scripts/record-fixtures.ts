@@ -41,7 +41,10 @@ for (const p of PRESETS) {
       failures++;
       console.error(`✗ ${p.id}: no metro ranking — check the nationwide urn:heatmap call and that /search locality hits carry location.lat/lon or lat/lng (BLOCKED #8)`);
     }
-    if (!r.heatmap.length && !p.brief.targetCity) console.warn(`  ! ${p.id}: empty heatmap — check heatmap params`);
+    if (!r.heatmap.length) {
+      failures++;
+      console.error(`✗ ${p.id}: empty heatmap — check the heatmap params${p.brief.targetCity ? ` (filter.location.query=${p.brief.targetCity} + radius=0, BLOCKED #22)` : ""}`);
+    }
   } catch (err) {
     failures++;
     console.error(`✗ ${p.id}: ${(err as Error).message}`);

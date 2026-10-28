@@ -590,3 +590,10 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [x] 4 Qloo (low): a parsed, swapped locality is now tested through `foldHeatmap`, not only the parser
 - [x] security (round 26 on d506412: 0 critical, 0 high, 0 medium) info 3: the recorder's failed attempt goes to a fresh `mkdtemp` directory, not a predictable temp name
 - [-] security info 1–2: a sibling-subdomain cookie could shadow the owner's (sandbox only, `vercel.app` is on the public-suffix list); owner tokens are stateless for 30 days (rotate `SIGMORA_OWNER_KEY` after the demo, as BLOCKED's Sigmora step can say when it's set)
+
+## Re-audit 27 (2026-10-28, three lenses on 43c3d54)
+
+- [x] 1 Qloo (medium): a run whose heatmap failed (the step stays "done" with nothing ranked) counted as healthy, so it could be cached for a day, recorded by `runs:record` and pass the committed-runs test. `isHealthy` now also requires the where-to-play answer: cells inside a fixed market, or candidate metros ranked by the heatmap (`runCache.ts` `placed`; failure-paths test for a rejected nationwide heatmap and an empty fixed-market one, which fails without the change)
+- [x] 2 Qloo (low): an empty heatmap fails `pnpm fixtures:record` for every preset (the fixed-market one included), and the committed-recordings test requires its cells
+- [x] 3 Qloo (low): BLOCKED #8's added sentence punctuated
+- [-] security (round 27: 0 critical, 0 high, 0 medium) infos: the e2e server leaves base URLs set (inert without the blanked keys and live mode); an LLM key with no Qloo key is bounded by the rate limits only (`kvProblems` forces KV on a hosted paid key); no body cap beyond the host's 4.5 MB; the MCP 405 handler's prerendering is harmless either way
