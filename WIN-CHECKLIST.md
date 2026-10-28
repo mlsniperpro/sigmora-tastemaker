@@ -560,10 +560,13 @@ Security (H1 high, H2 high, M1, L1, L2), Qloo depth (H1, H2, M1, M2, L1); the ju
 - [-] 2 judge (low): an offline minimal brief's scripted venue and city are the stand-in's sample, shown as "Simulated: no score" with the note above; live runs pick both from Qloo
 - [-] 3 judge (low): a shared `?b=` link waits for "Plan & taste-check it" by design (a link never spends someone else's budget on load); the shared bar above the form names that button
 
-## Re-audit 24 (2026-10-28, three lenses on 84c34d1: 0 critical and 0 high from Qloo depth and security; judge path pending at commit time)
+## Re-audit 24 (2026-10-28, three lenses on 84c34d1: 0 critical and 0 high from Qloo depth, security and the judge path)
 
 - [x] 1 Qloo (medium): a live call failing during `pnpm fixtures:record` left a hole the committed-recordings test would catch only after the commit, while BLOCKED said the suites ignore recordings. `scripts/record-fixtures.ts` now replays every preset from what it recorded and exits non-zero listing each unrecorded request (checked against a local fake Qloo: healthy run exit 0 with 157 responses; a 400 on the Atlanta heatmap names that request, exit 1); BLOCKED's recording step says so
 - [x] 2 Qloo (low): the quota advice reserves about 4,000 calls (benchmark cap 2,500 per `docs/benchmark.md` plus recording), so a cap near 400 at the reported 10,000 a month
 - [x] 3 Qloo (low): the flagged-pick sentence names the three ways a pick stays unswapped (no alternative left, only named in the copy, last round)
 - [-] 1 security (info): `normalizeType("constructor")` returns `Object` from a plain-object lookup; probed through extraction and audit, no crash or wrong verdict
 - [-] 2–3 security (info): the lone-surrogate scan stops at depth 64 (strict schemas reject deeper bodies); CI actions pinned by tag, read-only
+- [x] 1 judge (low, round 24 judge path on 84c34d1: 0 critical, 0 high): the trace header pluralises "call" and "surface" from the count (`Trace.tsx`, component test)
+- [-] 2 judge (low): `?preset=bogus` opens the hero silently (no state is lost; only `?b=`/`?run=` links carry a visitor's work)
+- [-] 3 judge (low): an offline minimal DTC link draws music-leaning stand-ins from the simulator's small catalog, labelled simulated (the note above covers it); live runs draw from Qloo

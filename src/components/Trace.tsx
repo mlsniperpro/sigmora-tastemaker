@@ -83,8 +83,9 @@ export function callTally(steps: readonly TraceStep[]) {
  * "76 Qloo calls (12 simulated)" when it answered only some.
  */
 export function callsLabel({ calls, simulated }: { calls: number; simulated: number }): string {
-  if (simulated === 0) return `${calls} Qloo calls`;
-  return simulated === calls ? `${calls} simulated calls` : `${calls} Qloo calls (${simulated} simulated)`;
+  const n = calls === 1 ? "call" : "calls";
+  if (simulated === 0) return `${calls} Qloo ${n}`;
+  return simulated === calls ? `${calls} simulated ${n}` : `${calls} Qloo ${n} (${simulated} simulated)`;
 }
 
 export function Trace({
@@ -120,7 +121,7 @@ export function Trace({
       <header className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2">
         <h2 className="text-sm font-semibold tracking-wide text-ink">Agent trace</h2>
         <span className="font-mono text-meta text-muted">
-          {callsLabel(tally)} · {tally.surfaces} Qloo surfaces{allSimulated ? " exercised (simulated)" : ""}
+          {callsLabel(tally)} · {tally.surfaces} Qloo {tally.surfaces === 1 ? "surface" : "surfaces"}{allSimulated ? " exercised (simulated)" : ""}
         </span>
         <button type="button" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} className="inline-flex min-h-6 items-center text-meta text-violet hover:underline">
           {collapsed ? "Show steps" : "Hide steps"}

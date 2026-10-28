@@ -391,6 +391,10 @@ describe("Trace header", () => {
     expect(callsLabel(mixed)).toBe(`${String(mixed.calls)} Qloo calls (3 simulated)`);
     expect(header(some)).not.toContain("exercised (simulated)");
   });
+  it("says call, not calls, for one", () => {
+    expect(callsLabel({ calls: 1, simulated: 1 })).toBe("1 simulated call");
+    expect(callsLabel({ calls: 1, simulated: 0 })).toBe("1 Qloo call");
+  });
 });
 
 describe("audit results on a simulated result", () => {
