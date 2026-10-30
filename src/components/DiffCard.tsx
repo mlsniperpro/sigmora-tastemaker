@@ -1,0 +1,190 @@
+"use client";
+
+import { SCRIPTED_BASELINE, formatRate, offBriefBaseline, placeholderReason } from "@/lib/agent/evidence";
+import type { Metrics, Receipt, RunResult, Served, Verdict } from "@/lib/agent/types";
+import { VERDICT_STYLE, isSimulated, receiptNote, verdictLabel } from "./Receipt";
+import { SourceBanner } from "./SourceBanner";
+import { LaunchMap, hasLaunchMap } from "./TasteMap";
+
+/** Worst first: names Qloo can't find, then the lowest affinities, then picks that are fading. */
+const SEVERITY: Partial<Record<Verdict, number>> = { hallucination: 0, miss: 1, fading: 2 };
+/** Struck through, as in the pack: the critic rejects these. Fading is a warning, so it isn't struck. */
+const STRUCK: ReadonlySet<Verdict> = new Set(["miss", "hallucination"]);
+
+/** Up to `n` of the plain model's worst picks, from the run's own receipts. */
+export function worstMisses(receipts: readonly Receipt[], n = 3): Receipt[] {
+  return receipts
+    .filter((r) => SEVERITY[r.verdict] !== undefined)
+    .sort((a, b) => (SEVERITY[a.verdict] ?? 9) - (SEVERITY[b.verdict] ?? 9) || (a.affinity ?? 0) - (b.affinity ?? 0))
+    .slice(0, n);
+}
+
+const TEXT: Record<Verdict, string> = { pass: "text-pass", miss: "text-miss", hallucination: "text-invented", fading: "text-fade", unscored: "text-muted" };
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The most the Miss Rate after the critic can be and still read as "near zero". */
+const LOW_RATE = 0.1;
+
+/**
+ * How the Miss Rate after the critic reads. Only a low rate is "low by design"; a higher one is picks the critic
+ * couldn't replace (`left`), which the card says plainly; with too few picks judged there is no rate to speak of.
+ */
+export function afterCritic(m: Pick<Metrics, "cultureMissRate" | "hallucinations" | "misses">): { kind: "low" | "left" | "unknown"; left: number } {
+  const left = m.hallucinations + m.misses;
+  if (m.cultureMissRate === null) return { kind: "unknown", left };
+  return { kind: m.cultureMissRate <= LOW_RATE ? "low" : "left", left };
+}
+
+function Side({ title, tone, active, big, bigLabel, lines }: { title: string; tone: "bad" | "good"; active: boolean; big?: string; bigLabel?: string; lines: React.ReactNode[] }) {
+  const ring = active ? (tone === "bad" ? "border-miss/70 bg-miss/5" : "border-accent/70 bg-accent/5") : "border-line bg-panel-2/40";
+  return (
+    <div aria-current={active ? "true" : undefined} className={`min-w-0 rounded-xl border p-3 transition-colors ${ring}`}>
+      <h3 className={`text-meta font-semibold ${tone === "bad" ? "text-miss" : "text-accent"}`}>
+        {title}
+        {active && <span className="ml-1.5 hidden font-normal text-muted sm:inline">· shown below</span>}
+      </h3>
+      {big !== undefined && (
+        <p className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
+          <span className={`font-mono text-3xl font-semibold leading-none ${big === "—" ? "text-muted" : tone === "bad" ? "text-miss" : "text-pass"}`}>{big}</span>
+          <span className="text-meta text-ink/85">{bigLabel}</span>
+        </p>
+      )}
+      <ul className="mt-1.5 space-y-0.5 text-meta leading-snug text-muted">
+        {lines.map((l, i) => (
+          <li key={i}>{l}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** On a placeholder run, what a side would count: desktop only, where the side has the room (on a phone the two sides share a row). */
+const WhatItCounts = ({ children }: { children: React.ReactNode }) => <span className="hidden lg:inline">{children}</span>;
+
+/**
+ * The core idea on the first screen: the same model's plan with and without
+ * Qloo, counted from this run's own receipts, with where to launch beside it on
+ * desktop. Placeholder runs (simulated Qloo or a scripted model) show no counts:
+ * the source line at the top says why, in one line.
+ */
+export function DiffCard({ result, mode, served }: { result: RunResult; mode: "qloo" | "without"; served?: Served }) {
+  const blank = placeholderReason(result);
+  const runSimulated = result.qloo.simulated > 0;
+  const noBaseline = result.baseline.unavailable;
+  const base = result.baseline.receipts;
+  const grounded = result.grounded.receipts;
+  const b = result.metrics.baseline;
+  const g = result.metrics.grounded;
+
+  const flagged = b.hallucinations + b.misses + b.fading;
+  const replaced = grounded.filter((r) => r.replaced).length;
+  const passed = grounded.filter((r) => r.verdict === "pass").length;
+  const offBrief = offBriefBaseline(result);
+  const worst = noBaseline || offBrief ? [] : worstMisses(base);
+  const replacementFor = (name: string) => grounded.find((r) => r.replaced?.name.toLowerCase() === name.toLowerCase())?.name;
+  const where = hasLaunchMap(result);
+  const after = afterCritic(g);
+
+  return (
+    <section aria-label="With and without Qloo" className="rounded-2xl border border-line bg-panel p-3 sm:p-4">
+      <h2 className="sr-only">With and without Qloo</h2>
+      <SourceBanner result={result} served={served} className="mb-3 border-b border-line pb-2" />
+      <div className={`grid gap-3 lg:items-start ${where ? "lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.5fr)_minmax(0,1fr)]" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.8fr)]"}`}>
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-1 lg:grid-rows-2 lg:gap-2 lg:self-stretch">
+          <Side
+            title="Same model, no Qloo"
+            tone="bad"
+            active={mode === "without"}
+            {...(noBaseline ? { big: "—", bigLabel: "no draft this run" } : blank ? {} : { big: String(flagged), bigLabel: `of ${plural(b.picks, "pick")} flagged` })}
+            lines={
+              noBaseline
+                ? ["The plan without Qloo isn’t available on this run."]
+                : offBrief
+                  ? ["No plan without Qloo for your own brief offline."]
+                  : blank
+                  ? [`${plural(b.picks, "pick")} audited; counts not shown.`, <WhatItCounts key="what">With live Qloo and a model, this counts the invented, low-affinity and fading picks, and the Culture Miss Rate.</WhatItCounts>]
+                  : [
+                      `${b.hallucinations} invented · ${b.misses} low-affinity · ${b.fading} fading`,
+                      <>
+                        Culture Miss Rate <span className="font-mono text-miss">{formatRate(b.cultureMissRate)}</span>
+                      </>,
+                    ]
+            }
+          />
+          <Side
+            title="With the Qloo critic"
+            tone="good"
+            active={mode === "qloo"}
+            {...(blank ? {} : { big: String(replaced), bigLabel: "replaced" })}
+            lines={
+              blank
+                ? [`${plural(g.picks, "pick")} after the critic; counts not shown.`, <WhatItCounts key="what">With live Qloo and a model, this counts the picks replaced and passing, and the Miss Rate after the critic.</WhatItCounts>]
+                : [
+                    `${passed} of ${plural(g.picks, "pick")} pass`,
+                    <>
+                      Miss Rate after the critic <span className="font-mono text-ink">{formatRate(g.cultureMissRate)}</span>
+                      {after.kind === "low" ? " (low by design)" : after.kind === "left" ? ` (${plural(after.left, "pick")} the critic couldn’t replace)` : ""}
+                    </>,
+                  ]
+            }
+          />
+        </div>
+        {worst.length > 0 && (
+          <div className="min-w-0">
+            <h3 className="text-meta font-semibold text-ink">What the plain model would have shipped</h3>
+            {result.llm.scripted && <p className="mt-0.5 text-meta leading-snug text-fade">{SCRIPTED_BASELINE}</p>}
+            <ul className="mt-1.5 space-y-2">
+              {worst.map((r) => {
+                const sim = isSimulated(r, runSimulated);
+                const v = VERDICT_STYLE[r.verdict];
+                const swap = replacementFor(r.name);
+                return (
+                  <li key={`${r.role}-${r.name}`} className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className={`rounded-full border px-2 py-0.5 text-meta font-medium ${v.cls} ${STRUCK.has(r.verdict) ? "line-through decoration-2" : ""}`}>{r.name}</span>
+                      <span className={`text-caption font-medium ${TEXT[r.verdict]}`}>{verdictLabel(r.verdict, sim)}</span>
+                      {swap && (
+                        <span className="text-meta text-muted">
+                          → <span className="text-pass">{swap}</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 text-meta leading-snug text-muted">{receiptNote(r, sim)}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+        {offBrief && (
+          <div className="min-w-0">
+            <h3 className="text-meta font-semibold text-ink">What the plain model would have shipped</h3>
+            <p className="mt-0.5 text-meta leading-snug text-muted">
+              For your own brief this needs a live model. Offline, the stand-in model only has sample plans for the three presets, so there&apos;s no plan without Qloo for this brief to show.
+            </p>
+          </div>
+        )}
+        {where && (
+          // The Taste Map further down has the full map; on desktop this puts the launch decision on the first screen.
+          <div className="hidden min-w-0 lg:block">
+            <LaunchMap result={result} />
+          </div>
+        )}
+      </div>
+      {(!blank || noBaseline) && (
+        <p className="mt-3 border-t border-line pt-2 text-meta leading-snug text-muted">
+          {!blank && (
+            <>
+              The pass bar comes from Qloo&apos;s own candidates for each role (the higher of 0.25 and 0.7 × their median affinity), and the critic replaces whatever falls below it
+              {after.kind === "low" && ", so the rate after the critic is near zero by construction"}
+              {after.kind === "left" && `. This time it couldn’t replace ${plural(after.left, "pick")}, so the rate after the critic is ${formatRate(g.cultureMissRate)}, not near zero`}. What it measures is how often the model alone misses; the blind judge in the benchmark asks
+              whether the result is actually better.
+            </>
+          )}
+          {noBaseline && <> The same-model plan without Qloo isn&apos;t available on this run ({noBaseline}), so there is nothing to compare against.</>}
+        </p>
+      )}
+    </section>
+  );
+}

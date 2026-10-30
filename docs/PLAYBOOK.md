@@ -21,7 +21,7 @@ Entrant: individual Devpost account `aladroslab` (same posture as Creator Duty)
 > architecture, Gemini-only model lock, or bonus-score tactics from the Creator
 > Duty playbook (`products/COMPETITIONS/03_ACTIVE/all-things-agentic-2026/`) —
 > the rules here are different. Sibling hackathon docs in this repo:
-> [`docs/audiotool/`](../audiotool/AUDIOTOOL-SUBMISSION.md).
+> `docs/audiotool/` (in the private platform repo).
 
 ---
 
@@ -570,7 +570,7 @@ placeholder numbers anywhere (no real data ⇒ show none).
   [Series C](https://www.adexchanger.com/ai/qloo-snags-25-million-in-series-c-funding-to-unravel-the-mystery-of-consumer-tastes/),
   [Gartner 2026](https://www.prnewswire.com/news-releases/qloo-recognized-in-the-set-diamonds-category-in-the-2026-gartner-emerging-tech-ai-to-watch-in-synthetic-popular-simulation-research-302878163.html),
   [Cedric seed](https://www.crainsnewyork.com/article/20131114/TECHNOLOGY/131119933/cedric-the-entertainer-backs-startup-qloo)
-- Internal: [autonomous agents spec](../../apps/web/docs/autonomous-agents.md),
-  [Audiotool submission](../audiotool/AUDIOTOOL-SUBMISSION.md), the
+- Internal (private platform repo, not linked here): the autonomous agents spec,
+  the Audiotool submission, the
   `sigmora-creator-duty` repo's `docs/` (spin-off template), and
   `products/COMPETITIONS/03_ACTIVE/all-things-agentic-2026/SIGMORA-TASKMASTER-WINNING-PLAYBOOK.md`

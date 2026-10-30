@@ -1,0 +1,209 @@
+/** POST /api/audit over the offline stack: validation, origin, the budget refusal path and a full offline audit. */
+import { describe, expect, it, vi } from "vitest";
+import { POST as audit } from "@/app/api/audit/route";
+import { AUDIT_CALL_ESTIMATE, AUDIT_TTL, DEGRADED_AUDIT_TTL, auditPlan, auditWithBudget, storeAudit, type AuditResult } from "@/lib/agent/audit";
+import type { GuardResult } from "@/lib/guard";
+import { AUDIT_SAMPLE, AUDIT_SAMPLE_AUDIENCE } from "@/lib/auditSample";
+import { DeterministicLLM } from "@/lib/llm/deterministic";
+import { MemoryCache } from "@/lib/qloo/cache";
+import { QlooClient } from "@/lib/qloo/client";
+import type { QlooPath } from "@/lib/qloo/params";
+import { simulate } from "@/lib/qloo/sim/simulator";
+
+let ip = 0;
+/** Each request from its own address unless one is given, so per-IP limits don't leak between tests. */
+const post = (body: unknown, headers: Record<string, string> = {}) =>
+  new Request("http://tm.example/api/audit", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forwarded-for": `10.9.0.${String(++ip)}`, host: "tm.example", ...headers },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+const sample = { text: AUDIT_SAMPLE, ...AUDIT_SAMPLE_AUDIENCE };
+const errorOf = async (res: Response) => ((await res.json()) as { error: string }).error;
+
+describe("/api/audit validation", () => {
+  it("rejects bad JSON, short or long text, a missing audience and unknown fields", async () => {
+    expect((await audit(post("{nope"))).status).toBe(400);
+    const short = await audit(post({ ...sample, text: "too short" }));
+    expect(short.status).toBe(400);
+    expect(await errorOf(short)).toMatch(/text/);
+    expect((await audit(post({ ...sample, text: "x".repeat(4001) }))).status).toBe(400);
+    expect((await audit(post({ ...sample, seeds: [] }))).status).toBe(400);
+    expect((await audit(post({ ...sample, ages: ["teens"] }))).status).toBe(400);
+    expect((await audit(post({ ...sample, picks: [] }))).status).toBe(400);
+  });
+
+  it("refuses a cross-site browser request", async () => {
+    const res = await audit(post(sample, { origin: "https://evil.example" }));
+    expect(res.status).toBe(403);
+  });
+
+  it("says so when none of the audience's names resolve", async () => {
+    const res = await audit(post({ ...sample, seeds: ["Qqqzzz Unknown"] }));
+    expect(res.status).toBe(422);
+    expect(await errorOf(res)).toMatch(/audience's names/);
+  });
+});
+
+describe("/api/audit budget", () => {
+  it("is refused up front, before any Qloo call, when today's live budget can't cover it, and a refusal doesn't count toward the rate limit", async () => {
+    vi.stubEnv("QLOO_API_KEY", "k");
+    vi.stubEnv("QLOO_DAILY_CALL_CAP", "0");
+    vi.stubEnv("RATE_LIMIT_PER_MINUTE", "1");
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-10-25T13:00:10Z") });
+    try {
+      const fetchSpy = vi.fn(() => Promise.reject(new Error("no network in this test")));
+      vi.stubGlobal("fetch", fetchSpy);
+      const from = { "x-forwarded-for": "10.8.0.1" };
+      for (let i = 0; i < 2; i++) {
+        const spent = await audit(post(sample, from));
+        expect(spent.status).toBe(503);
+        expect(spent.headers.get("retry-after")).toBe("3600");
+        expect(await errorOf(spent)).toMatch(/Qloo budget/);
+      }
+      expect(fetchSpy).not.toHaveBeenCalled();
+      // With budget, a live audit is a paid request: the same network's next one inside the minute is rate-limited, before any Qloo call.
+      // Room for two audits from one network (the first one's failed calls are spent), so the second meets the per-minute limit.
+      vi.stubEnv("QLOO_DAILY_CALL_CAP", "960");
+      vi.stubEnv("QLOO_IP_DAILY_CALLS", "240");
+      await audit(post(sample, from));
+      const calls = fetchSpy.mock.calls.length;
+      const limited = await audit(post(sample, from));
+      expect(limited.status).toBe(429);
+      expect(fetchSpy.mock.calls.length).toBe(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("/api/audit offline", () => {
+  it("audits the sample plan end to end, labelled as simulated, with Qloo-style receipts and suggestions", async () => {
+    const res = await audit(post(sample));
+    expect(res.status).toBe(200);
+    const r = (await res.json()) as AuditResult;
+    expect(r.simulated).toBe(true);
+    expect(r.sources).toContain("simulated");
+    expect(r.extraction.by).toBe("scanner");
+    const verdict = (name: string) => r.receipts.find((x) => x.name === name)?.verdict;
+    // The invented names on labelled lines come back not found; the rest are judged.
+    expect(verdict("Kemi Adebayo-Rhodes")).toBe("hallucination");
+    expect(verdict("The Highlife Hour")).toBe("hallucination");
+    expect(verdict("Ayra Starr")).toBe("pass");
+    expect(r.receipts.length).toBeGreaterThanOrEqual(12);
+    expect(r.receipts.length).toBeLessThanOrEqual(15);
+    expect(r.metrics.picks).toBe(r.receipts.length);
+    // Suggestions on simulated data name no placeholder score.
+    expect(r.suggestions.length).toBeGreaterThan(0);
+    for (const s of r.suggestions) expect(s.reason).not.toMatch(/\d\.\d\d|Qloo-preferred/);
+  });
+
+  it("stays within the calls it reserves on a worst-case plan, live wire format", async () => {
+    // Many invented names (two searches each), prose names, five seeds and six named cities ranked among the US metros.
+    const text = [
+      "Plan",
+      "- Collab targets: Qorvax Blee, Zintar Mullo, Pexo Drane",
+      "- Brand partners: Vlorbo Cola, Snizzle Wear",
+      "- References: Glimmerfall Saga, Throbnar Nights, The Wexley Files",
+      "- Podcast pitch: Mumbo Pod Hour",
+      "- Presenter: Kalvo Pretz",
+      "- Venue: Xantu Hall",
+      "- Films: Zebulon Rising",
+      "- Launch city: Lagos, Nairobi, Accra, Kampala, Kigali, Dakar",
+      "We will tour with Wizkid and Davido, hit Love Island USA, partner with Sephora and Adidas, then pop up with Doja Cat and SZA and Drake and Kendrick Lamar and Olivia Rodrigo.",
+    ].join("\n");
+    let sent = 0;
+    const fetchImpl = (async (u: string | URL) => {
+      sent++;
+      const url = new URL(String(u));
+      const params: Record<string, string> = {};
+      url.searchParams.forEach((v, k) => (params[k] = v));
+      return Response.json(simulate(url.pathname as QlooPath, params));
+    }) as typeof fetch;
+    const qloo = new QlooClient({ mode: "live", apiKey: "k", fixtures: {}, cache: new MemoryCache(), fetchImpl, runCallCap: 1000 });
+    const r = await auditPlan({ text, seeds: ["Asake", "Olamide", "Fireboy DML", "Omah Lay", "Kizz Daniel"], ages: ["25_to_29"] }, { qloo, llm: new DeterministicLLM() });
+    expect(r.receipts.length).toBeGreaterThan(10);
+    expect(sent).toBeLessThanOrEqual(AUDIT_CALL_ESTIMATE);
+  });
+
+  it("stays within the calls it reserves", async () => {
+    const qloo = new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+    let calls = 0;
+    qloo.observe(() => calls++);
+    const r = await auditPlan(sample, { qloo, llm: new DeterministicLLM() });
+    expect(r.receipts.length).toBeGreaterThan(0);
+    expect(calls).toBeLessThanOrEqual(AUDIT_CALL_ESTIMATE);
+  });
+
+  it("serves an identical audit from cache, labelled, before any budget is reserved", async () => {
+    const unique = { ...sample, text: `${sample.text}\nCache check: a sentence only this test sends.` };
+    const first = (await (await audit(post(unique))).json()) as AuditResult;
+    expect(first.cached).toBeUndefined();
+    const reserve = vi.spyOn(QlooClient.prototype, "reserve");
+    const again = (await (await audit(post({ ...unique, text: `  ${unique.text.replace(/ /g, "   ")}  ` }))).json()) as AuditResult;
+    expect(again.cached).toBe(true);
+    expect(again.receipts).toEqual(first.receipts);
+    expect(reserve).not.toHaveBeenCalled();
+  });
+
+  it("runs concurrent identical audits once (single flight)", async () => {
+    const unique = { ...sample, text: `${sample.text}\nSingle-flight check: a sentence only this test sends.` };
+    const rs = await Promise.all([1, 2, 3].map(async () => (await (await audit(post(unique))).json()) as AuditResult));
+    expect(rs.filter((r) => r.cached === true)).toHaveLength(2);
+    expect(new Set(rs.map((r) => JSON.stringify(r.receipts))).size).toBe(1);
+  });
+
+  it("gives the admission back on an unresolvable audience only when no model call was paid for", async () => {
+    const noSeed = { ...sample, seeds: ["Zzqx Nonexistent"], text: `${sample.text}\nRefund check.` };
+    const simulatedQloo = () => new QlooClient({ cache: new MemoryCache(), fixtures: {} });
+    const gate = vi.fn(async (): Promise<GuardResult> => ({ ok: true }));
+    // A live model listed the names before the audience failed to resolve: that call was paid for, so it counts.
+    const refund = vi.fn(async () => undefined);
+    const liveModel = Object.assign(new DeterministicLLM(), { scripted: false, id: "paid-model" });
+    await expect(auditWithBudget(noSeed, { qloo: simulatedQloo(), llm: liveModel, cache: new MemoryCache(), ip: "10.9.0.1", gate, refund })).rejects.toMatchObject({ name: "NoSeedError" });
+    expect(gate).toHaveBeenCalledTimes(1);
+    expect(refund).not.toHaveBeenCalled();
+    // Live Qloo with the scripted model: nothing was paid for, so the request doesn't count.
+    const liveQloo = new QlooClient({ cache: new MemoryCache(), fixtures: {}, apiKey: "k", mode: "live", fetchImpl: async (u: string | URL | Request) => {
+        const url = new URL(u instanceof Request ? u.url : u);
+        return Response.json(simulate(url.pathname as QlooPath, Object.fromEntries(url.searchParams)));
+      },
+    });
+    await expect(auditWithBudget(noSeed, { qloo: liveQloo, llm: new DeterministicLLM(), cache: new MemoryCache(), ip: "10.9.0.2", gate, refund })).rejects.toMatchObject({ name: "NoSeedError" });
+    expect(refund).toHaveBeenCalledTimes(1);
+  });
+
+  it("after a leader refused for its own network, one waiter leads a new audit and the rest share it", async () => {
+    const unique = { ...sample, text: `${sample.text}\nRe-election check: a sentence only this test sends.` };
+    let n = 0;
+    const gate = vi.fn(async (): Promise<GuardResult> => (++n === 1 ? { ok: false, status: 429, message: "Your network has used today's share", retryAfter: 60 } : { ok: true }));
+    const deps = { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: Object.assign(new DeterministicLLM(), { scripted: false, id: "paid-model-2" }), cache: new MemoryCache(), ip: "10.9.0.3", gate };
+    const outs = await Promise.all([1, 2, 3, 4].map(() => auditWithBudget(unique, deps)));
+    expect(outs.map((o) => o.ok)).toEqual([false, true, true, true]);
+    // The leader's refusal plus exactly one new admission: the other waiters joined it.
+    expect(gate).toHaveBeenCalledTimes(2);
+    expect(outs.filter((o) => o.ok && o.result.cached === true)).toHaveLength(2);
+  });
+
+  it("keeps a partial audit only briefly", async () => {
+    const ttls: number[] = [];
+    const cache = { get: () => Promise.resolve(undefined), set: (_k: string, _v: unknown, ttl: number) => (ttls.push(ttl), Promise.resolve()) };
+    const r = await auditPlan(sample, { qloo: new QlooClient({ cache: new MemoryCache(), fixtures: {} }), llm: new DeterministicLLM() });
+    await storeAudit(cache, "k", r, "simulated");
+    await storeAudit(cache, "k", { ...r, warnings: ["trend check failed"] }, "simulated");
+    await storeAudit(cache, "k", { ...r, extraction: { ...r.extraction, failedSearches: 2 } }, "simulated");
+    await storeAudit(cache, "k", r, "live");
+    expect(ttls).toEqual([AUDIT_TTL, DEGRADED_AUDIT_TTL, DEGRADED_AUDIT_TTL, DEGRADED_AUDIT_TTL]);
+    // A lookup answered by a 404, or a free keyless audit, is kept only briefly too (audit 10).
+    await storeAudit(cache, "k", r, "simulated", { brief: true });
+    expect(ttls.at(-1)).toBe(DEGRADED_AUDIT_TTL);
+  });
+
+  it("returns an empty audit, without a Qloo check, when the text names nothing", async () => {
+    const res = await audit(post({ ...sample, text: "we will post every day and grow the audience organically over time" }));
+    expect(res.status).toBe(200);
+    const r = (await res.json()) as AuditResult;
+    expect(r.receipts).toEqual([]);
+    expect(r.metrics.picks).toBe(0);
+  });
+});

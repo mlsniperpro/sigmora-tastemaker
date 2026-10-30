@@ -1,0 +1,19 @@
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { formatZodIssues } from "@/lib/zod";
+import { must } from "../must";
+
+describe("formatZodIssues", () => {
+  const S = z.object({ a: z.object({ b: z.number() }), c: z.string().min(2) });
+  it("names each failing path, never the offending value", () => {
+    const err = must(S.safeParse({ a: { b: "secret-value" }, c: "x" }).error);
+    const text = formatZodIssues(err);
+    expect(text).toMatch(/^a\.b: .+; c: .+$/);
+    expect(text).not.toContain("secret-value");
+  });
+  it("labels root errors and caps the count", () => {
+    expect(formatZodIssues(must(S.safeParse(null).error), { root: "body" })).toMatch(/^body: /);
+    const many = must(z.array(z.number()).safeParse(["a", "b", "c", "d"]).error);
+    expect(formatZodIssues(many, { max: 2 }).split("; ")).toHaveLength(2);
+  });
+});

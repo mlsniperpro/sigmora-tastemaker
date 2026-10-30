@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+/*
+ * Brand tokens: the single place for colour and type. Components use only the
+ * utilities generated from these (bg-panel, text-muted, text-caption, …), so
+ * swapping in Sigmora's packages/brand values is a change to this block.
+ * Keep --bg in sync with `themeColor` in src/app/layout.tsx.
+ */
+:root {
+  --bg: #0b0b10;
+  --panel: #13131b;
+  --panel-2: #1a1a25;
+  --line: #2a2a3a;
+  --ink: #ecebf4;
+  --muted: #9a99ad;
+  --accent: #b9f227;
+  --accent-ink: #10130a;
+  --violet: #8f7bff;
+  --pass: #3ddc97;
+  --miss: #ff6b6b;
+  --fade: #ffb547;
+  --invented: #ff4fa3;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-violet: var(--violet);
+  --color-pass: var(--pass);
+  --color-miss: var(--miss);
+  --color-fade: var(--fade);
+  --color-invented: var(--invented);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale for dense UI text. Nothing on the page is smaller than 12px (e2e/judge-path.spec.ts checks it at 390 px):
+     caption is for eyebrows, legends and ids, set apart by weight, case or colour rather than by size. */
+  --text-caption: 12px;
+  --text-meta: 12px;
+  --text-body-sm: 12.5px;
+  --text-body: 13px;
+  --text-lead: 14px;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+body {
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
