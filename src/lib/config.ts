@@ -48,6 +48,8 @@ export const EnvSchema = z.object({
   LLM_API_KEY: optional,
   LLM_BASE_URL: secureUrl,
   LLM_TIMEOUT_MS: int(25000, 1000, 120000),
+  /** Anthropic only: `output_config.effort`. Current Claude models think by default; "low" keeps each call fast. Unset sends none (the model's default). */
+  LLM_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 
   /** Benchmark judge model; each unset value falls back to the LLM_* setting. */
   JUDGE_PROVIDER: optional,

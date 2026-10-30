@@ -10,6 +10,7 @@ interface ModelEnv {
   apiKey?: string;
   baseUrl?: string;
   timeoutMs: number;
+  effort?: Env["LLM_EFFORT"];
 }
 
 /**
@@ -21,10 +22,10 @@ export function chatFromModelEnv(m: ModelEnv): ChatClient | undefined {
   const provider = (m.provider ?? "").toLowerCase();
   if (!m.apiKey || !m.model || provider === "" || provider === "deterministic") return undefined;
   const format: WireFormat = provider === "anthropic" ? "anthropic" : "openai";
-  return new HttpChat({ format, model: m.model, apiKey: m.apiKey, baseUrl: m.baseUrl, timeoutMs: m.timeoutMs });
+  return new HttpChat({ format, model: m.model, apiKey: m.apiKey, baseUrl: m.baseUrl, timeoutMs: m.timeoutMs, effort: m.effort });
 }
 
-const campaignModel = (env: Env): ModelEnv => ({ provider: env.LLM_PROVIDER, model: env.LLM_MODEL, apiKey: env.LLM_API_KEY, baseUrl: env.LLM_BASE_URL, timeoutMs: env.LLM_TIMEOUT_MS });
+const campaignModel = (env: Env): ModelEnv => ({ provider: env.LLM_PROVIDER, model: env.LLM_MODEL, apiKey: env.LLM_API_KEY, baseUrl: env.LLM_BASE_URL, timeoutMs: env.LLM_TIMEOUT_MS, effort: env.LLM_EFFORT });
 
 /** LLM_PROVIDER / LLM_MODEL / LLM_API_KEY / LLM_BASE_URL; not fully set → the scripted offline model. */
 export function llmFromEnv(raw: Record<string, string | undefined> = process.env): LLMProvider {

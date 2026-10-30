@@ -28,6 +28,8 @@ export interface HttpChatOptions {
   /** Ask OpenAI-compatible hosts for a JSON object (dropped if the host rejects it). */
   json?: boolean;
   maxTokens?: number;
+  /** Anthropic `output_config.effort`; omitted when unset. */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
 }
 
 const SERVICE = "LLM";
@@ -72,7 +74,9 @@ export class HttpChat implements ChatClient {
     const url = joinUrl(this.o.baseUrl ?? "https://api.anthropic.com", "/v1/messages");
     const res = await this.post(url, { "x-api-key": this.o.apiKey, "anthropic-version": "2023-06-01" }, {
       model: this.o.model,
-      max_tokens: this.o.maxTokens ?? 2000,
+      // Current Claude models think by default and thinking counts against max_tokens, so leave room past the answer.
+      max_tokens: this.o.maxTokens ?? 8000,
+      ...(this.o.effort ? { output_config: { effort: this.o.effort } } : {}),
       system,
       messages: [{ role: "user", content: user }],
     });

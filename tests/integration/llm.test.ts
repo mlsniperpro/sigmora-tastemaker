@@ -174,6 +174,17 @@ describe("LiveLLM (Anthropic Messages)", () => {
     expect((init.headers as Record<string, string>)["x-api-key"]).toBe("k");
     expect((init.headers as Record<string, string>)["anthropic-version"]).toBe("2023-06-01");
   });
+  it("sends LLM_EFFORT as output_config.effort, with room for thinking under max_tokens", async () => {
+    const body = async (effort?: "low") => {
+      const f = vi.fn(async () => Response.json({ content: [{ type: "thinking", thinking: "" }, { type: "text", text: JSON.stringify(draft) }] }));
+      await live(f, "anthropic", effort ? { effort } : {}).draft({ brief });
+      const [, init] = f.mock.calls[0] as unknown as [string, { body: string }];
+      return JSON.parse(init.body) as Record<string, unknown>;
+    };
+    expect(await body("low")).toMatchObject({ max_tokens: 8000, output_config: { effort: "low" } });
+    expect(await body()).not.toHaveProperty("output_config");
+    expect(llmFromEnv({ LLM_PROVIDER: "anthropic", LLM_MODEL: "m", LLM_API_KEY: "k", LLM_EFFORT: "low" }).id).toBe("anthropic:m");
+  });
   it("rejects a reply in the wrong shape", async () => {
     await expect(live(async () => Response.json({ unexpected: true }), "anthropic").draft({ brief })).rejects.toThrow();
   });
