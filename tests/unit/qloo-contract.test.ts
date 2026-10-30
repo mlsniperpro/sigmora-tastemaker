@@ -131,6 +131,16 @@ describe("documented payloads parse", () => {
     expect(InsightsResponse.safeParse({ results: { heatmap: [{ location: { latitude: 1, longitude: 2 }, query: { affinity: null } }] } }).success).toBe(true);
     expect(CompareResponse.safeParse({ results: [{ name: "x", query: { a: { affinity: null }, b: null } }] }).success).toBe(true);
   });
+  it("a tag with no name (seen live on entity tags) is dropped on its own, not failing the whole reply", () => {
+    const r = InsightsResponse.parse({
+      results: {
+        entities: [{ entity_id: "e1", name: "N", tags: [{ id: "urn:tag:a", name: "a" }, { id: "urn:tag:b" }] }],
+        tags: [{ id: "urn:tag:c" }, { name: "d" }],
+      },
+    });
+    expect(r.results.entities?.[0]?.tags?.map((t) => t.name)).toEqual(["a"]);
+    expect(r.results.tags?.map((t) => t.name)).toEqual(["d"]);
+  });
 });
 
 describe("explainabilityOf", () => {

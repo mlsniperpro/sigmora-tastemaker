@@ -85,6 +85,15 @@ export function explainabilityOf(raw: unknown): { drivers: ExplainabilityDriver[
 /** An optional field a live reply may also send as null: read as absent, so one null can't fail a whole reply. */
 const absent = <T extends z.ZodType>(t: T) => t.nullish().transform((v) => v ?? undefined).optional();
 
+/** A list whose malformed items are dropped one by one, so one odd item (a live tag with no name) can't fail a whole reply. */
+const each = <T extends z.ZodType>(t: T) =>
+  z.array(z.unknown()).transform((items) =>
+    items.flatMap((item) => {
+      const r = t.safeParse(item);
+      return r.success ? [r.data] : [];
+    }),
+  );
+
 export const Tag = z
   .object({
     id: absent(z.string()),
@@ -128,7 +137,7 @@ export const Entity = z
       .nullish()
       .transform((v) => (v ? latLon(v) : undefined))
       .optional(),
-    tags: absent(z.array(Tag)),
+    tags: absent(each(Tag)),
     external: absent(z.record(z.string(), z.unknown())),
     query: absent(EntityQuery),
   })
@@ -184,7 +193,7 @@ export const InsightsResponse = z
     results: z
       .object({
         entities: absent(z.array(Entity)),
-        tags: absent(z.array(Tag)),
+        tags: absent(each(Tag)),
         demographics: absent(z.array(DemographicsRow)),
         heatmap: absent(z.array(HeatmapCell)),
       })
