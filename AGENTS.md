@@ -31,6 +31,7 @@
 - **Sigmora:** call it only through HTTPS `/v1` with a bearer token from env that the model never sees (sandbox publisher by default). **Nothing in this repo may import private Sigmora code.** The "wired into an agent we already have" items in playbook §5 live in the private `sigmora-platform` repo and are **out of scope here**.
 - **Model-swappable:** provider and model from env; never pin a vendor.
 - **Every number in the README, benchmark or submission comes from a script in this repo.**
+- **GitHub Actions is for deployment only** (fleet contract: `algocracked/docs/SCHEDULING.md`). Never add a CI, test, lint, eval or scheduled workflow, not even a manual-only one, and never a `dependabot.yml`. Run the tests locally before you push. Tests that must block a release run inside the deploy job. Scheduled work goes to a Cloudflare Workers cron.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
