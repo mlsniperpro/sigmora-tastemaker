@@ -102,7 +102,7 @@ nextjs, react, typescript, tailwindcss, zod, maplibre-gl, qloo, vitest, fast-che
 
 ## Try it out (links)
 
-- Live demo: [URL]
+- Live demo: https://tastemaker.sigmora.org
 - Repo (MIT): https://github.com/mlsniperpro/sigmora-tastemaker
 - Video: [URL]
 - Three one-click presets: indie single launch, DTC brand entering Atlanta, football club growing a US fan market.
